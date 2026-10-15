@@ -435,4 +435,37 @@ it is resolved.
   `storage_version` is `StoreError::Corrupt`, never migrated over.
   (f) New `StoreError` variants: `Backend { message }` (driver failure) and `Corrupt`.
 - Resolve by: human review
+- Resolution: resolved in T2.2 by the human. (a), (b), (c), (e) and (f) accepted as
+  implemented. (d): `EngineConfig::auto_migrate` and `Engine::migrate()` are removed;
+  migration lives only on the store (`SqliteConfig::auto_migrate`, `SqliteStore::migrate`).
+  `06` §1 and `05` §4.1 updated
+
+## OQ-026 — Write-path details decided in T2.2
+- Raised in: T2.2 (`docs/05-storage.md` §2, §5, §5.1, §10; `docs/06-api.md` §1)
+- Blocking: no
+- Current choice:
+  (a) `warden_core::write::write` runs steps 3–6 inside `SAVEPOINT warden_write` and rolls
+  back to it on error. The spec only said a failed native write rolls back; for `write_in`
+  the caller owns the transaction, and without the savepoint an `AlreadyExists` on the
+  third op would leave a revision row and two ops behind for a caller that commits anyway.
+  (b) Same-file verification is a new `SqlStore::check_same_database(&mut dyn WriteTxn)`
+  method: `Engine::write_in` is generic over the transaction type, so only the store knows
+  how to ask (SQLite: `PRAGMA database_list` through the transaction, compared with the
+  store's canonicalised file). Rust checks on every call; the Python per-connection cache of
+  §10 stays a `warden-py` optimisation.
+  (c) New `StoreError::Conflict { message }` + `StoreError::is_retryable()` for
+  `SQLITE_BUSY_SNAPSHOT` (lost lock upgrade) and `SQLITE_BUSY`/`SQLITE_LOCKED`. Verified:
+  a deferred transaction that ran a `MustNotExist` precondition, then saw another connection
+  commit the conflicting tuple, fails with `SQLITE_BUSY_SNAPSHOT` at the revision `INSERT`;
+  no busy wait, never a successful write.
+  (d) `SqliteTxn::new` takes `&rusqlite::Transaction`, not a bare connection, so a Rust
+  foreign write is always inside a caller transaction (the Python autocommit guard of §10
+  has no Rust counterpart to need). `warden-store-sqlite` re-exports `rusqlite`.
+  (e) SQLite placeholders are plain `?` (as `05` §2 says), never reused, so the same text
+  works with Python's qmark style. `committed_at` is computed in Rust, not by SQL, to stay
+  portable. GC deletes in one statement until T2.6 adds batching.
+  (f) Rolled-back revisions are reused (AUTOINCREMENT's counter rolls back with the
+  transaction); `06` §1 documents that such a revision is void. `warden_revisions`'s
+  "never reuse ids" comment holds only for committed revisions.
+- Resolve by: human review
 - Resolution: (fill in)

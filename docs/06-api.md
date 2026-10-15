@@ -21,7 +21,7 @@ impl<S: WritableStore> Engine<S> {
     // ---- writes ----
     pub fn write(&self, req: WriteRequest) -> Result<Revision, Error>;
     pub fn write_in<T: WriteTxn>(&self, txn: &mut T, req: WriteRequest) -> Result<Revision, Error>
-        where S: SqlStore;                                   // SQL stores only (05 §2)
+        where S: SqlStore;                                   // SQL stores only (05 §2, §10)
     pub fn delete_relationships(&self, filter: RelationshipFilter) -> Result<DeleteResult, Error>;
 
     // ---- reads ----
@@ -33,7 +33,6 @@ impl<S: WritableStore> Engine<S> {
     pub fn head_revision(&self) -> Result<Revision, Error>;
 
     // ---- maintenance ----
-    pub fn migrate(&self) -> Result<(), Error>;
     pub fn gc(&self, keep_from: Revision) -> Result<GcStats, Error>;
 }
 
@@ -45,9 +44,14 @@ pub struct EngineConfig {
     pub max_lookup_nodes: usize,        // 200_000
     pub max_check_fanout: usize,        // 100_000
     pub max_check_reads: u64,           // 200_000 (04 §3.6)
-    pub auto_migrate: bool,             // true
 }
 ```
+
+Migrations are a store concern, not an engine one (OQ-025 (d)): the store is opened, and its
+storage version checked, before any engine exists. SQLite: `SqliteConfig::auto_migrate`
+(default `true`) is read by `SqliteStore::open`; the explicit deploy step is
+`SqliteStore::migrate(path, &config)` (`05` §4.1). There is no `Engine::migrate` and no
+`EngineConfig::auto_migrate`.
 
 Supporting types (defined in T1.2):
 
@@ -110,6 +114,25 @@ permissions) and subject relations the schema defines, else `InvalidRequest` (OQ
 `write_schema` with the same hash as the current schema is a no-op (`05` §7); the orphan
 check arrives in T2.6.
 
+`write_in` (T2.2) runs the same checks and the same store write algorithm (`05` §5) inside a
+transaction the caller owns, after verifying it is on the store's database
+(`SqlStore::check_same_database`, else `ForeignConnectionMismatch`). It never commits or
+rolls back, and changes no engine or store state in memory. The returned revision exists
+only once the caller commits: until then reads at it fail with `RevisionNotYetAvailable`,
+and **if the caller rolls back, the revision is void** — the next write may be given the
+same number, so never keep a revision from a rolled-back transaction. On error the batch's
+own statements are undone to a savepoint, but the caller should roll back anyway. With
+SQLite, wrap the caller's transaction in `SqliteTxn` and open it with `BEGIN IMMEDIATE`: a
+deferred transaction that read before another connection committed cannot take the write
+lock, and the write fails with the retryable `StoreError::Conflict` (`05` §5.1):
+
+```rust
+let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+tx.execute("INSERT INTO documents (id) VALUES (?1)", ["readme"])?;
+let rev = engine.write_in(&mut SqliteTxn::new(&tx), req)?;
+tx.commit()?;                       // only now is `rev` real
+```
+
 Ergonomic helpers (thin wrappers, all tested):
 
 ```rust
@@ -163,7 +186,8 @@ Every variant has a stable machine code (`Error::code() -> &'static str`, e.g.
 `NO_SCHEMA`, `INVALID_RELATIONSHIP`, `INVALID_REQUEST`, `DUPLICATE_IN_BATCH`,
 `ALREADY_EXISTS`, `PRECONDITION_FAILED`, `BATCH_TOO_LARGE`, `REVISION_NOT_YET_AVAILABLE`,
 `REVISION_EXPIRED`, `STORE_ERROR`, `MAX_DEPTH_EXCEEDED`, `NON_MONOTONIC_CYCLE`,
-`FANOUT_EXCEEDED`, `CHECK_READS_EXCEEDED`, `STALE_RELATIONSHIP`; variants added later use their name in SCREAMING_SNAKE
+`FANOUT_EXCEEDED`, `CHECK_READS_EXCEEDED`, `STALE_RELATIONSHIP`, `NOT_MIGRATED`,
+`STORAGE_VERSION_TOO_NEW`, `FOREIGN_CONNECTION_MISMATCH`; variants added later use their name in SCREAMING_SNAKE
 case.
 
 ---

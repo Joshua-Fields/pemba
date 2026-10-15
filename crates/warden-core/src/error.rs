@@ -121,6 +121,10 @@ pub enum Error {
         /// The newest storage version this library knows.
         supported: u32,
     },
+    /// A caller-supplied transaction is on a different database than the engine's store,
+    /// so a write through it would be invisible to the engine (`docs/05-storage.md` §10).
+    #[error("the transaction's connection is not on the engine's database")]
+    ForeignConnectionMismatch,
     /// The store failed.
     #[error(transparent)]
     Store(#[from] StoreError),
@@ -147,6 +151,7 @@ impl Error {
             Self::StaleRelationship { .. } => "STALE_RELATIONSHIP",
             Self::NotMigrated => "NOT_MIGRATED",
             Self::StorageVersionTooNew { .. } => "STORAGE_VERSION_TOO_NEW",
+            Self::ForeignConnectionMismatch => "FOREIGN_CONNECTION_MISMATCH",
             Self::Store(_) => "STORE_ERROR",
         }
     }

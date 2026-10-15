@@ -654,3 +654,138 @@ pub fn case_with(mode: SubSides) -> impl Strategy<Value = Case> {
             queries,
         })
 }
+
+// ---- store op sequences (property 5) ----
+
+/// Resource types, relations and subjects of [`store_ops`] tuples: no schema, since stores
+/// do not validate, but every kind of subject (object, wildcard, subject set) and ids that
+/// sort differently byte-wise than by eye (`B` before `a`).
+const STORE_RESOURCE_TYPES: [&str; 2] = ["doc", "folder"];
+const STORE_RESOURCE_IDS: [&str; 2] = ["a", "B"];
+const STORE_RELATIONS: [&str; 2] = ["viewer", "parent"];
+const STORE_SUBJECTS: [&str; 5] = [
+    "user:Y",
+    "user:*",
+    "group:g#member",
+    "group:g#admin",
+    "folder:a",
+];
+
+/// One step of a store op sequence.
+#[derive(Clone, Debug)]
+pub enum StoreOp {
+    /// `WritableStore::write`.
+    Write(warden_core::model::WriteRequest),
+    /// `WritableStore::write_schema` with a source and hash made from the number.
+    Schema(u8),
+    /// `WritableStore::gc` at [`StoreOp::gc_revision`]: never above head, and at head
+    /// half the time so that recent deletes are collected.
+    Gc(u8),
+}
+
+impl StoreOp {
+    /// The `keep_from` a [`StoreOp::Gc`] uses with the store at `head`.
+    pub fn gc_revision(
+        fraction: u8,
+        head: warden_core::model::Revision,
+    ) -> warden_core::model::Revision {
+        let f = u64::from(fraction).saturating_mul(2).min(255);
+        warden_core::model::Revision(head.0 * f / 255)
+    }
+}
+
+/// Every relationship [`store_ops`] can mention.
+pub fn store_tuples() -> Vec<Relationship> {
+    let mut out = Vec::new();
+    for t in STORE_RESOURCE_TYPES {
+        for id in STORE_RESOURCE_IDS {
+            for r in STORE_RELATIONS {
+                for s in STORE_SUBJECTS {
+                    if let Ok(rel) = format!("{t}:{id}#{r}@{s}").parse() {
+                        out.push(rel);
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
+fn store_filter() -> impl Strategy<Value = warden_core::model::RelationshipFilter> {
+    let pick = |n: usize| prop::option::of(0..n);
+    (
+        0..STORE_RESOURCE_TYPES.len(),
+        pick(STORE_RESOURCE_IDS.len()),
+        pick(STORE_RELATIONS.len()),
+        pick(STORE_SUBJECTS.len()),
+        pick(STORE_SUBJECTS.len()),
+        prop::option::of(0..3usize),
+    )
+        .prop_filter_map("names always parse", |(t, id, rel, st, sid, srel)| {
+            let subject = |i: usize| STORE_SUBJECTS[i].split_once(':');
+            Some(warden_core::model::RelationshipFilter {
+                resource_type: STORE_RESOURCE_TYPES[t].parse().ok()?,
+                resource_id: id.map(|i| STORE_RESOURCE_IDS[i].parse()).transpose().ok()?,
+                relation: rel.map(|i| STORE_RELATIONS[i].parse()).transpose().ok()?,
+                subject_type: st
+                    .and_then(subject)
+                    .map(|(t, _)| t.parse())
+                    .transpose()
+                    .ok()?,
+                subject_id: sid
+                    .and_then(subject)
+                    .map(|(_, id)| id.split('#').next().unwrap_or(id).to_owned()),
+                subject_relation: srel.map(|i| match i {
+                    0 => None,
+                    1 => "member".parse().ok(),
+                    _ => "admin".parse().ok(),
+                }),
+            })
+        })
+}
+
+fn store_write() -> impl Strategy<Value = warden_core::model::WriteRequest> {
+    use warden_core::model::{Precondition, WriteOp, WriteRequest};
+    let n = store_tuples().len();
+    // Weighted towards deletes so that GC finds deleted rows to remove.
+    let op = (0u8..5, 0..n);
+    let pre = (any::<bool>(), store_filter()).prop_map(|(must_exist, f)| {
+        if must_exist {
+            Precondition::MustExist(f)
+        } else {
+            Precondition::MustNotExist(f)
+        }
+    });
+    (
+        prop::collection::vec(op, 0..=6),
+        prop::option::weighted(0.3, pre).prop_map(|p| p.into_iter().collect::<Vec<_>>()),
+    )
+        .prop_map(|(ops, preconditions)| {
+            let tuples = store_tuples();
+            WriteRequest {
+                ops: ops
+                    .into_iter()
+                    .map(|(kind, i)| {
+                        let r = tuples[i].clone();
+                        match kind {
+                            0 => WriteOp::Create(r),
+                            1 | 2 => WriteOp::Touch(r),
+                            _ => WriteOp::Delete(r),
+                        }
+                    })
+                    .collect(),
+                preconditions,
+            }
+        })
+}
+
+/// 1–16 store operations: mostly write batches (creates, touches, deletes, preconditions,
+/// sometimes duplicates or conflicts), with the odd schema write and GC.
+pub fn store_ops() -> impl Strategy<Value = Vec<StoreOp>> {
+    let op = prop_oneof![
+        12 => store_write().prop_map(StoreOp::Write),
+        1 => any::<u8>().prop_map(StoreOp::Schema),
+        3 => any::<u8>().prop_map(StoreOp::Gc),
+    ];
+    prop::collection::vec(op, 1..=16)
+}

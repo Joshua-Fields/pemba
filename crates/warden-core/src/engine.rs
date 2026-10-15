@@ -15,7 +15,7 @@ use crate::eval::{
 use crate::model::{
     Consistency, Precondition, Relationship, RelationshipFilter, Revision, SubjectRef, WriteRequest,
 };
-use crate::store::{StoreError, WritableStore};
+use crate::store::{SqlStore, StoreError, WritableStore, WriteTxn};
 use crate::validate::{validate_filter, validate_ops};
 
 /// Limits and switches (`docs/02-data-model.md` §7). `Default` gives the spec defaults.
@@ -36,8 +36,6 @@ pub struct EngineConfig {
     /// Maximum store reads one `check` (or `check_bulk` item) may make before erroring:
     /// a fail-closed backstop on total work (`docs/04-evaluation.md` §3.6).
     pub max_check_reads: u64,
-    /// Run storage migrations when the engine is built.
-    pub auto_migrate: bool,
 }
 
 impl Default for EngineConfig {
@@ -50,7 +48,6 @@ impl Default for EngineConfig {
             max_lookup_nodes: 200_000,
             max_check_fanout: 100_000,
             max_check_reads: 200_000,
-            auto_migrate: true,
         }
     }
 }
@@ -262,6 +259,62 @@ impl<S: WritableStore> Engine<S> {
             preconditions = req.preconditions.len()
         )
         .entered();
+        let rev = self.validated(&req, |req| self.store.write(req))?;
+        tracing::debug!(revision = rev.0, "batch committed");
+        Ok(rev)
+    }
+
+    /// Applies a batch inside a transaction the caller owns, e.g. one that also writes the
+    /// application's own rows, and returns the revision it will have once committed
+    /// (ADR-006, `docs/05-storage.md` §10).
+    ///
+    /// The engine neither commits nor rolls back `txn`. Until the caller commits, the
+    /// revision is invisible: reads at it fail with [`Error::RevisionNotYetAvailable`].
+    /// If the caller rolls back, the revision is **void** and a later write may be given
+    /// the same number. On error the batch's own statements are undone (to a savepoint),
+    /// but the caller should still roll back, since it decided on a write that did not
+    /// happen. Nothing in the engine changes because of this call.
+    ///
+    /// On SQLite, open `txn` with `BEGIN IMMEDIATE`: a deferred transaction that read
+    /// before another connection committed cannot take the write lock and fails with a
+    /// retryable [`StoreError::Conflict`] (`docs/05-storage.md` §5.1).
+    ///
+    /// # Errors
+    ///
+    /// As [`write`](Self::write), plus [`Error::ForeignConnectionMismatch`] if `txn` is not
+    /// on the store's database.
+    #[allow(
+        clippy::needless_pass_by_value,
+        reason = "signature fixed by docs/06-api.md §1"
+    )]
+    pub fn write_in<T: WriteTxn>(&self, txn: &mut T, req: WriteRequest) -> Result<Revision, Error>
+    where
+        S: SqlStore,
+    {
+        let _span = tracing::info_span!(
+            "write_in",
+            ops = req.ops.len(),
+            preconditions = req.preconditions.len()
+        )
+        .entered();
+        let rev = self.validated(&req, |req| {
+            self.store.check_same_database(txn)?;
+            crate::write::write(txn, self.store.dialect(), req)
+        })?;
+        tracing::debug!(
+            revision = rev.0,
+            "batch written, pending the caller's commit"
+        );
+        Ok(rev)
+    }
+
+    /// Checks batch size, schema presence, ops and precondition filters, then runs `apply`
+    /// while holding the schema read guard so the schema cannot change underneath it.
+    fn validated(
+        &self,
+        req: &WriteRequest,
+        apply: impl FnOnce(&WriteRequest) -> Result<Revision, Error>,
+    ) -> Result<Revision, Error> {
         if req.ops.len() > self.config.max_write_batch {
             return Err(Error::BatchTooLarge {
                 max: self.config.max_write_batch,
@@ -275,9 +328,8 @@ impl<S: WritableStore> Engine<S> {
             let (Precondition::MustExist(f) | Precondition::MustNotExist(f)) = p;
             validate_filter(schema, f)?;
         }
-        let rev = self.store.write(&req)?;
+        let rev = apply(req)?;
         drop(guard);
-        tracing::debug!(revision = rev.0, "batch committed");
         Ok(rev)
     }
 

@@ -408,3 +408,35 @@ fn leases_come_back_clean_after_errors_and_panics() {
         })
         .unwrap();
 }
+
+/// A write through a caller's transaction changes nothing in the store's memory, even
+/// before rollback: the backstop still treats its revision as above head.
+#[test]
+fn foreign_write_does_not_touch_the_cache() {
+    use warden_core::model::{Relationship, Revision, WriteOp, WriteRequest};
+    use warden_core::store::{ReadStore, SqlStore};
+
+    let db = TempDb::new();
+    let store = SqliteStore::open(db.path(), SqliteConfig::default()).unwrap();
+    let rel: Relationship = "doc:a#viewer@user:anne".parse().unwrap();
+    let req = WriteRequest {
+        ops: vec![WriteOp::Touch(rel.clone())],
+        preconditions: Vec::new(),
+    };
+    let mut app = db.raw();
+    let tx = app.transaction().unwrap();
+    let rev =
+        warden_core::write::write(&mut crate::SqliteTxn::new(&tx), store.dialect(), &req).unwrap();
+    assert_eq!(rev, Revision(1));
+    let out_of_range = |r: Result<bool, StoreError>| {
+        assert!(
+            matches!(r, Err(StoreError::RevisionOutOfRange { requested, head, .. })
+                if requested == rev && head == Revision(0)),
+            "{r:?}"
+        );
+    };
+    out_of_range(store.exists(rev, &rel));
+    tx.rollback().unwrap();
+    out_of_range(store.exists(rev, &rel));
+    assert_eq!(store.head_revision().unwrap(), Revision(0));
+}

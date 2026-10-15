@@ -80,6 +80,15 @@ pub enum StoreError {
         /// Driver message.
         message: String,
     },
+    /// Another writer got in first: the transaction lost a lock upgrade because its
+    /// snapshot is stale (SQLite `SQLITE_BUSY_SNAPSHOT`), or waited on a lock past its
+    /// busy timeout. Nothing was written by the failed statement. Retryable: roll back the
+    /// whole transaction and run it again (re-reading whatever it decided on).
+    #[error("write conflict, retry the transaction: {message}")]
+    Conflict {
+        /// Driver message.
+        message: String,
+    },
     /// The engine's own tables hold a value the engine cannot interpret, e.g. a
     /// non-numeric `storage_version`; reading on would mean guessing.
     #[error("corrupt store metadata: {message}")]
@@ -87,6 +96,14 @@ pub enum StoreError {
         /// What was found and where.
         message: String,
     },
+}
+
+impl StoreError {
+    /// Whether running the whole transaction again may succeed
+    /// ([`StoreError::Conflict`]).
+    pub fn is_retryable(&self) -> bool {
+        matches!(self, Self::Conflict { .. })
+    }
 }
 
 /// Which stored subject relations a [`ReverseFilter`] matches.
@@ -359,6 +376,15 @@ pub trait SqlStore: WritableStore {
 
     /// The SQL dialect for statements run through [`with_write_txn`](Self::with_write_txn).
     fn dialect(&self) -> &dyn SqlDialect;
+
+    /// Verifies that a caller-supplied transaction runs on this store's database, so a
+    /// foreign write lands where the engine reads (`docs/05-storage.md` §10).
+    ///
+    /// # Errors
+    ///
+    /// [`Error::ForeignConnectionMismatch`] if it does not, or cannot be shown to;
+    /// [`Error::Store`] if asking the connection fails.
+    fn check_same_database(&self, txn: &mut dyn WriteTxn) -> Result<(), Error>;
 }
 
 /// A subject's storage columns `(subject_type, subject_id, subject_relation)`: `"*"` is the

@@ -1,4 +1,5 @@
-//! Read queries (`docs/05-storage.md` §6): statement text only; T2.3 runs them.
+//! Read queries (`docs/05-storage.md` §6 and the other `ReadStore` reads): statement text
+//! only; `read` runs them.
 //!
 //! `?R` (the read revision) is a numbered parameter so the visibility predicate can use it
 //! twice. The forward queries' `ORDER BY` follows `warden_rel_fwd`'s column order, so SQLite
@@ -8,11 +9,77 @@
 //! but a range over every resource of that type), and statistics from an app's
 //! `ANALYZE` could move any query; `INDEXED BY` makes a lost index a prepare error.
 
-#![cfg_attr(not(test), expect(dead_code, reason = "used by the read path in T2.3"))]
-
 use std::fmt::Write as _;
 
+use warden_core::model::RelationshipFilter;
 use warden_core::store::{ReverseFilter, SubjectRelMatch};
+
+/// Head revision and stored GC horizon, read in one statement so both come from one
+/// snapshot.
+pub(crate) const HEAD_AND_HORIZON: &str = "\
+SELECT (SELECT COALESCE(MAX(rev), 0) FROM warden_revisions),
+       (SELECT value FROM warden_meta WHERE key = 'gc_horizon')";
+
+/// The latest schema version, if any.
+pub(crate) const CURRENT_SCHEMA: &str = "\
+SELECT version, source, hash, created_rev FROM warden_schema ORDER BY version DESC LIMIT 1";
+
+/// `count_by_relation`, in `RelationCount` order (`None` subject relation is `''`, which
+/// sorts first, as `None` does). Param `?1` = revision.
+pub(crate) const COUNT_BY_RELATION: &str = "\
+SELECT resource_type, relation, subject_type, subject_relation, subject_id = '*' AS wildcard,
+       COUNT(*)
+FROM warden_relationships
+WHERE created_rev <= ?1 AND (deleted_rev IS NULL OR deleted_rev > ?1)
+GROUP BY resource_type, relation, subject_type, subject_relation, wildcard
+ORDER BY resource_type, relation, subject_type, subject_relation, wildcard";
+
+/// `read_relationships` for the shape of `f` and whether there is a cursor.
+///
+/// Params: `?1` resource type, `?2` revision, `?3` limit, then the filter's present
+/// optional fields in field order, then (with `after`) the cursor's six storage columns.
+/// The cursor is a row-value comparison in storage-column order, so pages are keyset
+/// pages in the order the forward index already has.
+pub(crate) fn read_relationships(f: &RelationshipFilter, after: bool) -> String {
+    let mut sql = String::from(
+        "SELECT resource_type, resource_id, relation, subject_type, subject_id, subject_relation
+FROM warden_relationships INDEXED BY warden_rel_fwd
+WHERE resource_type = ?1",
+    );
+    let mut n = 3;
+    let present = [
+        ("resource_id", f.resource_id.is_some()),
+        ("relation", f.relation.is_some()),
+        ("subject_type", f.subject_type.is_some()),
+        ("subject_id", f.subject_id.is_some()),
+        ("subject_relation", f.subject_relation.is_some()),
+    ];
+    for (column, _) in present.iter().filter(|(_, p)| *p) {
+        n += 1;
+        let _ = write!(sql, " AND {column} = ?{n}");
+    }
+    if after {
+        let _ = write!(
+            sql,
+            "
+  AND (resource_type, resource_id, relation, subject_type, subject_id, subject_relation)
+      > (?{}, ?{}, ?{}, ?{}, ?{}, ?{})",
+            n + 1,
+            n + 2,
+            n + 3,
+            n + 4,
+            n + 5,
+            n + 6
+        );
+    }
+    sql.push_str(
+        "
+  AND created_rev <= ?2 AND (deleted_rev IS NULL OR deleted_rev > ?2)
+ORDER BY resource_type, resource_id, relation, subject_type, subject_id, subject_relation
+LIMIT ?3",
+    );
+    sql
+}
 
 /// §6.1. Params: resource type, id, relation, subject type, id, relation, `?7` = revision.
 pub(crate) const EXISTS: &str = "\
