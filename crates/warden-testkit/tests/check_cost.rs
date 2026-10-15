@@ -11,7 +11,8 @@ use warden_core::model::{
     WriteOp, WriteRequest,
 };
 use warden_core::store::{
-    GcStats, ReadStore, RelationCount, ReverseFilter, StoreError, StoredSchema, WritableStore,
+    DeleteResult, ReadStore, RelationCount, ReverseFilter, SchemaCheck, StoreError, StoredSchema,
+    WritableStore,
 };
 use warden_core::{
     CheckRequest, CheckResponse, Engine, EngineConfig, Error, LookupSubjectsRequest,
@@ -222,14 +223,29 @@ impl ReadStore for Budgeted {
 }
 
 impl WritableStore for Budgeted {
-    fn write(&self, req: &WriteRequest) -> Result<Revision, Error> {
-        self.inner.write(req)
+    fn write(&self, req: &WriteRequest, schema_version: Option<u64>) -> Result<Revision, Error> {
+        self.inner.write(req, schema_version)
     }
-    fn write_schema(&self, source: &str, hash: &str) -> Result<StoredSchema, Error> {
-        self.inner.write_schema(source, hash)
+    fn write_schema(
+        &self,
+        source: &str,
+        hash: &str,
+        check: SchemaCheck<'_>,
+    ) -> Result<StoredSchema, Error> {
+        self.inner.write_schema(source, hash, check)
     }
-    fn gc(&self, keep_from: Revision) -> Result<GcStats, Error> {
-        self.inner.gc(keep_from)
+    fn delete_matching(
+        &self,
+        filter: &RelationshipFilter,
+        limit: usize,
+    ) -> Result<DeleteResult, Error> {
+        self.inner.delete_matching(filter, limit)
+    }
+    fn raise_gc_horizon(&self, keep_from: Revision) -> Result<Revision, Error> {
+        self.inner.raise_gc_horizon(keep_from)
+    }
+    fn gc_batch(&self, max_rows: usize) -> Result<u64, Error> {
+        self.inner.gc_batch(max_rows)
     }
 }
 

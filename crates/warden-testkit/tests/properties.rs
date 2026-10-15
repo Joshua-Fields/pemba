@@ -450,10 +450,12 @@ mod prop5 {
             let results: Vec<String> = stores
                 .iter()
                 .map(|s| match op {
-                    StoreOp::Write(req) => outcome(s.write(req)),
-                    StoreOp::Schema(n) => {
-                        outcome(s.write_schema(&format!("schema {n}"), &format!("{n:064x}")))
-                    }
+                    StoreOp::Write(req) => outcome(s.write(req, None)),
+                    StoreOp::Schema(n) => outcome(s.write_schema(
+                        &format!("schema {n}"),
+                        &format!("{n:064x}"),
+                        &|_| Ok(()),
+                    )),
                     StoreOp::Gc(fraction) => {
                         let head = s.head_revision().unwrap();
                         outcome(s.gc(StoreOp::gc_revision(*fraction, head)))
@@ -493,7 +495,7 @@ mod prop5 {
             let s = MemoryStore::new();
             for op in &ops {
                 let key = match op {
-                    StoreOp::Write(req) => match s.write(req) {
+                    StoreOp::Write(req) => match s.write(req, None) {
                         Ok(_) => "ok".to_owned(),
                         Err(e) => e.code().to_owned(),
                     },
@@ -561,28 +563,35 @@ mod prop4 {
     /// One batch: `(tuple index, delete?)` pairs, the index taken modulo the case's tuples.
     type Batch = Vec<(usize, bool)>;
 
-    /// A case and 1–8 batches that touch and delete its tuples, deletes about a third of
-    /// the time so that sets both grow and shrink.
-    fn history() -> impl Strategy<Value = (Case, Vec<Batch>)> {
+    /// GCs to run: `(after batch, keep_from pick)`, both taken modulo what exists then.
+    type Gcs = Vec<(usize, usize)>;
+
+    /// A case, 1–8 batches that touch and delete its tuples (deletes about a third of the
+    /// time so that sets both grow and shrink), and 0–2 GCs between batches.
+    fn history() -> impl Strategy<Value = (Case, Vec<Batch>, Gcs)> {
         let op = (any::<usize>(), prop::bool::weighted(0.35));
         (
             generate::case(),
             prop::collection::vec(prop::collection::vec(op, 1..=6), 1..=8),
+            prop::collection::vec((any::<usize>(), any::<usize>()), 0..=2),
         )
     }
 
-    /// Writes the schema and every batch to `engine`; returns the tuple set visible at
-    /// each revision, indexed by revision.
+    /// Writes the schema and every batch to `engine`, running the GCs between batches;
+    /// returns the tuple set visible at each revision, indexed by revision, and the final
+    /// GC horizon.
     fn replay<S: WritableStore>(
         engine: &Engine<S>,
         src: &str,
         case: &Case,
         batches: &[Batch],
-    ) -> Result<Vec<BTreeSet<Relationship>>, TestCaseError> {
+        gcs: &Gcs,
+    ) -> Result<(Vec<BTreeSet<Relationship>>, Revision), TestCaseError> {
         let schema_rev = engine.write_schema(src).unwrap().revision;
         prop_assert_eq!(schema_rev, Revision(1));
         let mut sets = vec![BTreeSet::new(); 2];
-        for batch in batches {
+        let mut horizon = Revision(0);
+        for (i, batch) in batches.iter().enumerate() {
             let mut set = sets.last().cloned().unwrap_or_default();
             let mut seen = BTreeSet::new();
             let mut ops = Vec::new();
@@ -610,15 +619,27 @@ mod prop4 {
                 .map_err(|e| TestCaseError::fail(format!("write failed: {e}")))?;
             prop_assert_eq!(rev.0, sets.len() as u64);
             sets.push(set);
+            for &(after, pick) in gcs {
+                if after % batches.len() == i {
+                    let keep = Revision(1 + pick as u64 % rev.0);
+                    let stats = engine
+                        .gc(keep)
+                        .map_err(|e| TestCaseError::fail(format!("gc({keep}) failed: {e}")))?;
+                    horizon = horizon.max(keep);
+                    prop_assert_eq!(stats.horizon, horizon);
+                }
+            }
         }
-        Ok(sets)
+        Ok((sets, horizon))
     }
 
     /// Property 4 for one history: `check` at `Exact(r)` equals the oracle on the tuples
-    /// as of `r`, for every revision, on the memory and the SQLite store.
+    /// as of `r` for every revision at or above the GC horizon, and fails with
+    /// `RevisionExpired` below it, on the memory and the SQLite store.
     fn historical_reads_match_reference(
         case: &Case,
         batches: &[Batch],
+        gcs: &Gcs,
     ) -> Result<(), TestCaseError> {
         let src = case.schema.source();
         let schema = compile(&src);
@@ -646,12 +667,43 @@ mod prop4 {
             .config(unlimited())
             .build()
             .unwrap();
-        let sets = replay(&memory, &src, case, batches)?;
-        prop_assert_eq!(&replay(&sqlite, &src, case, batches)?, &sets);
+        let (sets, horizon) = replay(&memory, &src, case, batches, gcs)?;
+        prop_assert_eq!(
+            &replay(&sqlite, &src, case, batches, gcs)?,
+            &(sets.clone(), horizon)
+        );
 
         // Revision 0 (before the schema) is skipped: the schema check, not MVCC, decides it.
         for (r, set) in sets.iter().enumerate().skip(1) {
             let rev = Revision(r as u64);
+            if rev < horizon {
+                for (resource, member, subject) in &queries {
+                    let request = CheckRequest {
+                        resource: resource.clone(),
+                        permission: member.clone(),
+                        subject: subject.clone(),
+                        consistency: Consistency::Exact(rev),
+                    };
+                    for (store, got) in [
+                        ("memory", memory.check(request.clone())),
+                        ("sqlite", sqlite.check(request)),
+                    ] {
+                        prop_assert!(
+                            matches!(
+                                got,
+                                Err(warden_core::Error::RevisionExpired { requested, horizon: h })
+                                    if requested == rev && h == horizon
+                            ),
+                            "{}: check at {} below horizon {}: {:?}",
+                            store,
+                            rev,
+                            horizon,
+                            got
+                        );
+                    }
+                }
+                continue;
+            }
             let tuples: Vec<_> = set.iter().cloned().collect();
             let oracle = Reference::with_objects(&schema, &tuples, &universe)
                 .map_err(|e| TestCaseError::fail(format!("oracle at {rev}: {e}")))?;
@@ -694,25 +746,44 @@ mod prop4 {
         Ok(())
     }
 
+    /// Guards against the GC plan doing nothing: histories must often collect.
+    #[test]
+    fn histories_often_raise_the_horizon() {
+        let samples = super::sample(history(), 200);
+        let mut raised = 0;
+        for (case, batches, gcs) in &samples {
+            let src = case.schema.source();
+            let engine = Engine::builder()
+                .store(MemoryStore::new())
+                .config(unlimited())
+                .build()
+                .unwrap();
+            let (_, horizon) = replay(&engine, &src, case, batches, gcs).unwrap();
+            raised += usize::from(horizon >= Revision(2));
+        }
+        assert!(raised > 60, "horizon raised in {raised} of 200 histories");
+    }
+
     proptest! {
         #![proptest_config(ProptestConfig { cases: 64, ..config(0) })]
 
         /// Property 4, quick: 64 cases.
         #[test]
-        fn prop4_historical_reads_match_reference((case, batches) in history()) {
-            historical_reads_match_reference(&case, &batches)?;
+        fn prop4_historical_reads_match_reference((case, batches, gcs) in history()) {
+            historical_reads_match_reference(&case, &batches, &gcs)?;
         }
     }
 
     proptest! {
         #![proptest_config(config(1000))]
 
-        /// Property 4: after interleaved writes and deletes, `check` at `Exact(r)` equals
-        /// the oracle on the tuple set as of `r`, on both stores, ≥ 1 000 cases.
+        /// Property 4: after interleaved writes, deletes and GCs, `check` at `Exact(r)`
+        /// equals the oracle on the tuple set as of `r` at or above the GC horizon and
+        /// fails with `RevisionExpired` below it, on both stores, ≥ 1 000 cases.
         #[test]
         #[ignore = "slow: 1 000+ cases; run with --ignored"]
-        fn prop4_historical_reads_match_reference_full((case, batches) in history()) {
-            historical_reads_match_reference(&case, &batches)?;
+        fn prop4_historical_reads_match_reference_full((case, batches, gcs) in history()) {
+            historical_reads_match_reference(&case, &batches, &gcs)?;
         }
     }
 }
@@ -1349,4 +1420,144 @@ fn generated_subject_lookups_are_varied() {
     // covers them.
     let stats = format!("ids {ids}, wildcard {wildcard}, wildcard with exclusions {excluded}");
     assert!(ids > 200 && wildcard > 50, "{stats}");
+}
+
+// ---- schema changes: no stale tuple at head after any accepted write_schema ----
+
+mod schema_change {
+    use std::collections::BTreeSet;
+
+    use proptest::prelude::*;
+    use warden_core::model::{Consistency, Relationship, WriteOp, WriteRequest};
+    use warden_core::{CheckRequest, Engine, Error};
+    use warden_store_memory::MemoryStore;
+    use warden_testkit::generate::{self, Case, SchemaModel};
+    use warden_testkit::reference::Reference;
+
+    use super::{compile, config, query, unlimited};
+
+    /// Writes `case` (schema v1 and tuples), deletes some (with `clean`, also every tuple
+    /// v2 rejects, as a user preparing the change would), then tries `v2`, a generated
+    /// schema over the same type and member names. Accepted: every live tuple fits v2
+    /// (the oracle, which validates tuples, accepts them all) and `check` at head agrees
+    /// with the oracle, never failing with `StaleRelationship`. Refused: the reports count
+    /// exactly the live tuples v2 rejects. Returns whether v2 was accepted.
+    fn change_is_safe(
+        case: &Case,
+        v2: &SchemaModel,
+        deletes: &[usize],
+        clean: bool,
+    ) -> Result<bool, TestCaseError> {
+        let src2 = v2.source();
+        let schema2 = compile(&src2);
+        let fits = |t: &Relationship| Reference::new(&schema2, std::slice::from_ref(t)).is_ok();
+        let engine = Engine::builder()
+            .store(MemoryStore::new())
+            .config(unlimited())
+            .build()
+            .unwrap();
+        engine.write_schema(&case.schema.source()).unwrap();
+        let mut live: BTreeSet<Relationship> = case.tuples.iter().cloned().collect();
+        if !case.tuples.is_empty() {
+            engine
+                .write(WriteRequest {
+                    ops: case.tuples.iter().cloned().map(WriteOp::Touch).collect(),
+                    preconditions: Vec::new(),
+                })
+                .unwrap();
+            let gone: BTreeSet<Relationship> = deletes
+                .iter()
+                .map(|i| case.tuples[i % case.tuples.len()].clone())
+                .chain(case.tuples.iter().filter(|t| clean && !fits(t)).cloned())
+                .collect();
+            engine
+                .write(WriteRequest {
+                    ops: gone.iter().cloned().map(WriteOp::Delete).collect(),
+                    preconditions: Vec::new(),
+                })
+                .unwrap();
+            live.retain(|t| !gone.contains(t));
+        }
+        let live: Vec<Relationship> = live.into_iter().collect();
+        let rejected = live.iter().filter(|t| !fits(t)).count() as u64;
+        match engine.write_schema(&src2) {
+            Ok(_) => {
+                prop_assert_eq!(rejected, 0, "accepted a schema that rejects live tuples");
+                let oracle = Reference::new(&schema2, &live)
+                    .map_err(|e| TestCaseError::fail(format!("oracle at head: {e}")))?;
+                let universe = oracle.universe();
+                for &q in &case.queries {
+                    let (resource, member, subject) = query(&schema2, &oracle, &universe, q);
+                    let want = oracle.check(&resource, &member, &subject).unwrap();
+                    let got = engine
+                        .check(CheckRequest {
+                            resource: resource.clone(),
+                            permission: member.clone(),
+                            subject: subject.clone(),
+                            consistency: Consistency::Latest,
+                        })
+                        .map_err(|e| {
+                            TestCaseError::fail(format!(
+                                "check({resource}#{member}@{subject}) at head: {e}"
+                            ))
+                        })?;
+                    prop_assert_eq!(got.allowed, want);
+                }
+                Ok(true)
+            }
+            Err(Error::SchemaChangeOrphans(reports)) => {
+                let counted: u64 = reports.iter().map(|r| r.count).sum();
+                prop_assert_eq!(counted, rejected, "{:?}", reports);
+                prop_assert!(rejected > 0);
+                Ok(false)
+            }
+            Err(e) => Err(TestCaseError::fail(format!("write_schema: {e}"))),
+        }
+    }
+
+    fn changes() -> impl Strategy<Value = (Case, SchemaModel, Vec<usize>, bool)> {
+        (
+            generate::case(),
+            generate::schema(),
+            prop::collection::vec(any::<usize>(), 0..=10),
+            any::<bool>(),
+        )
+    }
+
+    /// Guards against every change being refused (or accepted): both must be common.
+    #[test]
+    fn changes_are_both_accepted_and_refused() {
+        let (mut ok, mut refused) = (0, 0);
+        for (case, v2, deletes, clean) in super::sample(changes(), 300) {
+            if change_is_safe(&case, &v2, &deletes, clean).unwrap() {
+                ok += 1;
+            } else {
+                refused += 1;
+            }
+        }
+        assert!(ok > 50 && refused > 50, "accepted {ok}, refused {refused}");
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig { cases: 64, ..config(0) })]
+
+        /// Schema change safety, quick: 64 cases.
+        #[test]
+        fn schema_change_leaves_no_stale_tuple_at_head((case, v2, deletes, clean) in changes()) {
+            change_is_safe(&case, &v2, &deletes, clean)?;
+        }
+    }
+
+    proptest! {
+        #![proptest_config(config(1000))]
+
+        /// Schema change safety, ≥ 1 000 cases.
+        #[test]
+        #[ignore = "slow: 1 000+ cases; run with --ignored"]
+        fn schema_change_leaves_no_stale_tuple_at_head_full(
+            (case, v2, deletes, clean) in changes()
+        ) {
+            change_is_safe(&case, &v2, &deletes, clean)?;
+        }
+    }
 }

@@ -22,7 +22,8 @@ impl<S: WritableStore> Engine<S> {
     pub fn write(&self, req: WriteRequest) -> Result<Revision, Error>;
     pub fn write_in<T: WriteTxn>(&self, txn: &mut T, req: WriteRequest) -> Result<Revision, Error>
         where S: SqlStore;                                   // SQL stores only (05 §2, §10)
-    pub fn delete_relationships(&self, filter: RelationshipFilter) -> Result<DeleteResult, Error>;
+    pub fn delete_relationships(&self, filter: RelationshipFilter, limit: Option<usize>)
+        -> Result<DeleteResult, Error>;                      // T2.6, 02 §5
 
     // ---- reads ----
     pub fn check(&self, req: CheckRequest) -> Result<CheckResponse, Error>;
@@ -150,12 +151,17 @@ impl LookupSubjectsResponse { pub fn contains(&self, id: &ObjectId) -> bool; }
 
 `lookup_subjects` is one request on one snapshot, not paginated. It is one evaluation,
 bounded like one `check`: its store reads count against `max_check_reads`
-(`CheckReadsExceeded`), and `max_depth` / `max_check_fanout` apply (fan-out counts every
+(`ReadLimitExceeded`), and `max_depth` / `max_check_fanout` apply (fan-out counts every
 tuple read on a relation, OQ-029). It fails with the same evaluation errors as `check`.
+It is **stricter** than `check` about stale tuples (stored tuples the current schema no
+longer allows, possible only at revisions before a schema change; `05` §7): it resolves
+every stored subject set on each node it reaches, so it may fail with `StaleRelationship`
+where `check` short-circuits past the stale tuple after finding a match and succeeds
+(OQ-029 (d)).
 
 `check_bulk` returns `Err` for the whole call on `NoSchema`, consistency errors, `Store`,
 and `RevisionExpired` raised mid-call by GC; every other error (`InvalidRequest`,
-`MaxDepthExceeded`, `NonMonotonicCycle`, `FanoutExceeded`, `CheckReadsExceeded`,
+`MaxDepthExceeded`, `NonMonotonicCycle`, `FanoutExceeded`, `ReadLimitExceeded`,
 `StaleRelationship`) belongs to
 its item (OQ-019).
 
@@ -163,8 +169,40 @@ its item (OQ-019).
 filters, then the store's duplicates, preconditions and `Create` conflicts (`02` §5).
 `read_relationships` and precondition filters must name only types, relations (not
 permissions) and subject relations the schema defines, else `InvalidRequest` (OQ-017).
-`write_schema` with the same hash as the current schema is a no-op (`05` §7); the orphan
-check arrives in T2.6.
+`write_schema` with the same hash as the current schema is a no-op (`05` §7). Otherwise it
+fails with `SchemaChangeOrphans(Vec<OrphanReport>)` if any live tuple would fail
+validation under the new schema (`03` §10), writing nothing.
+
+T2.6 types:
+
+```rust
+pub struct OrphanReport {           // one group of live tuples the new schema rejects
+    pub resource_type: TypeName, pub relation: RelName,
+    pub subject: String,            // "user", "user:*" or "group#member"
+    pub count: u64,
+    pub code: ErrorCode,            // as a write of one would fail: E_UNKNOWN_TYPE, ...
+    pub message: String,
+}
+pub struct DeleteResult { pub deleted: u64, pub more: bool, pub revision: Revision }
+pub struct GcStats { pub rows_removed: u64, pub horizon: Revision, pub batches: u64 }
+```
+
+`delete_relationships(filter, limit)`: `limit` `None` = `max_delete_by_filter` (also the
+maximum; 0 or above → `InvalidRequest`); the filter is validated like `read_relationships`'.
+One atomic revision; loop while `more`.
+
+`gc(keep_from)` raises the GC horizon first (its own transaction), then deletes collected
+rows in batches of 10 000 (`05` §8). From the moment the horizon moves, `Exact(r)` with
+`r < keep_from` fails with `RevisionExpired`; a request already running answers from its
+snapshot, in full.
+
+Schema across processes (T2.6, `05` §7): every read request uses the schema version stored
+as of its own snapshot, so a schema written by another process is picked up by the next
+request, and schema and data never come from different moments. Writes validate against
+the newest schema the engine knows and commit only if the store is still at that version;
+otherwise the engine reloads and retries (a write can therefore fail validation against a
+schema another process just wrote). `StoreError::SchemaChanged` (retryable) surfaces only
+if the schema keeps changing for 3 attempts.
 
 `write_in` (T2.2) runs the same checks and the same store write algorithm (`05` §5) inside a
 transaction the caller owns, after verifying it is on the store's database
@@ -230,7 +268,7 @@ pub enum Error {
     MaxDepthExceeded { path: Vec<String> },
     NonMonotonicCycle { path: Vec<String> },
     FanoutExceeded { node: String, max: usize },
-    CheckReadsExceeded { max: u64 },               // more than max_check_reads store reads (04 §3.6)
+    ReadLimitExceeded { max: u64 },               // more than max_check_reads store reads (04 §3.6)
     StaleRelationship { tuple: String, relation: String }, // stored tuple the schema no longer allows (04 §3.3)
     LookupTooLarge { max: usize },
     NotMigrated,
@@ -246,8 +284,9 @@ Every variant has a stable machine code (`Error::code() -> &'static str`, e.g.
 `NO_SCHEMA`, `INVALID_RELATIONSHIP`, `INVALID_REQUEST`, `DUPLICATE_IN_BATCH`,
 `ALREADY_EXISTS`, `PRECONDITION_FAILED`, `BATCH_TOO_LARGE`, `REVISION_NOT_YET_AVAILABLE`,
 `REVISION_EXPIRED`, `STORE_ERROR`, `MAX_DEPTH_EXCEEDED`, `NON_MONOTONIC_CYCLE`,
-`FANOUT_EXCEEDED`, `CHECK_READS_EXCEEDED`, `STALE_RELATIONSHIP`, `NOT_MIGRATED`,
-`STORAGE_VERSION_TOO_NEW`, `FOREIGN_CONNECTION_MISMATCH`, `LOOKUP_TOO_LARGE` (T2.4); variants added later use their name in SCREAMING_SNAKE
+`FANOUT_EXCEEDED`, `READ_LIMIT_EXCEEDED`, `STALE_RELATIONSHIP`, `NOT_MIGRATED`,
+`STORAGE_VERSION_TOO_NEW`, `FOREIGN_CONNECTION_MISMATCH`, `LOOKUP_TOO_LARGE` (T2.4),
+`SCHEMA_CHANGE_ORPHANS` (T2.6; `03` §10 calls it `E_SCHEMA_CHANGE_ORPHANS`); variants added later use their name in SCREAMING_SNAKE
 case.
 
 ---
@@ -345,7 +384,7 @@ WardenError(Exception)               .code: str  (Rust Error::code())
 ├── InvalidRelationshipError
 ├── InvalidRequestError
 ├── ConsistencyError                 (RevisionNotYetAvailable, RevisionExpired)
-├── EvaluationLimitError             (MaxDepthExceeded, FanoutExceeded, CheckReadsExceeded, LookupTooLarge, NonMonotonicCycle)
+├── EvaluationLimitError             (MaxDepthExceeded, FanoutExceeded, ReadLimitExceeded, LookupTooLarge, NonMonotonicCycle)
 ├── WriteConflictError               (AlreadyExists, PreconditionFailed, DuplicateInBatch)
 ├── StorageError                     (Store, NotMigrated, StorageVersionTooNew, ForeignConnectionMismatch)
 ```

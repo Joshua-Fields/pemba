@@ -17,7 +17,10 @@ use crate::error::Error;
 use crate::model::{
     Precondition, Relationship, RelationshipFilter, Revision, WriteOp, WriteRequest,
 };
-use crate::store::{GcStats, SqlDialect, SqlValue, StoreError, StoredSchema, WriteTxn};
+use crate::store::{
+    DeleteResult, RelationCount, SchemaCheck, SqlDialect, SqlValue, StoreError, StoredSchema,
+    WriteTxn,
+};
 
 const RELATIONSHIPS: &str = "warden_relationships";
 const REVISIONS: &str = "warden_revisions";
@@ -36,30 +39,165 @@ const SAVEPOINT: &str = "warden_write";
 /// In this order: [`Error::DuplicateInBatch`], [`Error::PreconditionFailed`],
 /// [`Error::AlreadyExists`]; [`Error::Store`] if a statement fails. On error every
 /// statement this call ran is rolled back to its savepoint; the transaction stays open.
-pub fn write<T, D>(txn: &mut T, dialect: &D, req: &WriteRequest) -> Result<Revision, Error>
+///
+/// With `schema_version`, the batch commits only if that is still the store's latest schema
+/// version ([`StoreError::SchemaChanged`] otherwise, checked after duplicates): the caller
+/// validated the ops against it, and a newer schema may reject them.
+pub fn write<T, D>(
+    txn: &mut T,
+    dialect: &D,
+    req: &WriteRequest,
+    schema_version: Option<u64>,
+) -> Result<Revision, Error>
 where
     T: WriteTxn + ?Sized,
     D: SqlDialect + ?Sized,
 {
     reject_duplicates(req)?;
-    in_savepoint(txn, |txn| apply(txn, dialect, req))
+    in_savepoint(txn, |txn| {
+        if let Some(expected) = schema_version {
+            let found = self::schema_version(txn, dialect)?;
+            if found != expected {
+                return Err(Error::Store(StoreError::SchemaChanged { expected, found }));
+            }
+        }
+        apply(txn, dialect, req)
+    })
 }
 
-/// Stores a new schema version at a new revision (kind `'schema'`) inside `txn`.
+/// The latest schema version visible to `txn`; `0` if none.
+///
+/// # Errors
+///
+/// [`Error::Store`] if the query fails.
+pub fn schema_version<T, D>(txn: &mut T, dialect: &D) -> Result<u64, Error>
+where
+    T: WriteTxn + ?Sized,
+    D: SqlDialect + ?Sized,
+{
+    let sql = format!(
+        "SELECT COALESCE(MAX(version), 0) FROM {}",
+        dialect.table(SCHEMA)
+    );
+    one_integer(txn, &sql, "schema version")
+}
+
+/// Live tuple counts at head, grouped as [`RelationCount`] (`docs/05-storage.md` §7).
+///
+/// # Errors
+///
+/// [`Error::Store`] if the query fails or returns something unparseable.
+pub fn count_live<T, D>(txn: &mut T, dialect: &D) -> Result<Vec<RelationCount>, Error>
+where
+    T: WriteTxn + ?Sized,
+    D: SqlDialect + ?Sized,
+{
+    let rows = txn.query(
+        &format!(
+            "SELECT resource_type, relation, subject_type, subject_relation, \
+             CASE WHEN subject_id = '*' THEN 1 ELSE 0 END AS wildcard, COUNT(*) FROM {} \
+             WHERE deleted_rev IS NULL \
+             GROUP BY resource_type, relation, subject_type, subject_relation, wildcard \
+             ORDER BY resource_type, relation, subject_type, subject_relation, wildcard",
+            dialect.table(RELATIONSHIPS)
+        ),
+        &[],
+    )?;
+    let text = |v: &SqlValue, what: &str| match v {
+        SqlValue::Text(t) => Ok(t.clone()),
+        _ => Err(corrupt(&format!("{what} is not text"))),
+    };
+    let int = |v: &SqlValue, what: &str| match v {
+        SqlValue::Integer(n) => non_negative(*n, what),
+        _ => Err(corrupt(&format!("{what} is not an integer"))),
+    };
+    rows.iter()
+        .map(|row| match row.as_slice() {
+            [rt, rel, st, sr, wildcard, count] => {
+                let sr = text(sr, "subject relation")?;
+                Ok(RelationCount {
+                    resource_type: name(&text(rt, "resource type")?, "resource type")?,
+                    relation: name(&text(rel, "relation")?, "relation")?,
+                    subject_type: name(&text(st, "subject type")?, "subject type")?,
+                    subject_relation: if sr.is_empty() {
+                        None
+                    } else {
+                        Some(name(&sr, "subject relation")?)
+                    },
+                    wildcard: int(wildcard, "wildcard flag")? != 0,
+                    count: int(count, "count")?,
+                })
+            }
+            _ => Err(corrupt("count query returned a malformed row")),
+        })
+        .collect()
+}
+
+/// Marks at most `limit` live tuples matching `filter` deleted, in storage order, at one
+/// new revision (kind `'delete_filter'`) inside `txn`, and reports whether more remain.
 ///
 /// # Errors
 ///
 /// [`Error::Store`] if a statement fails.
+pub fn delete_matching<T, D>(
+    txn: &mut T,
+    dialect: &D,
+    filter: &RelationshipFilter,
+    limit: usize,
+) -> Result<DeleteResult, Error>
+where
+    T: WriteTxn + ?Sized,
+    D: SqlDialect + ?Sized,
+{
+    let rev = allocate_revision(txn, dialect, "delete_filter")?;
+    let table = dialect.table(RELATIONSHIPS);
+    let row_id = dialect.row_id();
+    let mut params = vec![revision_value(rev)?];
+    let (filter_sql, filter_params) = filter_where(dialect, filter, 2);
+    params.extend(filter_params);
+    params.push(SqlValue::Integer(i64::try_from(limit).unwrap_or(i64::MAX)));
+    let deleted = txn.execute(
+        &format!(
+            "UPDATE {table} SET deleted_rev = {} WHERE {row_id} IN (SELECT {row_id} FROM {table} \
+             WHERE {filter_sql} AND deleted_rev IS NULL ORDER BY resource_type, resource_id, \
+             relation, subject_type, subject_id, subject_relation LIMIT {})",
+            dialect.placeholder(1),
+            dialect.placeholder(params.len()),
+        ),
+        &params,
+    )?;
+    let (filter_sql, filter_params) = filter_where(dialect, filter, 1);
+    let more = !txn
+        .query(
+            &format!("SELECT 1 FROM {table} WHERE {filter_sql} AND deleted_rev IS NULL LIMIT 1"),
+            &filter_params,
+        )?
+        .is_empty();
+    Ok(DeleteResult {
+        deleted,
+        more,
+        revision: rev,
+    })
+}
+
+/// Stores a new schema version at a new revision (kind `'schema'`) inside `txn`, after
+/// `check` accepted the live tuple counts at head (`docs/05-storage.md` §7).
+///
+/// # Errors
+///
+/// Whatever `check` returns; [`Error::Store`] if a statement fails.
 pub fn write_schema<T, D>(
     txn: &mut T,
     dialect: &D,
     source: &str,
     hash: &str,
+    check: SchemaCheck<'_>,
 ) -> Result<StoredSchema, Error>
 where
     T: WriteTxn + ?Sized,
     D: SqlDialect + ?Sized,
 {
+    check(&count_live(txn, dialect)?)?;
     let created_rev = allocate_revision(txn, dialect, "schema")?;
     txn.execute(
         &format!(
@@ -84,14 +222,19 @@ where
     })
 }
 
-/// Removes tuples deleted at or before `keep_from` and raises the GC horizon to it
-/// (`docs/05-storage.md` §8), in one pass inside `txn`. Commits no revision.
+/// GC step 1 (`docs/05-storage.md` §8): raises the stored GC horizon to `keep_from` inside
+/// `txn`, which the caller commits **before** any [`gc_batch`] runs. Never lowers it;
+/// returns the horizon after the call. Commits no revision.
 ///
 /// # Errors
 ///
 /// [`Error::InvalidRequest`] if `keep_from` is above head; [`Error::Store`] if a statement
 /// fails or the stored horizon is unreadable.
-pub fn gc<T, D>(txn: &mut T, dialect: &D, keep_from: Revision) -> Result<GcStats, Error>
+pub fn raise_gc_horizon<T, D>(
+    txn: &mut T,
+    dialect: &D,
+    keep_from: Revision,
+) -> Result<Revision, Error>
 where
     T: WriteTxn + ?Sized,
     D: SqlDialect + ?Sized,
@@ -104,20 +247,8 @@ where
     }
     let horizon = gc_horizon(txn, dialect)?;
     if keep_from <= horizon {
-        return Ok(GcStats {
-            rows_removed: 0,
-            horizon,
-        });
+        return Ok(horizon);
     }
-    let keep = revision_value(keep_from)?;
-    let rows_removed = txn.execute(
-        &format!(
-            "DELETE FROM {} WHERE deleted_rev IS NOT NULL AND deleted_rev <= {}",
-            dialect.table(RELATIONSHIPS),
-            dialect.placeholder(1),
-        ),
-        std::slice::from_ref(&keep),
-    )?;
     txn.execute(
         &format!(
             "UPDATE {} SET value = {} WHERE key = 'gc_horizon'",
@@ -126,10 +257,35 @@ where
         ),
         &[SqlValue::Text(keep_from.0.to_string())],
     )?;
-    Ok(GcStats {
-        rows_removed,
-        horizon: keep_from,
-    })
+    Ok(keep_from)
+}
+
+/// GC step 2: removes at most `max_rows` tuples deleted at or before the stored horizon,
+/// inside `txn`; returns how many. Such rows are invisible at every readable revision.
+///
+/// # Errors
+///
+/// [`Error::Store`] if a statement fails or the stored horizon is unreadable.
+pub fn gc_batch<T, D>(txn: &mut T, dialect: &D, max_rows: usize) -> Result<u64, Error>
+where
+    T: WriteTxn + ?Sized,
+    D: SqlDialect + ?Sized,
+{
+    let horizon = gc_horizon(txn, dialect)?;
+    let table = dialect.table(RELATIONSHIPS);
+    let row_id = dialect.row_id();
+    Ok(txn.execute(
+        &format!(
+            "DELETE FROM {table} WHERE {row_id} IN (SELECT {row_id} FROM {table} \
+             WHERE deleted_rev IS NOT NULL AND deleted_rev <= {} LIMIT {})",
+            dialect.placeholder(1),
+            dialect.placeholder(2),
+        ),
+        &[
+            revision_value(horizon)?,
+            SqlValue::Integer(i64::try_from(max_rows).unwrap_or(i64::MAX)),
+        ],
+    )?)
 }
 
 /// Highest committed revision visible to `txn`; `Revision(0)` if there is none.
@@ -316,15 +472,32 @@ fn precondition_query<D: SqlDialect + ?Sized>(
     dialect: &D,
     f: &RelationshipFilter,
 ) -> (String, Vec<SqlValue>) {
+    let (filter_sql, params) = filter_where(dialect, f, 1);
+    (
+        format!(
+            "SELECT 1 FROM {} WHERE {filter_sql} AND deleted_rev IS NULL LIMIT 1",
+            dialect.table(RELATIONSHIPS)
+        ),
+        params,
+    )
+}
+
+/// A `WHERE` condition matching `f` (live or not), with its parameters numbered from
+/// `first`.
+fn filter_where<D: SqlDialect + ?Sized>(
+    dialect: &D,
+    f: &RelationshipFilter,
+    first: usize,
+) -> (String, Vec<SqlValue>) {
     let mut params = vec![SqlValue::Text(f.resource_type.as_str().to_owned())];
-    let mut sql = format!(
-        "SELECT 1 FROM {} WHERE resource_type = {}",
-        dialect.table(RELATIONSHIPS),
-        dialect.placeholder(1)
-    );
+    let mut sql = format!("resource_type = {}", dialect.placeholder(first));
     let mut add = |column: &str, value: &str| {
         params.push(SqlValue::Text(value.to_owned()));
-        let _ = write!(sql, " AND {column} = {}", dialect.placeholder(params.len()));
+        let _ = write!(
+            sql,
+            " AND {column} = {}",
+            dialect.placeholder(first + params.len() - 1)
+        );
     };
     if let Some(id) = &f.resource_id {
         add("resource_id", id.as_str());
@@ -341,8 +514,27 @@ fn precondition_query<D: SqlDialect + ?Sized>(
     if let Some(rel) = &f.subject_relation {
         add("subject_relation", rel.as_ref().map_or("", |r| r.as_str()));
     }
-    sql.push_str(" AND deleted_rev IS NULL LIMIT 1");
     (sql, params)
+}
+
+/// A stored name parsed back into its type.
+fn name<N: std::str::FromStr>(t: &str, what: &str) -> Result<N, Error> {
+    t.parse()
+        .map_err(|_| corrupt(&format!("stored {what} {t:?} is not a valid name")))
+}
+
+/// Runs a query returning one integer.
+fn one_integer<T>(txn: &mut T, sql: &str, what: &str) -> Result<u64, Error>
+where
+    T: WriteTxn + ?Sized,
+{
+    match txn.query(sql, &[])?.as_slice() {
+        [row] => match row.as_slice() {
+            [SqlValue::Integer(n)] => non_negative(*n, what),
+            _ => Err(corrupt(&format!("{what} query returned a non-integer"))),
+        },
+        _ => Err(corrupt(&format!("{what} query did not return one row"))),
+    }
 }
 
 /// The six storage columns of `r` (`docs/05-storage.md` §4).

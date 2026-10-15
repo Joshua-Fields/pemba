@@ -273,6 +273,15 @@ it is resolved.
   the tupleset no longer allows, treated as ∅) are deferred to T2.6, which makes all three
   impossible after `write_schema`; its acceptance criteria now require a test proving it.
   (a)–(d) and (f): (fill in)
+  T2.6 (at the human's direction): all three are impossible **at head**: `write_schema`
+  refuses any change a live tuple would fail validation under, and writes commit only at
+  the schema version they were validated against (`05` §7); tests
+  `schema_change_leaves_no_stale_tuple_at_head` (property) and the orphan cases in
+  `crates/warden/tests/schema_change.rs`. In history (`Exact(r)` below the current schema's
+  revision) they can still be met, and each now fails closed with `StaleRelationship`: a
+  stale subject set (as before), a stale object tuple on the exact-hit step, a stale
+  wildcard (probed only at such revisions), a stale arrow-related object (`04` §3.3; tests
+  `historical_stale_*`). (e) is resolved.
 
 ## OQ-020 — Reference evaluator's Kleene iteration is unsound with a recursive exclusion base
 - Raised in: after T1.3 review (`docs/07-testing.md` §2.1), for T1.4
@@ -349,7 +358,7 @@ it is resolved.
 - Resolution: resolved in T1.4c. SCC fixed-point iteration (`04` §3.6, current rule) with
   lowlinks on a Tarjan-style SCC stack (positions, not call-stack indices, at the human's
   direction in review) bounds a `check` to `(|S| + 1) · Σ r(x)` store reads per region;
-  `EngineConfig::max_check_reads` (default 200 000, `CheckReadsExceeded`) is the fail-closed
+  `EngineConfig::max_check_reads` (default 200 000, `ReadLimitExceeded`) is the fail-closed
   backstop. Every `check_cost.rs` test passes un-ignored (the pinned case now makes well
   under its 1 000-read bound); property 1 at 1 000 cases runs in ~1 s optimised
 
@@ -533,7 +542,7 @@ it is resolved.
 - Blocking: no
 - Current choice:
   (a) Cost bound: store reads count against the existing `max_check_reads` and fail with
-  `CheckReadsExceeded`, rather than a new limit. One `lookup_subjects` is one evaluation by
+  `ReadLimitExceeded`, rather than a new limit. One `lookup_subjects` is one evaluation by
   the same per-node, per-pass rules as one `check` (`04` §6.2), so the same bound reasoning
   and default (200 000) apply; a separate knob would add API surface with no different
   default to justify it. Cost: the error name says "check". Alternative: a
@@ -555,5 +564,44 @@ it is resolved.
   (g) The response carries no `EvalStats`; the `lookup_subjects` span has them plus
   `results` and `wildcard`. Not paginated (`04` §6 has no cursor).
   (h) Fixture `expect` format for subjects: a map `ids` / `wildcard` / `excluded` (`07` §3).
+- Resolve by: human review
+- Resolution: resolved in T2.6 by the human: (a)–(h) all accepted. Consequence of (a):
+  `CheckReadsExceeded` / `CHECK_READS_EXCEEDED` renamed to `ReadLimitExceeded` /
+  `READ_LIMIT_EXCEEDED` (nothing released yet), since `lookup_subjects` raises it too. `06`
+  §1 documents (d): `lookup_subjects` may fail with `StaleRelationship` where `check`
+  answers.
+
+## OQ-030 — Schema change safety, GC order, delete-by-filter (T2.6)
+- Raised in: T2.6 (`docs/05-storage.md` §5, §7, §8; `docs/03-schema-language.md` §10;
+  `docs/02-data-model.md` §5; `docs/06-api.md` §1)
+- Blocking: no
+- Current choice:
+  (a) Store traits changed (public, pre-release): `WritableStore::write` takes the schema
+  version it was validated against; `write_schema` takes a `check` run on the live counts
+  inside its transaction; `gc` split into `raise_gc_horizon` + `gc_batch`, with `gc` a
+  provided method; new `delete_matching`, `ReadStore::schema_version`,
+  `SqlDialect::row_id`, `StoreError::SchemaChanged`. The split GC is what lets a test pause
+  between batches without hooks in library code.
+  (b) Orphan criterion: "would fail write validation under the new schema", computed per
+  `count_by_relation` group, instead of a diff of removed elements. Equivalent to the listed
+  removals and complete by construction; it also catches any stale tuple left at head from
+  before T2.6. Reports carry the validation `ErrorCode`.
+  (c) Error code `SCHEMA_CHANGE_ORPHANS` (06's naming rule) for the variant `03` §10 calls
+  `E_SCHEMA_CHANGE_ORPHANS`.
+  (d) `Exact(old)` reads use the current schema (MVP, unchanged): stale tuples on surviving
+  relations fail closed, but tuples on a relation the current schema removed entirely (or
+  turned into a permission) are never read, so they do not count at `Exact(old)`. Evaluating
+  historical reads with the historical schema is the alternative, post-MVP.
+  (e) The stale-wildcard probe costs one extra point read per relation evaluation, only at
+  revisions below the current schema's `created_rev`.
+  (f) GC deletes until a batch removes nothing, so the last batch is always empty (one
+  extra short transaction): it makes a capped or partial batch harmless and needs no
+  knowledge of the batch size.
+  (g) `delete_relationships` allocates a revision even when nothing matches (as `02` §5
+  rule 8 for writes) and is not schema-version checked (deleting cannot create a stale
+  tuple).
+  (h) Writes retry up to 3 times on `SchemaChanged`; on a validation failure against the
+  cached schema, the engine checks the store's version (one query) and revalidates against
+  a newer schema before refusing, so a relation another process just added is accepted.
 - Resolve by: human review
 - Resolution: (fill in)

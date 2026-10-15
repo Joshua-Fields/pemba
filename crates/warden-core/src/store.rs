@@ -96,6 +96,17 @@ pub enum StoreError {
         /// Driver message.
         message: String,
     },
+    /// The schema changed between the engine validating a write and the write's
+    /// transaction: the batch was checked against version `expected`, the store is at
+    /// `found`. Nothing was written. Retryable: validate against the new schema and write
+    /// again (the engine does this itself).
+    #[error("schema changed from version {expected} to {found} during the write")]
+    SchemaChanged {
+        /// The schema version the batch was validated against.
+        expected: u64,
+        /// The store's current schema version.
+        found: u64,
+    },
     /// The engine's own tables hold a value the engine cannot interpret, e.g. a
     /// non-numeric `storage_version`; reading on would mean guessing.
     #[error("corrupt store metadata: {message}")]
@@ -107,9 +118,9 @@ pub enum StoreError {
 
 impl StoreError {
     /// Whether running the whole transaction again may succeed
-    /// ([`StoreError::Conflict`]).
+    /// ([`StoreError::Conflict`], [`StoreError::SchemaChanged`]).
     pub fn is_retryable(&self) -> bool {
-        matches!(self, Self::Conflict { .. })
+        matches!(self, Self::Conflict { .. } | Self::SchemaChanged { .. })
     }
 }
 
@@ -178,7 +189,29 @@ pub struct GcStats {
     pub rows_removed: u64,
     /// The GC horizon after the call.
     pub horizon: Revision,
+    /// Delete transactions run, each removing at most [`GC_BATCH_ROWS`] rows; the last
+    /// one removes none.
+    pub batches: u64,
 }
+
+/// Rows one GC delete transaction removes at most (`docs/05-storage.md` §8), so no GC
+/// holds the write lock for long.
+pub const GC_BATCH_ROWS: usize = 10_000;
+
+/// Outcome of a delete-by-filter (`docs/02-data-model.md` §5).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct DeleteResult {
+    /// Live tuples deleted (at `revision`).
+    pub deleted: u64,
+    /// Whether live tuples matching the filter remain (the limit cut the delete short).
+    pub more: bool,
+    /// The revision the delete committed at.
+    pub revision: Revision,
+}
+
+/// Checks the live tuple counts at head (grouped as [`ReadStore::count_by_relation`])
+/// inside a schema write's transaction; an `Err` aborts the write.
+pub type SchemaCheck<'a> = &'a dyn Fn(&[RelationCount]) -> Result<(), Error>;
 
 /// Read access at explicit revisions. All the evaluator ever sees of a store.
 pub trait ReadStore: Send + Sync {
@@ -289,6 +322,18 @@ pub trait ReadStore: Send + Sync {
     /// A [`StoreError`] if the backend fails.
     fn current_schema(&self) -> Result<Option<StoredSchema>, StoreError>;
 
+    /// The latest stored schema's version, `0` if none. Through a
+    /// [`snapshot`](Self::snapshot), the version as of that snapshot, so a request can
+    /// evaluate with the schema that matches its data. The default reads
+    /// [`current_schema`](Self::current_schema); stores override it with a cheaper query.
+    ///
+    /// # Errors
+    ///
+    /// A [`StoreError`] if the backend fails.
+    fn schema_version(&self) -> Result<u64, StoreError> {
+        Ok(self.current_schema()?.map_or(0, |s| s.version))
+    }
+
     /// A view of the store in which every call, [`head_revision`](Self::head_revision)
     /// and [`gc_horizon`](Self::gc_horizon) included, sees one fixed state: no commit or
     /// GC that happens after the snapshot is taken becomes visible through it, whichever
@@ -376,45 +421,107 @@ impl<T: ReadStore + ?Sized> ReadStore for &T {
         (**self).current_schema()
     }
 
+    fn schema_version(&self) -> Result<u64, StoreError> {
+        (**self).schema_version()
+    }
+
     fn snapshot(&self) -> Result<Box<dyn ReadStore + '_>, StoreError> {
         (**self).snapshot()
     }
 }
 
 /// Mutations. Each method is one atomic transaction that commits at a new revision
-/// (except [`gc`](Self::gc), which commits none).
+/// (except the GC methods, which commit none).
 pub trait WritableStore: ReadStore {
     /// Applies a batch: steps 2–6 of the write algorithm (`docs/05-storage.md` §5).
     ///
-    /// Validating the ops against the schema (step 1) is the caller's job. Allocates the
-    /// next revision even if no op changed anything, and returns it.
+    /// Validating the ops against the schema (step 1) is the caller's job. If
+    /// `schema_version` is given, the transaction first checks that it is still the
+    /// store's current schema version, so a batch validated against one schema never
+    /// commits after another replaced it (`docs/05-storage.md` §7). Allocates the next
+    /// revision even if no op changed anything, and returns it.
     ///
     /// # Errors
     ///
     /// Checked in this order, and on any error nothing is written and no revision is
-    /// committed: a relationship appearing twice → [`Error::DuplicateInBatch`]; a
-    /// precondition not holding over live tuples → [`Error::PreconditionFailed`]; a
-    /// `Create` of a live tuple → [`Error::AlreadyExists`]. Backend failures are
-    /// [`Error::Store`].
-    fn write(&self, req: &WriteRequest) -> Result<Revision, Error>;
+    /// committed: a relationship appearing twice → [`Error::DuplicateInBatch`]; the schema
+    /// version moved → [`StoreError::SchemaChanged`]; a precondition not holding over live
+    /// tuples → [`Error::PreconditionFailed`]; a `Create` of a live tuple →
+    /// [`Error::AlreadyExists`]. Backend failures are [`Error::Store`].
+    fn write(&self, req: &WriteRequest, schema_version: Option<u64>) -> Result<Revision, Error>;
 
-    /// Stores a new schema version at a new revision. Always writes: skipping an unchanged
-    /// hash and refusing orphaning changes are the engine's job (`docs/05-storage.md` §7).
+    /// Stores a new schema version at a new revision. Inside the same transaction, first
+    /// passes the live tuple counts at head to `check`, which can refuse the change
+    /// (orphaned tuples, `docs/05-storage.md` §7); no write can slip in between. Skipping
+    /// an unchanged hash is the engine's job.
+    ///
+    /// # Errors
+    ///
+    /// Whatever `check` returns; [`Error::Store`] if the backend fails.
+    fn write_schema(
+        &self,
+        source: &str,
+        hash: &str,
+        check: SchemaCheck<'_>,
+    ) -> Result<StoredSchema, Error>;
+
+    /// Marks every live tuple matching `filter` deleted, at most `limit` of them in storage
+    /// order, at one new revision, atomically (`docs/02-data-model.md` §5).
     ///
     /// # Errors
     ///
     /// [`Error::Store`] if the backend fails.
-    fn write_schema(&self, source: &str, hash: &str) -> Result<StoredSchema, Error>;
+    fn delete_matching(
+        &self,
+        filter: &RelationshipFilter,
+        limit: usize,
+    ) -> Result<DeleteResult, Error>;
 
-    /// Physically removes tuples deleted at or before `keep_from` and raises the GC
-    /// horizon to `keep_from`, so reads below it fail from then on. The horizon never
-    /// moves down: a `keep_from` below it is a no-op.
+    /// GC step 1 (`docs/05-storage.md` §8): raises the GC horizon to `keep_from` in its own
+    /// committed transaction, before any row is removed, so no reader can pass the horizon
+    /// check and then read half-collected history. Never lowers it. Returns the horizon
+    /// after the call.
     ///
     /// # Errors
     ///
     /// [`Error::InvalidRequest`] if `keep_from` is above head; [`Error::Store`] if the
     /// backend fails.
-    fn gc(&self, keep_from: Revision) -> Result<GcStats, Error>;
+    fn raise_gc_horizon(&self, keep_from: Revision) -> Result<Revision, Error>;
+
+    /// GC step 2: physically removes at most `max_rows` tuples deleted at or before the
+    /// current horizon, in one transaction; returns how many. They are invisible at every
+    /// readable revision, so removing them changes no answer.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Store`] if the backend fails.
+    fn gc_batch(&self, max_rows: usize) -> Result<u64, Error>;
+
+    /// Garbage-collects history below `keep_from`: [`raise_gc_horizon`](Self::raise_gc_horizon),
+    /// then [`gc_batch`](Self::gc_batch) of [`GC_BATCH_ROWS`] until a batch removes none
+    /// (so the last batch is always empty).
+    /// After it, reads at `Exact(r)` with `r < keep_from` fail with `RevisionExpired`.
+    ///
+    /// # Errors
+    ///
+    /// As the two steps. If a batch fails, the horizon is already raised and the rows it
+    /// did not reach stay until the next GC; no answer changes.
+    fn gc(&self, keep_from: Revision) -> Result<GcStats, Error> {
+        let horizon = self.raise_gc_horizon(keep_from)?;
+        let mut stats = GcStats {
+            rows_removed: 0,
+            horizon,
+            batches: 0,
+        };
+        loop {
+            let n = self.gc_batch(GC_BATCH_ROWS)?;
+            stats.rows_removed += n;
+            stats.batches += 1;
+            if n == 0 {
+                return Ok(stats);
+            }
+        }
+    }
 }
 
 /// A parameter or result value in the portable SQL subset.
@@ -457,6 +564,10 @@ pub trait SqlDialect: Send + Sync {
     fn placeholder(&self, n: usize) -> String;
     /// A table name with the table prefix and optional schema applied.
     fn table(&self, name: &str) -> String;
+    /// The column naming a physical row, for batched deletes and updates
+    /// (`DELETE ... WHERE <row_id> IN (SELECT <row_id> ... LIMIT n)`): `rowid` for SQLite,
+    /// `ctid` for Postgres.
+    fn row_id(&self) -> &'static str;
 }
 
 /// A store whose writes are SQL, so the shared write algorithm can drive it.

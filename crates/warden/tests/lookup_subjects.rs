@@ -245,7 +245,7 @@ fn reads_count_against_max_check_reads() {
         .lookup_subjects(request("group:g0#member@user"))
         .unwrap_err();
     assert!(
-        matches!(err, Error::CheckReadsExceeded { max: 20 }),
+        matches!(err, Error::ReadLimitExceeded { max: 20 }),
         "{err:?}"
     );
     let e = engine_cfg(config(21), &rels);

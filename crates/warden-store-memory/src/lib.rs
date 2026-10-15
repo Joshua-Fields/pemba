@@ -16,8 +16,8 @@ use warden_core::model::{
     TypeName, WriteOp, WriteRequest,
 };
 use warden_core::store::{
-    GcStats, ReadStore, RelationCount, ReverseFilter, StoreError, StoredSchema, SubjectRelMatch,
-    WritableStore, cmp_relationships, subject_columns,
+    DeleteResult, ReadStore, RelationCount, ReverseFilter, SchemaCheck, StoreError, StoredSchema,
+    SubjectRelMatch, WritableStore, cmp_relationships, subject_columns,
 };
 
 /// A relationship store held in process memory. Cheap to create; ideal for tests.
@@ -75,6 +75,44 @@ fn rel_matches(m: &SubjectRelMatch, s: &SubjectRef) -> bool {
 }
 
 impl Inner {
+    /// Visible tuples at `rev`, grouped as `RelationCount`.
+    fn counts(&self, rev: Revision) -> Vec<RelationCount> {
+        let mut groups: BTreeMap<CountKey, u64> = BTreeMap::new();
+        for row in self.rows.iter().filter(|row| row.visible_at(rev)) {
+            let r = &row.rel;
+            let (subject_type, subject_relation, wildcard) = match &r.subject {
+                SubjectRef::Object(o) => (&o.object_type, None, false),
+                SubjectRef::Set { object, relation } => {
+                    (&object.object_type, Some(relation.clone()), false)
+                }
+                SubjectRef::Wildcard { object_type } => (object_type, None, true),
+            };
+            let key = (
+                r.resource.object_type.clone(),
+                r.relation.clone(),
+                subject_type.clone(),
+                subject_relation,
+                wildcard,
+            );
+            *groups.entry(key).or_default() += 1;
+        }
+        groups
+            .into_iter()
+            .map(
+                |((resource_type, relation, subject_type, subject_relation, wildcard), count)| {
+                    RelationCount {
+                        resource_type,
+                        relation,
+                        subject_type,
+                        subject_relation,
+                        wildcard,
+                        count,
+                    }
+                },
+            )
+            .collect()
+    }
+
     fn next_revision(&self) -> Result<Revision, StoreError> {
         self.head
             .0
@@ -286,41 +324,7 @@ impl ReadStore for MemoryStore {
     }
 
     fn count_by_relation(&self, rev: Revision) -> Result<Vec<RelationCount>, StoreError> {
-        let inner = self.read_at(rev)?;
-        let mut groups: BTreeMap<CountKey, u64> = BTreeMap::new();
-        for row in inner.rows.iter().filter(|row| row.visible_at(rev)) {
-            let r = &row.rel;
-            let (subject_type, subject_relation, wildcard) = match &r.subject {
-                SubjectRef::Object(o) => (&o.object_type, None, false),
-                SubjectRef::Set { object, relation } => {
-                    (&object.object_type, Some(relation.clone()), false)
-                }
-                SubjectRef::Wildcard { object_type } => (object_type, None, true),
-            };
-            let key = (
-                r.resource.object_type.clone(),
-                r.relation.clone(),
-                subject_type.clone(),
-                subject_relation,
-                wildcard,
-            );
-            *groups.entry(key).or_default() += 1;
-        }
-        Ok(groups
-            .into_iter()
-            .map(
-                |((resource_type, relation, subject_type, subject_relation, wildcard), count)| {
-                    RelationCount {
-                        resource_type,
-                        relation,
-                        subject_type,
-                        subject_relation,
-                        wildcard,
-                        count,
-                    }
-                },
-            )
-            .collect())
+        Ok(self.read_at(rev)?.counts(rev))
     }
 
     fn current_schema(&self) -> Result<Option<StoredSchema>, StoreError> {
@@ -329,7 +333,7 @@ impl ReadStore for MemoryStore {
 }
 
 impl WritableStore for MemoryStore {
-    fn write(&self, req: &WriteRequest) -> Result<Revision, Error> {
+    fn write(&self, req: &WriteRequest, schema_version: Option<u64>) -> Result<Revision, Error> {
         let mut inner = self.lock()?;
 
         // Every check runs before the first mutation, so a failed batch leaves no trace
@@ -338,6 +342,12 @@ impl WritableStore for MemoryStore {
         for op in &req.ops {
             if !seen.insert(op.relationship()) {
                 return Err(Error::DuplicateInBatch(op.relationship().to_string()));
+            }
+        }
+        if let Some(expected) = schema_version {
+            let found = inner.schema_versions.len() as u64;
+            if found != expected {
+                return Err(Error::Store(StoreError::SchemaChanged { expected, found }));
             }
         }
         for (index, pre) in req.preconditions.iter().enumerate() {
@@ -376,8 +386,15 @@ impl WritableStore for MemoryStore {
         Ok(rev)
     }
 
-    fn write_schema(&self, source: &str, hash: &str) -> Result<StoredSchema, Error> {
+    fn write_schema(
+        &self,
+        source: &str,
+        hash: &str,
+        check: SchemaCheck<'_>,
+    ) -> Result<StoredSchema, Error> {
         let mut inner = self.lock()?;
+        let head = inner.head;
+        check(&inner.counts(head))?;
         let rev = inner.next_revision()?;
         let stored = StoredSchema {
             version: inner.schema_versions.len() as u64 + 1,
@@ -390,7 +407,36 @@ impl WritableStore for MemoryStore {
         Ok(stored)
     }
 
-    fn gc(&self, keep_from: Revision) -> Result<GcStats, Error> {
+    fn delete_matching(
+        &self,
+        filter: &RelationshipFilter,
+        limit: usize,
+    ) -> Result<DeleteResult, Error> {
+        let mut inner = self.lock()?;
+        let rev = inner.next_revision()?;
+        let mut matching: Vec<Relationship> = inner
+            .live
+            .keys()
+            .filter(|r| filter.matches(r))
+            .cloned()
+            .collect();
+        matching.sort_by(cmp_relationships);
+        let more = matching.len() > limit;
+        matching.truncate(limit);
+        for r in &matching {
+            if let Some(idx) = inner.live.remove(r) {
+                inner.rows[idx].deleted = Some(rev);
+            }
+        }
+        inner.head = rev;
+        Ok(DeleteResult {
+            deleted: matching.len() as u64,
+            more,
+            revision: rev,
+        })
+    }
+
+    fn raise_gc_horizon(&self, keep_from: Revision) -> Result<Revision, Error> {
         let mut inner = self.lock()?;
         if keep_from > inner.head {
             return Err(Error::InvalidRequest {
@@ -400,23 +446,23 @@ impl WritableStore for MemoryStore {
                 ),
             });
         }
-        if keep_from <= inner.horizon {
-            return Ok(GcStats {
-                rows_removed: 0,
-                horizon: inner.horizon,
-            });
+        inner.horizon = inner.horizon.max(keep_from);
+        Ok(inner.horizon)
+    }
+
+    fn gc_batch(&self, max_rows: usize) -> Result<u64, Error> {
+        let mut inner = self.lock()?;
+        let horizon = inner.horizon;
+        let mut removed = 0;
+        inner.rows.retain(|row| {
+            let collect = removed < max_rows && row.deleted.is_some_and(|d| d <= horizon);
+            removed += usize::from(collect);
+            !collect
+        });
+        if removed > 0 {
+            // Row indices shifted; rebuilding is simpler than patching and GC is rare.
+            inner.reindex();
         }
-        let before = inner.rows.len();
-        inner
-            .rows
-            .retain(|row| row.deleted.is_none_or(|d| d > keep_from));
-        let rows_removed = (before - inner.rows.len()) as u64;
-        // Row indices shifted; rebuilding is simpler than patching and GC is rare.
-        inner.reindex();
-        inner.horizon = keep_from;
-        Ok(GcStats {
-            rows_removed,
-            horizon: keep_from,
-        })
+        Ok(removed as u64)
     }
 }

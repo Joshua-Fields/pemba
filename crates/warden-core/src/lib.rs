@@ -20,7 +20,7 @@ pub use engine::{
     Engine, EngineBuilder, EngineConfig, ReadRelationshipsRequest, ReadRelationshipsResponse,
     SchemaWriteResult,
 };
-pub use error::Error;
+pub use error::{Error, OrphanReport};
 pub use eval::{CheckItem, CheckRequest, CheckResponse, EvalStats};
 pub use lookup::{LookupResourcesRequest, LookupResourcesResponse};
 pub use subjects::{LookupSubjectsRequest, LookupSubjectsResponse};

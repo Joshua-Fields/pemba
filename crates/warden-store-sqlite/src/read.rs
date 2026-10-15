@@ -431,6 +431,16 @@ fn current_schema(src: &impl Source) -> Result<Option<StoredSchema>, StoreError>
     .transpose()
 }
 
+/// The latest schema version; through a snapshot, as of the snapshot's read transaction.
+fn schema_version(src: &impl Source) -> Result<u64, StoreError> {
+    let version: i64 = src.run(|conn| {
+        conn.prepare_cached(sql::SCHEMA_VERSION)
+            .and_then(|mut s| s.query_row([], |r| r.get(0)))
+            .map_err(|e| store_err(&e))
+    })?;
+    u64::try_from(version).map_err(|_| corrupt(format!("negative schema version {version}")))
+}
+
 /// The reads shared by the store and its snapshots; only head, horizon and `snapshot`
 /// differ.
 macro_rules! shared_reads {
@@ -490,6 +500,10 @@ macro_rules! shared_reads {
 
         fn current_schema(&self) -> Result<Option<StoredSchema>, StoreError> {
             current_schema(self)
+        }
+
+        fn schema_version(&self) -> Result<u64, StoreError> {
+            schema_version(self)
         }
     };
 }

@@ -130,6 +130,13 @@ fn check_object_id(s: &str) -> Result<(), Fail> {
     Ok(())
 }
 
+impl ObjectId {
+    /// A fixed valid id, for building a tuple's shape whose ids do not matter.
+    pub(crate) fn placeholder() -> Self {
+        Self(Arc::from("x"))
+    }
+}
+
 impl TypeName {
     /// Shares a type name from a compiled schema without re-validating it: the schema
     /// compiler checks names with the same rules (`warden_schema::ident`).

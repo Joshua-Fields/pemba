@@ -6,7 +6,7 @@
 
 use warden_schema::{ErrorCode, SchemaErrors};
 
-use crate::model::Revision;
+use crate::model::{RelName, Revision, TypeName};
 use crate::store::StoreError;
 
 /// Everything that can go wrong in `warden-core`.
@@ -16,6 +16,11 @@ pub enum Error {
     /// A schema failed to compile; every error is collected.
     #[error(transparent)]
     Schema(SchemaErrors),
+    /// `write_schema` refused a change that would leave live relationships the new schema
+    /// does not allow (`docs/03-schema-language.md` §10): one report per group of them.
+    /// Delete them first (e.g. with `delete_relationships`), then change the schema.
+    #[error("schema change would orphan live relationships: {}", reports(.0))]
+    SchemaChangeOrphans(Vec<OrphanReport>),
     /// A relationship read or write was attempted before any schema was written.
     #[error("no schema has been written yet")]
     NoSchema,
@@ -93,10 +98,11 @@ pub enum Error {
         /// The configured maximum.
         max: usize,
     },
-    /// One `check` (or one `check_bulk` item) made more than
-    /// `EngineConfig::max_check_reads` store reads (`docs/04-evaluation.md` §3.6).
-    #[error("check made more than {max} store reads")]
-    CheckReadsExceeded {
+    /// One evaluation (a `check`, one `check_bulk` item, or a `lookup_subjects`) made more
+    /// than `EngineConfig::max_check_reads` store reads (`docs/04-evaluation.md` §3.6,
+    /// §6.2).
+    #[error("evaluation made more than {max} store reads")]
+    ReadLimitExceeded {
         /// The configured maximum.
         max: u64,
     },
@@ -137,11 +143,48 @@ pub enum Error {
     Store(#[from] StoreError),
 }
 
+fn reports(r: &[OrphanReport]) -> String {
+    r.iter()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>()
+        .join("; ")
+}
+
+/// One group of live relationships a schema change would orphan: same resource type,
+/// relation and subject form.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OrphanReport {
+    /// Resource type of the tuples.
+    pub resource_type: TypeName,
+    /// Relation they are stored on.
+    pub relation: RelName,
+    /// Their subject form: `user`, `user:*` or `group#member`.
+    pub subject: String,
+    /// How many live tuples have this shape.
+    pub count: u64,
+    /// Why the new schema rejects them (`E_UNKNOWN_TYPE`, `E_UNKNOWN_RELATION`,
+    /// `E_WRITE_TO_PERMISSION`, `E_SUBJECT_TYPE_NOT_ALLOWED`), as a write of one would be.
+    pub code: ErrorCode,
+    /// One human sentence.
+    pub message: String,
+}
+
+impl std::fmt::Display for OrphanReport {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{} live `{}#{}@{}` ({}: {})",
+            self.count, self.resource_type, self.relation, self.subject, self.code, self.message
+        )
+    }
+}
+
 impl Error {
     /// Stable machine-readable code, e.g. `"PRECONDITION_FAILED"`.
     pub fn code(&self) -> &'static str {
         match self {
             Self::Schema(_) => "SCHEMA_ERROR",
+            Self::SchemaChangeOrphans(_) => "SCHEMA_CHANGE_ORPHANS",
             Self::NoSchema => "NO_SCHEMA",
             Self::InvalidRelationship { .. } => "INVALID_RELATIONSHIP",
             Self::InvalidRequest { .. } => "INVALID_REQUEST",
@@ -154,7 +197,7 @@ impl Error {
             Self::MaxDepthExceeded { .. } => "MAX_DEPTH_EXCEEDED",
             Self::NonMonotonicCycle { .. } => "NON_MONOTONIC_CYCLE",
             Self::FanoutExceeded { .. } => "FANOUT_EXCEEDED",
-            Self::CheckReadsExceeded { .. } => "CHECK_READS_EXCEEDED",
+            Self::ReadLimitExceeded { .. } => "READ_LIMIT_EXCEEDED",
             Self::StaleRelationship { .. } => "STALE_RELATIONSHIP",
             Self::LookupTooLarge { .. } => "LOOKUP_TOO_LARGE",
             Self::NotMigrated => "NOT_MIGRATED",

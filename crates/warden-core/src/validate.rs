@@ -16,7 +16,11 @@ pub(crate) fn validate_ops(schema: &CompiledSchema, ops: &[WriteOp]) -> Result<(
         .try_for_each(|op| validate_relationship(schema, op.relationship()))
 }
 
-fn validate_relationship(schema: &CompiledSchema, rel: &Relationship) -> Result<(), Error> {
+/// Validates one relationship (`docs/02-data-model.md` §6).
+pub(crate) fn validate_relationship(
+    schema: &CompiledSchema,
+    rel: &Relationship,
+) -> Result<(), Error> {
     let invalid = |code: ErrorCode, message: String| Error::InvalidRelationship {
         rel: rel.to_string(),
         code,
@@ -93,7 +97,7 @@ fn subject_allowed(
 
 /// The subject's form as it would appear in an allowed-types list: `user`, `user:*` or
 /// `group#member`.
-fn subject_kind(s: &SubjectRef) -> String {
+pub(crate) fn subject_kind(s: &SubjectRef) -> String {
     match s {
         SubjectRef::Object(o) => o.object_type.to_string(),
         SubjectRef::Wildcard { object_type } => format!("{object_type}:*"),

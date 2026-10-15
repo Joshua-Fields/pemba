@@ -179,10 +179,16 @@ AC:
 Refs: `03` §10, `05` §7–8.
 AC:
 - `E_SCHEMA_CHANGE_ORPHANS` with per-relation counts; permission removal always allowed.
-- A test proves stale relationships (OQ-019 (e) and the two remaining cases) cannot arise
-  after `write_schema`.
+- `write_schema` makes stale relationships (OQ-019 (e) and the two remaining cases)
+  impossible **at head**: a test proves they cannot arise at head after any accepted
+  `write_schema`. Historical reads (`Exact(r)` before a schema change) can still meet tuples
+  the current schema rejects, so `StaleRelationship` stays as the fail-closed guard; a test
+  proves an `Exact(old)` read over a since-removed allowed type returns
+  `StaleRelationship`, not an answer.
 - Multi-process schema reload test (two engines on one SQLite file).
-- `delete_relationships` with limit; `gc` in batches; `RevisionExpired` after GC.
+- `delete_relationships` with limit; `gc` in batches, horizon raised first in its own
+  transaction (`05` §8); `RevisionExpired` after GC; a reader mid-GC gets the full answer
+  or `RevisionExpired`, never part of one.
 - Property 4 extended to include GC (reads at `Exact(r)` below the horizon fail with
   `RevisionExpired`).
 

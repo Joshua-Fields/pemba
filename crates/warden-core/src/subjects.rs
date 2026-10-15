@@ -13,9 +13,12 @@ use warden_schema::ir::{AllowedSubject, ArrowMode, CompiledSchema, Expr, Member,
 use crate::engine::read_error;
 use crate::error::Error;
 use crate::eval::{
-    self, EvalStats, Limits, NodeKey, invalid, name, object_ref, rel_name, resolve_set,
+    self, EvalStats, Limits, NodeKey, check_related_objects, invalid, name, object_ref, rel_name,
+    resolve_set, stale,
 };
-use crate::model::{Consistency, ObjectId, ObjectRef, RelName, Revision, SubjectRef, TypeName};
+use crate::model::{
+    Consistency, ObjectId, ObjectRef, RelName, Relationship, Revision, SubjectRef, TypeName,
+};
 use crate::scc::{Finish, Hit, Lattice, Outcome, Scc, min_low};
 use crate::store::{ReadStore, StoreError};
 
@@ -307,18 +310,40 @@ impl<'a> Gatherer<'a> {
         let subjects = self.read(|s, rev| s.read_tuples(rev, &resource, &relation))?;
         self.count_tuples(subjects.len());
         self.check_fanout(key, subjects.len())?;
+        let object_allowed = allowed.contains(&AllowedSubject::Object(self.subject_type));
         let wildcard_allowed = allowed.contains(&AllowedSubject::Wildcard(self.subject_type));
+        // A tuple of the subject type the schema no longer allows (only at revisions before
+        // a schema change) is neither counted nor ignored: the answer would be a guess.
+        let stale_tuple = |subject: SubjectRef| {
+            stale(
+                self.schema,
+                key,
+                &Relationship {
+                    resource: resource.clone(),
+                    relation: relation.clone(),
+                    subject,
+                },
+            )
+        };
         let mut ids = BTreeSet::new();
         let mut sets = Vec::new();
         let mut all = false;
         for subject in subjects {
             match subject {
                 SubjectRef::Object(o) if o.object_type == *self.subject_type_name => {
+                    if !object_allowed {
+                        return Err(stale_tuple(SubjectRef::Object(o)));
+                    }
                     ids.insert(o.object_id);
                 }
                 SubjectRef::Object(_) => {}
                 SubjectRef::Wildcard { object_type } => {
-                    all |= object_type == *self.subject_type_name && wildcard_allowed;
+                    if object_type == *self.subject_type_name {
+                        if !wildcard_allowed {
+                            return Err(stale_tuple(SubjectRef::Wildcard { object_type }));
+                        }
+                        all = true;
+                    }
                 }
                 SubjectRef::Set {
                     object,
@@ -424,6 +449,7 @@ impl<'a> Gatherer<'a> {
                 let relation = rel_name(self.schema, key.ty, *tupleset);
                 let objects =
                     self.read(|s, rev| s.read_related_objects(rev, &resource, &relation))?;
+                check_related_objects(self.schema, key, *tupleset, &objects)?;
                 self.count_tuples(objects.len());
                 *fanout = fanout.saturating_add(objects.len());
                 self.check_fanout(key, *fanout)?;
@@ -515,7 +541,7 @@ impl<'a> Gatherer<'a> {
     ) -> Result<T, Error> {
         self.reads += 1;
         if self.reads > self.limits.max_reads {
-            return Err(Error::CheckReadsExceeded {
+            return Err(Error::ReadLimitExceeded {
                 max: self.limits.max_reads,
             });
         }

@@ -5,20 +5,24 @@ use std::fmt::Write as _;
 use std::sync::{Arc, PoisonError, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::time::Instant;
 
-use warden_schema::SchemaError;
 use warden_schema::ir::CompiledSchema;
+use warden_schema::{ErrorCode, SchemaError};
 
-use crate::error::Error;
+use crate::error::{Error, OrphanReport};
 use crate::eval::{
     self, CheckItem, CheckRequest, CheckResponse, EvalStats, Evaluator, Limits, Memo,
 };
 use crate::lookup::{self, Candidates, LookupResourcesRequest, LookupResourcesResponse};
 use crate::model::{
-    Consistency, Precondition, Relationship, RelationshipFilter, Revision, SubjectRef, WriteRequest,
+    Consistency, ObjectId, ObjectRef, Precondition, Relationship, RelationshipFilter, Revision,
+    SubjectRef, TypeName, WriteRequest,
 };
-use crate::store::{ReadStore, SqlStore, StoreError, WritableStore, WriteTxn};
+use crate::store::{
+    DeleteResult, GcStats, ReadStore, RelationCount, SqlStore, StoreError, StoredSchema,
+    WritableStore, WriteTxn,
+};
 use crate::subjects::{self, Gatherer, LookupSubjectsRequest, LookupSubjectsResponse, SubjectSet};
-use crate::validate::{validate_filter, validate_ops};
+use crate::validate::{subject_kind, validate_filter, validate_ops, validate_relationship};
 
 /// Limits and switches (`docs/02-data-model.md` §7). `Default` gives the spec defaults.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -94,11 +98,7 @@ impl<S: WritableStore> EngineBuilder<S> {
             });
         }
         let schema = match store.current_schema()? {
-            Some(stored) => Some(Arc::new(
-                warden_schema::compile(&stored.source)
-                    .map_err(Error::Schema)?
-                    .schema,
-            )),
+            Some(stored) => Some(Arc::new(Loaded::compile(&stored)?)),
             None => None,
         };
         Ok(Engine {
@@ -168,11 +168,44 @@ pub struct ReadRelationshipsResponse {
 pub struct Engine<S> {
     store: S,
     config: EngineConfig,
-    /// The current compiled schema. Writes hold the read guard for the whole store write,
-    /// and `write_schema` the write guard, so no batch is validated against one schema
-    /// and committed after another has replaced it.
-    schema: RwLock<Option<Arc<CompiledSchema>>>,
+    /// The newest schema this engine has seen, with its stored version. A cache only:
+    /// reads use the version in their own snapshot (`docs/05-storage.md` §7), and writes
+    /// commit only if the store is still at the version they were validated against.
+    schema: RwLock<Option<Arc<Loaded>>>,
 }
+
+/// A stored schema, compiled.
+#[derive(Debug)]
+pub(crate) struct Loaded {
+    version: u64,
+    created_rev: Revision,
+    compiled: Arc<CompiledSchema>,
+}
+
+impl Loaded {
+    fn compile(stored: &StoredSchema) -> Result<Self, Error> {
+        Ok(Self {
+            version: stored.version,
+            created_rev: stored.created_rev,
+            compiled: Arc::new(
+                warden_schema::compile(&stored.source)
+                    .map_err(Error::Schema)?
+                    .schema,
+            ),
+        })
+    }
+
+    /// Whether a read at `rev` can meet tuples this schema rejects: only below the
+    /// revision it was written at, since `write_schema` refuses to orphan live tuples and
+    /// every later write is validated against it (`docs/05-storage.md` §7).
+    fn stale_possible(&self, rev: Revision) -> bool {
+        rev < self.created_rev
+    }
+}
+
+/// How many times a write is validated and attempted when another process keeps changing
+/// the schema underneath it.
+const SCHEMA_RETRIES: usize = 3;
 
 impl<S: WritableStore> Engine<S> {
     /// Starts building an engine: `Engine::builder().store(store).config(cfg).build()`.
@@ -198,11 +231,8 @@ impl<S: WritableStore> Engine<S> {
     pub fn write_schema(&self, source: &str) -> Result<SchemaWriteResult, Error> {
         let _span = tracing::info_span!("write_schema", bytes = source.len()).entered();
         let compiled = warden_schema::compile(source).map_err(Error::Schema)?;
-        let mut current = self.schema_write();
-        if current
-            .as_ref()
-            .is_some_and(|s| s.hash == compiled.schema.hash)
-            && let Some(stored) = self.store.current_schema()?
+        if let Some(stored) = self.store.current_schema()?
+            && stored.hash == hex(&compiled.schema.hash)
         {
             return Ok(SchemaWriteResult {
                 version: stored.version,
@@ -211,10 +241,23 @@ impl<S: WritableStore> Engine<S> {
                 warnings: compiled.warnings,
             });
         }
+        let new = &compiled.schema;
+        let check = |counts: &[RelationCount]| {
+            let orphans = orphans(new, counts);
+            if orphans.is_empty() {
+                Ok(())
+            } else {
+                Err(Error::SchemaChangeOrphans(orphans))
+            }
+        };
         let stored = self
             .store
-            .write_schema(source, &hex(&compiled.schema.hash))?;
-        *current = Some(Arc::new(compiled.schema));
+            .write_schema(source, &hex(&compiled.schema.hash), &check)?;
+        self.offer(Arc::new(Loaded {
+            version: stored.version,
+            created_rev: stored.created_rev,
+            compiled: Arc::new(compiled.schema),
+        }));
         tracing::debug!(
             version = stored.version,
             revision = stored.created_rev.0,
@@ -261,7 +304,7 @@ impl<S: WritableStore> Engine<S> {
             preconditions = req.preconditions.len()
         )
         .entered();
-        let rev = self.validated(&req, |req| self.store.write(req))?;
+        let rev = self.validated(&req, |req, version| self.store.write(req, Some(version)))?;
         tracing::debug!(revision = rev.0, "batch committed");
         Ok(rev)
     }
@@ -299,9 +342,9 @@ impl<S: WritableStore> Engine<S> {
             preconditions = req.preconditions.len()
         )
         .entered();
-        let rev = self.validated(&req, |req| {
-            self.store.check_same_database(txn)?;
-            crate::write::write(txn, self.store.dialect(), req)
+        self.store.check_same_database(txn)?;
+        let rev = self.validated(&req, |req, version| {
+            crate::write::write(txn, self.store.dialect(), req, Some(version))
         })?;
         tracing::debug!(
             revision = rev.0,
@@ -310,12 +353,14 @@ impl<S: WritableStore> Engine<S> {
         Ok(rev)
     }
 
-    /// Checks batch size, schema presence, ops and precondition filters, then runs `apply`
-    /// while holding the schema read guard so the schema cannot change underneath it.
+    /// Checks batch size, schema presence, ops and precondition filters against the newest
+    /// schema known, then runs `apply` with that schema's version, which commits only if the
+    /// store is still at it. If another process changed the schema meanwhile, reloads it and
+    /// validates again, up to [`SCHEMA_RETRIES`] times.
     fn validated(
         &self,
         req: &WriteRequest,
-        apply: impl FnOnce(&WriteRequest) -> Result<Revision, Error>,
+        mut apply: impl FnMut(&WriteRequest, u64) -> Result<Revision, Error>,
     ) -> Result<Revision, Error> {
         if req.ops.len() > self.config.max_write_batch {
             return Err(Error::BatchTooLarge {
@@ -323,16 +368,92 @@ impl<S: WritableStore> Engine<S> {
                 got: req.ops.len(),
             });
         }
-        let guard = self.schema_read();
-        let schema = guard.as_ref().ok_or(Error::NoSchema)?;
-        validate_ops(schema, &req.ops)?;
-        for p in &req.preconditions {
-            let (Precondition::MustExist(f) | Precondition::MustNotExist(f)) = p;
-            validate_filter(schema, f)?;
+        let mut loaded = self.newest_schema(false)?;
+        let mut attempt = 1;
+        loop {
+            if let Err(e) = validate(&loaded.compiled, req) {
+                // The cached schema may be older than the store's (another process changed
+                // it): judge the batch by the store's current schema, not a stale copy.
+                if self.store.schema_version()? == loaded.version {
+                    return Err(e);
+                }
+                loaded = self.newest_schema(true)?;
+                validate(&loaded.compiled, req)?;
+            }
+            match apply(req, loaded.version) {
+                Err(Error::Store(StoreError::SchemaChanged { .. })) if attempt < SCHEMA_RETRIES => {
+                    attempt += 1;
+                    loaded = self.newest_schema(true)?;
+                }
+                r => return r,
+            }
         }
-        let rev = apply(req)?;
-        drop(guard);
-        Ok(rev)
+    }
+
+    /// Marks deleted every live relationship matching `filter`, at most `limit` of them
+    /// (`None`: [`EngineConfig::max_delete_by_filter`], also the maximum), in storage
+    /// order, at one new revision, atomically. Call again while
+    /// [`DeleteResult::more`] is `true` to delete the rest.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::NoSchema`]; [`Error::InvalidRequest`] for a limit of 0 or above the
+    /// maximum, or a filter naming something the schema does not define; [`Error::Store`]
+    /// if the store fails.
+    #[allow(
+        clippy::needless_pass_by_value,
+        reason = "signature fixed by docs/06-api.md §1"
+    )]
+    pub fn delete_relationships(
+        &self,
+        filter: RelationshipFilter,
+        limit: Option<usize>,
+    ) -> Result<DeleteResult, Error> {
+        let _span = tracing::info_span!("delete_relationships", filter = %filter).entered();
+        let max = self.config.max_delete_by_filter;
+        let limit = limit.unwrap_or(max);
+        if limit == 0 || limit > max {
+            return Err(Error::InvalidRequest {
+                message: format!("limit must be between 1 and {max}, got {limit}"),
+            });
+        }
+        let loaded = self.newest_schema(false)?;
+        if let Err(e) = validate_filter(&loaded.compiled, &filter) {
+            if self.store.schema_version()? == loaded.version {
+                return Err(e);
+            }
+            validate_filter(&self.newest_schema(true)?.compiled, &filter)?;
+        }
+        let result = self.store.delete_matching(&filter, limit)?;
+        tracing::debug!(
+            deleted = result.deleted,
+            more = result.more,
+            revision = result.revision.0,
+            "relationships deleted"
+        );
+        Ok(result)
+    }
+
+    /// Garbage-collects history below `keep_from` (`docs/05-storage.md` §8): raises the GC
+    /// horizon first, in its own transaction, then removes tuples deleted at or before it
+    /// in batches. From the moment the horizon moves, reads at `Exact(r)` with
+    /// `r < keep_from` fail with [`Error::RevisionExpired`]; a request that started before
+    /// still answers from its snapshot.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::InvalidRequest`] if `keep_from` is above head; [`Error::Store`] if the
+    /// store fails (the horizon may already be raised; a later GC removes the rest).
+    pub fn gc(&self, keep_from: Revision) -> Result<GcStats, Error> {
+        let _span = tracing::info_span!("gc", keep_from = keep_from.0).entered();
+        let stats = self.store.gc(keep_from)?;
+        tracing::debug!(
+            rows_removed = stats.rows_removed,
+            batches = stats.batches,
+            horizon = stats.horizon.0,
+            "gc done"
+        );
+        Ok(stats)
     }
 
     /// The highest committed revision; `Revision(0)` for an empty store.
@@ -367,10 +488,10 @@ impl<S: WritableStore> Engine<S> {
                 message: format!("limit must be between 1 and {max}, got {limit}"),
             });
         }
-        let schema = self.current_schema()?;
-        validate_filter(&schema, &req.filter)?;
         let snapshot = self.store.snapshot()?;
         let revision = resolve(&*snapshot, req.consistency)?;
+        let loaded = self.schema_at(&*snapshot)?;
+        validate_filter(&loaded.compiled, &req.filter)?;
         // One extra row tells whether another page exists without a second query.
         let mut relationships = snapshot
             .read_relationships(
@@ -406,7 +527,7 @@ impl<S: WritableStore> Engine<S> {
     /// subject type or subject relation is not defined, or the subject is a wildcard;
     /// [`Error::RevisionNotYetAvailable`] / [`Error::RevisionExpired`] if the consistency
     /// cannot be met; [`Error::MaxDepthExceeded`], [`Error::NonMonotonicCycle`] or
-    /// [`Error::FanoutExceeded`] / [`Error::CheckReadsExceeded`] if evaluation hits a limit
+    /// [`Error::FanoutExceeded`] / [`Error::ReadLimitExceeded`] if evaluation hits a limit
     /// or an undefined cycle;
     /// [`Error::StaleRelationship`] if it meets a stored subject set the schema no longer
     /// allows; [`Error::Store`] if the store fails.
@@ -431,17 +552,18 @@ impl<S: WritableStore> Engine<S> {
         );
         let _entered = span.enter();
         let start = Instant::now();
-        let schema = self.current_schema()?;
-        let (root, subject) = eval::resolve(&schema, &req.resource, &req.permission, &req.subject)?;
         let snapshot = self.store.snapshot()?;
         let revision = resolve(&*snapshot, req.consistency)?;
         span.record("revision", revision.0);
+        let loaded = self.schema_at(&*snapshot)?;
+        let schema = &loaded.compiled;
+        let (root, subject) = eval::resolve(schema, &req.resource, &req.permission, &req.subject)?;
         let mut memo = Memo::new();
         let mut evaluator = Evaluator::new(
-            &schema,
+            schema,
             &*snapshot,
             revision,
-            self.limits(),
+            self.limits(loaded.stale_possible(revision)),
             &subject,
             &mut memo,
         );
@@ -509,16 +631,17 @@ impl<S: WritableStore> Engine<S> {
                 message: format!("limit must be between 1 and {max}, got {limit}"),
             });
         }
-        let schema = self.current_schema()?;
-        let target = lookup::resolve_target(&schema, &req.resource_type, &req.permission)?;
-        let subject = eval::resolve_subject(&schema, &req.subject)?;
         // One snapshot for both phases; dropped on every return below.
         let snapshot = self.store.snapshot()?;
         let revision = resolve(&*snapshot, req.consistency)?;
         span.record("revision", revision.0);
+        let loaded = self.schema_at(&*snapshot)?;
+        let schema = &loaded.compiled;
+        let target = lookup::resolve_target(schema, &req.resource_type, &req.permission)?;
+        let subject = eval::resolve_subject(schema, &req.subject)?;
 
         let (candidates, nodes_visited, phase1_reads) = Candidates::new(
-            &schema,
+            schema,
             &*snapshot,
             revision,
             self.config.max_lookup_nodes,
@@ -530,10 +653,10 @@ impl<S: WritableStore> Engine<S> {
         span.record("phase1_reads", phase1_reads);
 
         let (result, mut stats) = lookup::filter(
-            &schema,
+            schema,
             &*snapshot,
             revision,
-            self.limits(),
+            self.limits(loaded.stale_possible(revision)),
             &subject,
             target,
             &candidates,
@@ -570,7 +693,7 @@ impl<S: WritableStore> Engine<S> {
     /// subject type is not defined; [`Error::RevisionNotYetAvailable`] /
     /// [`Error::RevisionExpired`] if the consistency cannot be met;
     /// [`Error::MaxDepthExceeded`], [`Error::NonMonotonicCycle`],
-    /// [`Error::FanoutExceeded`] or [`Error::CheckReadsExceeded`] if evaluation hits a
+    /// [`Error::FanoutExceeded`] or [`Error::ReadLimitExceeded`] if evaluation hits a
     /// limit or an undefined cycle; [`Error::StaleRelationship`] if it meets a stored
     /// subject set the schema no longer allows; [`Error::Store`] if the store fails.
     #[allow(
@@ -598,16 +721,17 @@ impl<S: WritableStore> Engine<S> {
         );
         let _entered = span.enter();
         let start = Instant::now();
-        let schema = self.current_schema()?;
-        let (root, subject_type) = subjects::resolve(&schema, &req)?;
         let snapshot = self.store.snapshot()?;
         let revision = resolve(&*snapshot, req.consistency)?;
         span.record("revision", revision.0);
+        let loaded = self.schema_at(&*snapshot)?;
+        let schema = &loaded.compiled;
+        let (root, subject_type) = subjects::resolve(schema, &req)?;
         let mut gatherer = Gatherer::new(
-            &schema,
+            schema,
             &*snapshot,
             revision,
-            self.limits(),
+            self.limits(loaded.stale_possible(revision)),
             (subject_type, &req.subject_type),
         );
         let result = gatherer.gather(&root);
@@ -658,12 +782,13 @@ impl<S: WritableStore> Engine<S> {
         );
         let _entered = span.enter();
         let start = Instant::now();
-        let schema = self.current_schema()?;
         // One snapshot for the whole call: every item reads the same state.
         let snapshot = self.store.snapshot()?;
         let revision = resolve(&*snapshot, c)?;
         span.record("revision", revision.0);
-        let limits = self.limits();
+        let loaded = self.schema_at(&*snapshot)?;
+        let schema = &*loaded.compiled;
+        let limits = self.limits(loaded.stale_possible(revision));
         // Memoised values are settled, so they hold for any check with the same subject
         // at the same revision.
         let mut memos: HashMap<SubjectRef, Memo> = HashMap::new();
@@ -672,11 +797,11 @@ impl<S: WritableStore> Engine<S> {
         let mut failure = None;
         for item in items {
             let result =
-                match eval::resolve(&schema, &item.resource, &item.permission, &item.subject) {
+                match eval::resolve(schema, &item.resource, &item.permission, &item.subject) {
                     Ok((root, subject)) => {
                         let memo = memos.entry(item.subject).or_default();
                         let mut evaluator =
-                            Evaluator::new(&schema, &*snapshot, revision, limits, &subject, memo);
+                            Evaluator::new(schema, &*snapshot, revision, limits, &subject, memo);
                         let result = evaluator.check(&root);
                         stats.absorb(&evaluator.stats());
                         result
@@ -699,27 +824,129 @@ impl<S: WritableStore> Engine<S> {
         }
     }
 
-    fn limits(&self) -> Limits {
+    fn limits(&self, stale_possible: bool) -> Limits {
         Limits {
             max_depth: self.config.max_depth,
             max_fanout: self.config.max_check_fanout,
             max_reads: self.config.max_check_reads,
+            stale_possible,
         }
     }
 
-    fn current_schema(&self) -> Result<Arc<CompiledSchema>, Error> {
-        self.schema_read().clone().ok_or(Error::NoSchema)
+    /// The schema a request reading through `snapshot` evaluates with: the version stored
+    /// as of that snapshot, so schema and data come from the same moment even when another
+    /// process changed the schema (`docs/05-storage.md` §7). Reuses the cached compile when
+    /// the versions match; otherwise compiles the snapshot's schema and caches it if newer.
+    fn schema_at(&self, snapshot: &dyn ReadStore) -> Result<Arc<Loaded>, Error> {
+        let version = snapshot.schema_version()?;
+        if version == 0 {
+            return Err(Error::NoSchema);
+        }
+        if let Some(cached) = self.schema_read().clone()
+            && cached.version == version
+        {
+            return Ok(cached);
+        }
+        let stored = snapshot.current_schema()?.ok_or(Error::NoSchema)?;
+        let loaded = Arc::new(Loaded::compile(&stored)?);
+        self.offer(Arc::clone(&loaded));
+        Ok(loaded)
+    }
+
+    /// The newest schema this engine knows, for validating a write; with `reload`, or if it
+    /// knows none, read from the store first.
+    fn newest_schema(&self, reload: bool) -> Result<Arc<Loaded>, Error> {
+        if !reload && let Some(cached) = self.schema_read().clone() {
+            return Ok(cached);
+        }
+        let stored = self.store.current_schema()?.ok_or(Error::NoSchema)?;
+        let loaded = Arc::new(Loaded::compile(&stored)?);
+        self.offer(Arc::clone(&loaded));
+        Ok(loaded)
+    }
+
+    /// Caches `loaded` unless the cache already holds a newer version.
+    fn offer(&self, loaded: Arc<Loaded>) {
+        let mut current = self.schema_write();
+        if current.as_ref().is_none_or(|c| c.version < loaded.version) {
+            *current = Some(loaded);
+        }
     }
 
     // The lock only guards an `Option<Arc<_>>` that is replaced in one assignment, so a
     // panic elsewhere while it was held cannot leave it half-updated; recovering from
     // poisoning is safe.
-    fn schema_read(&self) -> RwLockReadGuard<'_, Option<Arc<CompiledSchema>>> {
+    fn schema_read(&self) -> RwLockReadGuard<'_, Option<Arc<Loaded>>> {
         self.schema.read().unwrap_or_else(PoisonError::into_inner)
     }
 
-    fn schema_write(&self) -> RwLockWriteGuard<'_, Option<Arc<CompiledSchema>>> {
+    fn schema_write(&self) -> RwLockWriteGuard<'_, Option<Arc<Loaded>>> {
         self.schema.write().unwrap_or_else(PoisonError::into_inner)
+    }
+}
+
+/// Step 1 of a write: every op and precondition filter against `schema`.
+fn validate(schema: &CompiledSchema, req: &WriteRequest) -> Result<(), Error> {
+    validate_ops(schema, &req.ops)?;
+    for p in &req.preconditions {
+        let (Precondition::MustExist(f) | Precondition::MustNotExist(f)) = p;
+        validate_filter(schema, f)?;
+    }
+    Ok(())
+}
+
+/// Live tuple groups at head that would fail validation against `schema`
+/// (`docs/03-schema-language.md` §10, `docs/05-storage.md` §7): a group is orphaned
+/// exactly when a tuple of its shape could not be written under the new schema, so after
+/// the change no live tuple contradicts the schema. That covers a removed type (as
+/// resource or subject), a removed relation, a relation that became a permission, a
+/// removed allowed type, subject set (including one whose relation was deleted from its
+/// type) or wildcard.
+fn orphans(schema: &CompiledSchema, counts: &[RelationCount]) -> Vec<OrphanReport> {
+    counts
+        .iter()
+        .filter_map(|c| {
+            let subject = match (&c.subject_relation, c.wildcard) {
+                (_, true) => SubjectRef::Wildcard {
+                    object_type: c.subject_type.clone(),
+                },
+                (Some(rel), false) => SubjectRef::Set {
+                    object: placeholder(&c.subject_type),
+                    relation: rel.clone(),
+                },
+                (None, false) => SubjectRef::Object(placeholder(&c.subject_type)),
+            };
+            let shape = Relationship {
+                resource: placeholder(&c.resource_type),
+                relation: c.relation.clone(),
+                subject,
+            };
+            match validate_relationship(schema, &shape) {
+                Ok(()) => None,
+                Err(e) => {
+                    let (code, message) = match e {
+                        Error::InvalidRelationship { code, message, .. } => (code, message),
+                        e => (ErrorCode::UnknownType, e.to_string()),
+                    };
+                    Some(OrphanReport {
+                        resource_type: c.resource_type.clone(),
+                        relation: c.relation.clone(),
+                        subject: subject_kind(&shape.subject),
+                        count: c.count,
+                        code,
+                        message,
+                    })
+                }
+            }
+        })
+        .collect()
+}
+
+/// A stand-in object of type `t` for validating a tuple's shape; ids are never checked.
+fn placeholder(t: &TypeName) -> ObjectRef {
+    ObjectRef {
+        object_type: t.clone(),
+        object_id: ObjectId::placeholder(),
     }
 }
 

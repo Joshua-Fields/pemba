@@ -355,9 +355,15 @@ plain comments and relation/permission interleaving, but changes with doc commen
 
 ## 10. Schema changes against existing data
 
-`Engine::write_schema(new)` must refuse (`E_SCHEMA_CHANGE_ORPHANS`) when, at head:
-- a relation with visible tuples would be removed, or
-- an allowed subject type with visible tuples using it would be removed from a relation, or
-- a type with visible tuples (as resource or subject) would be removed.
-The error lists each offending relation and a count of tuples. Removing permissions is
-always allowed. See `docs/05-storage.md` §7 for the queries.
+`Engine::write_schema(new)` must refuse (`E_SCHEMA_CHANGE_ORPHANS`: the
+`Error::SchemaChangeOrphans` variant, whose `Error::code()` is `SCHEMA_CHANGE_ORPHANS`
+following `06` §1.1's naming) when, at head, any live tuple would fail write validation
+(`02` §6) under the new schema. That includes:
+- a relation with live tuples removed, or turned into a permission of the same name;
+- an allowed subject type, subject set or wildcard with live tuples using it removed from a
+  relation (including a subject set `x#p` removed because `p` was deleted from `x`;
+  wildcards are counted apart from objects);
+- a type with live tuples (as resource or subject) removed.
+The error lists each offending group (relation, subject form, code) with a count of
+tuples. Removing a permission is allowed whenever no live tuple uses it as a subject
+relation. See `docs/05-storage.md` §7.

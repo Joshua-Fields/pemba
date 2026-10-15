@@ -41,6 +41,13 @@ const CASES: &[(&str, Case)] = &[
     ("pagination_ordering", pagination_ordering),
     ("count_by_relation", count_by_relation),
     ("schema_versions", schema_versions),
+    (
+        "schema_check_sees_live_counts",
+        schema_check_sees_live_counts,
+    ),
+    ("write_checks_schema_version", write_checks_schema_version),
+    ("delete_matching", delete_matching),
+    ("gc_steps", gc_steps),
     ("reads_above_head_fail", reads_above_head_fail),
     ("gc_horizon", gc_horizon),
     (
@@ -112,7 +119,7 @@ fn delete(rels: &[&str]) -> WriteRequest {
 }
 
 fn write(s: &dyn WritableStore, req: &WriteRequest) -> Revision {
-    s.write(req).unwrap()
+    s.write(req, None).unwrap()
 }
 
 #[track_caller]
@@ -138,6 +145,17 @@ fn sorted(items: &[&str]) -> Vec<String> {
 fn all(s: &dyn WritableStore, rev: Revision, resource_type: &str) -> Vec<String> {
     let f = RelationshipFilter::new(ty(resource_type));
     strs(&s.read_relationships(rev, &f, u32::MAX, None).unwrap())
+}
+
+fn count(rt: &str, r: &str, st: &str, sr: Option<&str>, wildcard: bool, n: u64) -> RelationCount {
+    RelationCount {
+        resource_type: ty(rt),
+        relation: name(r),
+        subject_type: ty(st),
+        subject_relation: sr.map(name),
+        wildcard,
+        count: n,
+    }
 }
 
 fn head(s: &dyn WritableStore) -> Revision {
@@ -226,12 +244,16 @@ fn revisions_monotonic(s: &dyn WritableStore) {
     assert_eq!((r2, r3, r4), (Revision(2), Revision(3), Revision(4)));
 
     // Schema writes take revisions from the same sequence.
-    let schema = s.write_schema("definition user {}", "h1").unwrap();
+    let schema = s
+        .write_schema("definition user {}", "h1", &|_| Ok(()))
+        .unwrap();
     assert_eq!(schema.created_rev, Revision(5));
     assert_eq!(head(s), Revision(5));
 
     // A failed batch commits nothing and does not consume a revision.
-    let err = s.write(&create(&["doc:1#viewer@user:anne"])).unwrap_err();
+    let err = s
+        .write(&create(&["doc:1#viewer@user:anne"]), None)
+        .unwrap_err();
     assert!(matches!(err, Error::AlreadyExists(_)), "{err:?}");
     assert_eq!(head(s), Revision(5));
     assert_eq!(write(s, &WriteRequest::default()), Revision(6));
@@ -278,7 +300,7 @@ fn create_semantics(s: &dyn WritableStore) {
     assert_eq!(all(s, r1, "doc"), [a]);
 
     // Creating a live tuple fails the whole batch, including the ops before it.
-    let err = s.write(&create(&[b, a])).unwrap_err();
+    let err = s.write(&create(&[b, a]), None).unwrap_err();
     match err {
         Error::AlreadyExists(t) => assert_eq!(t, a),
         other => panic!("expected AlreadyExists, got {other:?}"),
@@ -324,13 +346,13 @@ fn delete_semantics(s: &dyn WritableStore) {
 fn duplicates_in_batch(s: &dyn WritableStore) {
     let a = "doc:1#viewer@user:anne";
     let req = batch([WriteOp::Touch(rel(a)), WriteOp::Delete(rel(a))]);
-    match s.write(&req).unwrap_err() {
+    match s.write(&req, None).unwrap_err() {
         Error::DuplicateInBatch(t) => assert_eq!(t, a),
         other => panic!("expected DuplicateInBatch, got {other:?}"),
     }
     let req = batch([WriteOp::Touch(rel(a)), WriteOp::Touch(rel(a))]);
     assert!(matches!(
-        s.write(&req).unwrap_err(),
+        s.write(&req, None).unwrap_err(),
         Error::DuplicateInBatch(_)
     ));
     assert_eq!(head(s), Revision(0));
@@ -383,7 +405,7 @@ fn preconditions(s: &dyn WritableStore) {
         ),
     ];
     for (pre, want) in cases {
-        match s.write(&with_pre(pre)).unwrap_err() {
+        match s.write(&with_pre(pre), None).unwrap_err() {
             Error::PreconditionFailed { index } => assert_eq!(index, want),
             other => panic!("expected PreconditionFailed, got {other:?}"),
         }
@@ -396,7 +418,7 @@ fn preconditions(s: &dyn WritableStore) {
         preconditions: vec![Precondition::MustExist(anything_on_doc2.clone())],
     };
     assert!(matches!(
-        s.write(&req).unwrap_err(),
+        s.write(&req, None).unwrap_err(),
         Error::PreconditionFailed { index: 0 }
     ));
 
@@ -407,7 +429,7 @@ fn preconditions(s: &dyn WritableStore) {
         preconditions: vec![Precondition::MustExist(anne_on_doc1)],
     };
     assert!(matches!(
-        s.write(&req).unwrap_err(),
+        s.write(&req, None).unwrap_err(),
         Error::PreconditionFailed { index: 0 }
     ));
 
@@ -453,7 +475,7 @@ fn error_precedence(s: &dyn WritableStore) {
         preconditions: vec![never.clone()],
     };
     assert!(matches!(
-        s.write(&dup_and_pre).unwrap_err(),
+        s.write(&dup_and_pre, None).unwrap_err(),
         Error::DuplicateInBatch(_)
     ));
 
@@ -462,7 +484,7 @@ fn error_precedence(s: &dyn WritableStore) {
         preconditions: vec![never],
     };
     assert!(matches!(
-        s.write(&pre_and_create).unwrap_err(),
+        s.write(&pre_and_create, None).unwrap_err(),
         Error::PreconditionFailed { index: 0 }
     ));
 }
@@ -821,14 +843,6 @@ fn count_by_relation(s: &dyn WritableStore) {
         &delete(&["doc:2#viewer@user:bob", "doc:1#parent@folder:a"]),
     );
 
-    let count = |rt: &str, r: &str, st: &str, sr: Option<&str>, wildcard, count| RelationCount {
-        resource_type: ty(rt),
-        relation: name(r),
-        subject_type: ty(st),
-        subject_relation: sr.map(name),
-        wildcard,
-        count,
-    };
     assert_eq!(
         s.count_by_relation(r1).unwrap(),
         [
@@ -850,7 +864,9 @@ fn count_by_relation(s: &dyn WritableStore) {
 
 fn schema_versions(s: &dyn WritableStore) {
     write(s, &touch(&["doc:1#viewer@user:anne"]));
-    let v1 = s.write_schema("definition user {}", "aa").unwrap();
+    let v1 = s
+        .write_schema("definition user {}", "aa", &|_| Ok(()))
+        .unwrap();
     assert_eq!(v1.version, 1);
     assert_eq!(v1.source, "definition user {}");
     assert_eq!(v1.hash, "aa");
@@ -860,12 +876,133 @@ fn schema_versions(s: &dyn WritableStore) {
 
     // Every call stores a version, even with an unchanged hash: deduplication is the
     // engine's job.
-    s.write_schema("definition user {}", "aa").unwrap();
+    s.write_schema("definition user {}", "aa", &|_| Ok(()))
+        .unwrap();
     let v3 = s
-        .write_schema("definition user {}\ndefinition doc {}", "bb")
+        .write_schema("definition user {}\ndefinition doc {}", "bb", &|_| Ok(()))
         .unwrap();
     assert_eq!((v3.version, v3.created_rev), (3, Revision(4)));
     assert_eq!(s.current_schema().unwrap(), Some(v3));
+}
+
+fn schema_check_sees_live_counts(s: &dyn WritableStore) {
+    write(
+        s,
+        &touch(&["doc:1#viewer@user:anne", "doc:2#viewer@user:*"]),
+    );
+    let r = write(s, &touch(&["doc:1#viewer@group:g#member"]));
+    write(s, &delete(&["doc:1#viewer@group:g#member"]));
+    let head_before = head(s);
+    // The check sees live tuples at head only (the deleted subject set is gone) and its
+    // refusal writes nothing: no version, no revision.
+    let seen = std::sync::Mutex::new(Vec::new());
+    let err = s
+        .write_schema("x", "h", &|counts| {
+            seen.lock().unwrap().extend_from_slice(counts);
+            Err(Error::NoSchema)
+        })
+        .unwrap_err();
+    assert!(matches!(err, Error::NoSchema), "{err:?}");
+    assert_eq!(
+        *seen.lock().unwrap(),
+        vec![
+            count("doc", "viewer", "user", None, false, 1),
+            count("doc", "viewer", "user", None, true, 1),
+        ]
+    );
+    assert_eq!(head(s), head_before);
+    assert_eq!(s.current_schema().unwrap(), None);
+    assert_eq!(s.schema_version().unwrap(), 0);
+    assert!(r < head_before);
+    let v = s.write_schema("x", "h", &|_| Ok(())).unwrap();
+    assert_eq!(s.schema_version().unwrap(), v.version);
+}
+
+fn write_checks_schema_version(s: &dyn WritableStore) {
+    let a = "doc:1#viewer@user:anne";
+    // No schema yet: version 0.
+    s.write(&touch(&[a]), Some(0)).unwrap();
+    let err = s.write(&touch(&[a]), Some(1)).unwrap_err();
+    assert!(
+        matches!(
+            err,
+            Error::Store(StoreError::SchemaChanged {
+                expected: 1,
+                found: 0
+            })
+        ),
+        "{err:?}"
+    );
+    let v = s.write_schema("x", "h", &|_| Ok(())).unwrap();
+    let before = head(s);
+    let err = s.write(&delete(&[a]), Some(0)).unwrap_err();
+    assert!(
+        matches!(&err, Error::Store(e) if e.is_retryable()),
+        "{err:?}"
+    );
+    assert_eq!(head(s), before, "a refused batch commits no revision");
+    s.write(&delete(&[a]), Some(v.version)).unwrap();
+    // Duplicates are reported before the version.
+    let err = s.write(&touch(&[a, a]), Some(99)).unwrap_err();
+    assert!(matches!(err, Error::DuplicateInBatch(_)), "{err:?}");
+}
+
+fn delete_matching(s: &dyn WritableStore) {
+    let rels = [
+        "doc:1#viewer@user:b",
+        "doc:1#viewer@user:a",
+        "doc:2#viewer@user:a",
+        "doc:1#owner@user:a",
+        "folder:1#viewer@user:a",
+    ];
+    let r1 = write(s, &touch(&rels));
+    let mut f = RelationshipFilter::new(ty("doc"));
+    f.relation = Some(name("viewer"));
+    let d = s.delete_matching(&f, 2).unwrap();
+    assert_eq!((d.deleted, d.more), (2, true));
+    assert_eq!(d.revision, Revision(r1.0 + 1));
+    assert_eq!(head(s), d.revision);
+    // Storage order: doc:1 user:a, doc:1 user:b go first.
+    assert_eq!(
+        all(s, d.revision, "doc"),
+        ["doc:1#owner@user:a", "doc:2#viewer@user:a"]
+    );
+    assert_eq!(all(s, r1, "doc").len(), 4, "history intact");
+    let d2 = s.delete_matching(&f, 2).unwrap();
+    assert_eq!((d2.deleted, d2.more), (1, false));
+    let d3 = s.delete_matching(&f, 2).unwrap();
+    assert_eq!((d3.deleted, d3.more), (0, false));
+    assert_eq!(
+        d3.revision,
+        Revision(d2.revision.0 + 1),
+        "always one revision"
+    );
+    assert_eq!(all(s, d3.revision, "doc"), ["doc:1#owner@user:a"]);
+    assert_eq!(all(s, d3.revision, "folder"), ["folder:1#viewer@user:a"]);
+}
+
+fn gc_steps(s: &dyn WritableStore) {
+    let rels: Vec<String> = (0..5).map(|i| format!("doc:{i}#viewer@user:a")).collect();
+    let rels: Vec<&str> = rels.iter().map(String::as_str).collect();
+    write(s, &touch(&rels));
+    let r2 = write(s, &delete(&rels));
+    let r3 = write(s, &touch(&["doc:9#viewer@user:a"]));
+    // Step 1 moves the horizon and removes nothing; reads below fail at once.
+    assert_eq!(s.raise_gc_horizon(r3).unwrap(), r3);
+    assert_eq!(s.gc_horizon().unwrap(), r3);
+    assert_out_of_range(s, r2, r3, r3);
+    assert_eq!(all(s, r3, "doc"), ["doc:9#viewer@user:a"]);
+    // Step 2 in batches.
+    assert_eq!(s.gc_batch(2).unwrap(), 2);
+    assert_eq!(s.gc_batch(2).unwrap(), 2);
+    assert_eq!(s.gc_batch(2).unwrap(), 1);
+    assert_eq!(s.gc_batch(2).unwrap(), 0);
+    assert_eq!(all(s, r3, "doc"), ["doc:9#viewer@user:a"]);
+    assert_eq!(head(s), r3, "gc commits no revision");
+    // Never lowered; above head refused.
+    assert_eq!(s.raise_gc_horizon(Revision(1)).unwrap(), r3);
+    let err = s.raise_gc_horizon(Revision(r3.0 + 1)).unwrap_err();
+    assert!(matches!(err, Error::InvalidRequest { .. }), "{err:?}");
 }
 
 fn reads_above_head_fail(s: &dyn WritableStore) {
@@ -888,6 +1025,7 @@ fn gc_horizon(s: &dyn WritableStore) {
         stats.rows_removed, 1,
         "only `a`, deleted at {r2}, is collectable"
     );
+    assert_eq!(stats.batches, 2, "one batch, then an empty one");
     assert_eq!(stats.horizon, r3);
     assert_eq!(s.gc_horizon().unwrap(), r3);
     assert_eq!(head(s), r4, "gc commits no revision");
