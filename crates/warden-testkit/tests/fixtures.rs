@@ -185,3 +185,20 @@ fn check_with_both_an_answer_and_an_error_is_refused() {
         "{r:?}"
     );
 }
+
+#[test]
+fn crlf_fixture_gives_identical_results() {
+    for name in ["google_docs", "direct", "depth_limit"] {
+        let path = fixtures_dir().join(format!("{name}.yaml"));
+        let lf = std::fs::read_to_string(&path)
+            .unwrap()
+            .replace("\r\n", "\n");
+        let crlf = lf.replace('\n', "\r\n");
+        assert!(crlf.contains("\r\n"));
+        let dir = path.parent().unwrap();
+        let want = run_str(&lf, dir, StoreKind::Memory).unwrap();
+        let got = run_str(&crlf, dir, StoreKind::Memory).unwrap();
+        assert!(want.passed() && want.checked > 0, "{name}: {want:?}");
+        assert_eq!(got, want, "{name}");
+    }
+}

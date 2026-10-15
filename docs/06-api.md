@@ -301,7 +301,8 @@ summary to stderr, and `<file>: ok` / `<file>: ok with N warnings` to stdout on 
 fixture on every store kind the runner supports (memory only until M2), prints
 `ok    <file> [<store>] (<n> checked)` or `FAIL  <file> [<store>]` followed by one line per
 failure (`  <file>: <location> \`<assertion>\`: <message>`) to stdout, warnings for skipped
-keys to stderr, and a summary line. An unreadable file is exit 2.
+keys to stderr, and a summary line. Paths are printed with `/` separators on every
+platform, so output is identical on Windows. An unreadable file is exit 2.
 
 `schema fmt` is **experimental**: it drops non-doc comments; it does not modify files.
 It prints the canonical form to stdout. Because plain `//` / `/* */` comments are dropped,

@@ -161,6 +161,8 @@ expectErrors:                       # optional: schema or write must fail with t
   reports a failure naming each of the two that disagrees with the file. Objects the
   assertions name are added to the oracle's universe. If the oracle declines the schema
   (`NotStratifiable`), the runner warns and checks the engine only.
+- CRLF line endings are accepted: the runner turns `\r\n` into `\n` in the fixture and in a
+  `schemaFile` before parsing, so schema, relationships and assertions read the same.
 - A fixture that is not valid YAML, or not a valid fixture, is a failure (exit 1); only an
   unreadable file is an I/O error (exit 2).
 - YAML crate: `serde-saphyr` (`docs/09-repo-and-tooling.md` §2).

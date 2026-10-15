@@ -128,7 +128,9 @@ pub fn run(path: &Path, store: StoreKind) -> Result<Report, FixtureError> {
 /// As [`run`].
 pub fn run_str(source: &str, base_dir: &Path, store: StoreKind) -> Result<Report, FixtureError> {
     let mut report = Report::default();
-    let fixture: FixtureFile = match serde_saphyr::from_str(source) {
+    // Windows checkouts and editors produce CRLF; a fixture means the same either way.
+    let source = lf(source);
+    let fixture: FixtureFile = match serde_saphyr::from_str(&source) {
         Ok(f) => f,
         Err(e) => {
             report.fail("fixture", "", format!("not a valid fixture: {e}"));
@@ -137,7 +139,7 @@ pub fn run_str(source: &str, base_dir: &Path, store: StoreKind) -> Result<Report
     };
     let schema = match (&fixture.schema, &fixture.schema_file) {
         (Some(s), None) => s.clone(),
-        (None, Some(file)) => read(&base_dir.join(file))?,
+        (None, Some(file)) => lf(&read(&base_dir.join(file))?),
         _ => {
             report.fail(
                 "fixture",
@@ -158,6 +160,10 @@ fn run_on<S: WritableStore>(store: S, fixture: &FixtureFile, schema: &str, repor
     if let Some(runner) = Runner::start(store, report) {
         runner.run(fixture, schema, report);
     }
+}
+
+fn lf(text: &str) -> String {
+    text.replace("\r\n", "\n")
 }
 
 fn read(path: &Path) -> Result<String, FixtureError> {

@@ -225,6 +225,17 @@ fn fixture_files(paths: &[PathBuf]) -> Result<Vec<PathBuf>, String> {
     Ok(out)
 }
 
+/// `path` with `/` separators on every platform, so `warden test` output is the same on
+/// Windows as elsewhere.
+fn slash_path(path: &Path) -> String {
+    let s = path.display().to_string();
+    if std::path::MAIN_SEPARATOR == '/' {
+        s
+    } else {
+        s.replace(std::path::MAIN_SEPARATOR, "/")
+    }
+}
+
 fn test(paths: &[PathBuf]) -> CmdResult {
     let files = fixture_files(paths)?;
     if files.is_empty() {
@@ -234,7 +245,7 @@ fn test(paths: &[PathBuf]) -> CmdResult {
     let mut err = io::stderr().lock();
     let (mut failed_files, mut failures, mut checked) = (0, 0, 0);
     for file in &files {
-        let path = file.display().to_string();
+        let path = slash_path(file);
         for &store in StoreKind::ALL {
             let report = fixtures::run(file, store).map_err(|e| e.to_string())?;
             for w in &report.warnings {
