@@ -355,9 +355,9 @@ plain comments and relation/permission interleaving, but changes with doc commen
 
 ## 10. Schema changes against existing data
 
-`Engine::write_schema(new)` must refuse (`E_SCHEMA_CHANGE_ORPHANS`: the
-`Error::SchemaChangeOrphans` variant, whose `Error::code()` is `SCHEMA_CHANGE_ORPHANS`
-following `06` §1.1's naming) when, at head, any live tuple would fail write validation
+`Engine::write_schema(new)` must refuse (`SCHEMA_CHANGE_ORPHANS`: the
+`Error::SchemaChangeOrphans` variant; runtime error codes from `Error::code()` carry no
+`E_` prefix, which is reserved for schema diagnostics, `06` §1.1, OQ-030) when, at head, any live tuple would fail write validation
 (`02` §6) under the new schema. That includes:
 - a relation with live tuples removed, or turned into a permission of the same name;
 - an allowed subject type, subject set or wildcard with live tuples using it removed from a

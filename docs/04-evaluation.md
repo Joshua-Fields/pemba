@@ -19,6 +19,17 @@ Every algorithm here must agree with the reference evaluator (`docs/07` §2) on 
    between requests except the immutable schema and the store.
 4. Evaluate. Return `{ result, revision, stats }`.
 
+**What `Exact(r)` means (OQ-030).** A read at `Exact(r)` answers with **the current
+schema applied to the data as of `r`**, not "what was allowed at `r`". Schema history is
+not replayed. Example: at revision 10 the schema has `permission view = viewer - banned`
+and `doc:d#banned@user:eve` is live, so eve cannot view `doc:d`. At revision 20 `banned`
+is removed from the schema (after its tuples are deleted, `03` §10). `check(doc:d, view,
+user:eve)` at `Exact(10)` now evaluates `view = viewer`, never reads `banned`, and answers
+`true` if eve was a viewer at 10, although at revision 10 she was denied. `Exact` is for
+consistent paging and read-after-write, **not an audit log**; keep one in the application
+if "who could do what, when" matters. Stale tuples on relations that still exist fail
+closed (`StaleRelationship`, §3.3).
+
 `EvalStats` (returned, also emitted on the tracing span): `store_reads`, `tuples_read`,
 `memo_hits`, `max_depth_reached`, `cycle_passes` (§3.6), `elapsed`.
 

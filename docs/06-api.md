@@ -286,8 +286,16 @@ Every variant has a stable machine code (`Error::code() -> &'static str`, e.g.
 `REVISION_EXPIRED`, `STORE_ERROR`, `MAX_DEPTH_EXCEEDED`, `NON_MONOTONIC_CYCLE`,
 `FANOUT_EXCEEDED`, `READ_LIMIT_EXCEEDED`, `STALE_RELATIONSHIP`, `NOT_MIGRATED`,
 `STORAGE_VERSION_TOO_NEW`, `FOREIGN_CONNECTION_MISMATCH`, `LOOKUP_TOO_LARGE` (T2.4),
-`SCHEMA_CHANGE_ORPHANS` (T2.6; `03` §10 calls it `E_SCHEMA_CHANGE_ORPHANS`); variants added later use their name in SCREAMING_SNAKE
-case.
+`SCHEMA_CHANGE_ORPHANS` (T2.6), `TRANSACTION_CONFLICT` (T3.1: `Store(StoreError::Conflict)`,
+split from `STORE_ERROR` so the code alone tells a caller to retry the whole transaction);
+variants added later use their name in SCREAMING_SNAKE case. Runtime codes never carry the
+`E_` prefix, which belongs to schema diagnostics (`ErrorCode`). `Error::CODES` lists every
+code `code()` can return.
+
+**`Consistency::Exact(r)` is not history.** It evaluates the *current* schema over the
+data as of `r`, not what was allowed at `r` (`04` §1, OQ-030): after `banned` is removed
+from `view = viewer - banned`, a check at an `Exact` revision from before the removal no
+longer subtracts `banned`. It is not an audit log.
 
 ---
 
@@ -324,8 +332,9 @@ class Revision(int): ...
 
 class Engine:
     @staticmethod
-    def sqlite(path: str, *, reader_pool: int = 4, busy_timeout_ms: int = 5000,
-               auto_migrate: bool = True, max_depth: int = 50) -> "Engine": ...
+    def sqlite(path: str | os.PathLike[str], *, reader_pool: int = 4,
+               busy_timeout_ms: int = 5000, auto_migrate: bool = True,
+               max_depth: int = 50) -> "Engine": ...
     @staticmethod
     def memory(*, max_depth: int = 50) -> "Engine": ...
 
@@ -338,11 +347,12 @@ class Engine:
               create: Iterable[str | Relationship] = (),
               delete: Iterable[str | Relationship] = (),
               preconditions: Iterable["Precondition"] = (),
-              conn: Any | None = None, allow_autocommit: bool = False) -> Revision: ...
+              conn: Any | None = None, allow_autocommit: bool = False) -> Revision: ...  # conn: T3.2
     def delete_relationships(self, *, resource_type: str, resource_id: str | None = None,
                              relation: str | None = None, subject_type: str | None = None,
                              subject_id: str | None = None,
-                             subject_relation: str | None = None) -> "DeleteResult": ...
+                             subject_relation: str | None = None,
+                             limit: int | None = None) -> "DeleteResult": ...
 
     @overload
     def check(self, tuple_str: str, /, *, at_least: int | None = None,
@@ -350,44 +360,92 @@ class Engine:
     @overload
     def check(self, resource: str, permission: str, subject: str, /, *,
               at_least: int | None = None, at_exactly: int | None = None) -> bool: ...
-    def check_detailed(self, resource: str, permission: str, subject: str, /, **consistency) -> "CheckResult": ...
-    def check_bulk(self, items: Sequence[tuple[str, str, str]], /, **consistency) -> list[bool | "WardenError"]: ...
+    def check_detailed(self, resource: str, permission: str, subject: str, /, *,
+                       at_least: int | None = None, at_exactly: int | None = None) -> "CheckResult": ...
+    def check_bulk(self, items: Sequence[tuple[str, str, str]], /, *,
+                   at_least: int | None = None, at_exactly: int | None = None
+                   ) -> list[bool | "WardenError"]: ...
 
     def lookup_resources(self, resource_type: str, permission: str, subject: str, /, *,
                          limit: int | None = None, cursor: str | None = None,
-                         **consistency) -> "LookupResult": ...
-    def iter_resources(self, resource_type: str, permission: str, subject: str, /,
-                       **consistency) -> Iterator[str]: ...          # pages internally at one revision
-    def lookup_subjects(self, resource: str, permission: str, subject_type: str, /,
-                        **consistency) -> "SubjectsResult": ...
-    def read_relationships(self, *, resource_type: str, **filters) -> list["Relationship"]: ...
+                         at_least: int | None = None, at_exactly: int | None = None) -> "LookupResult": ...
+    def iter_resources(self, resource_type: str, permission: str, subject: str, /, *,
+                       at_least: int | None = None, at_exactly: int | None = None
+                       ) -> Iterator[str]: ...                       # pages internally at one revision
+    def lookup_subjects(self, resource: str, permission: str, subject_type: str, /, *,
+                        at_least: int | None = None, at_exactly: int | None = None) -> "SubjectsResult": ...
+    def read_relationships(self, *, resource_type: str, resource_id: str | None = None,
+                           relation: str | None = None, subject_type: str | None = None,
+                           subject_id: str | None = None, subject_relation: str | None = None,
+                           at_least: int | None = None, at_exactly: int | None = None
+                           ) -> list["Relationship"]: ...            # every page, at one revision
     def head_revision(self) -> Revision: ...
-    def migrate(self) -> None: ...
     def gc(self, keep_from: int) -> "GcStats": ...
+
+class Relationship:                       # frozen; str() is the tuple string
+    def __init__(self, resource_type: str, resource_id: str, relation: str,
+                 subject_type: str, subject_id: str, subject_relation: str | None = None) -> None: ...
+    @staticmethod
+    def parse(s: str) -> "Relationship": ...
+
+class Precondition:                       # frozen; filters as in delete_relationships
+    @staticmethod
+    def must_exist(*, resource_type: str, **filter: str | None) -> "Precondition": ...
+    @staticmethod
+    def must_not_exist(*, resource_type: str, **filter: str | None) -> "Precondition": ...
 ```
 
 Rules:
-- `at_least` and `at_exactly` are mutually exclusive (`ValueError`). Neither → `Latest`.
-- `iter_resources` pins the revision from the first page (`Exact`) for later pages.
+- Consistency is spelled out as the keyword-only `at_least` / `at_exactly` on every read,
+  rather than `**consistency`, so `mypy --strict` checks it. They are mutually exclusive
+  (`ValueError`). Neither → `Latest`. A negative revision → `ValueError`.
+- `at_exactly=r` has the Rust `Exact(r)` meaning: **the current schema applied to the data
+  as of `r`**, not what was allowed at `r`. If `view = viewer - banned` loses `banned`, a
+  check at an older `at_exactly` no longer subtracts `banned`. It is not an audit log
+  (`04` §1, OQ-030).
+- Filters (`delete_relationships`, `read_relationships`, `Precondition`): `None` matches
+  anything; `subject_relation=""` matches only subjects without a relation (plain objects
+  and wildcards). A wildcard subject has `subject_id == "*"`.
+- `iter_resources` pins the revision of its first page (`Exact`) for every later page and
+  stops only when the cursor runs out (pages may be empty, `06` §1). It fetches lazily.
+- `read_relationships` returns every match, paging internally at the first page's
+  revision; bound it with filters.
+- Malformed tuple/object strings raise `ValueError` (argument mistakes), not `WardenError`.
+- Migration is a store concern (OQ-025 (d)), so there is no `Engine.migrate()`:
+  `Engine.sqlite(path)` migrates on open while `auto_migrate=True` (the default); a
+  production deploy step runs `Engine.sqlite(path, auto_migrate=True)` once, and app
+  processes open with `auto_migrate=False` (`NotMigrated` if the step was skipped). An
+  instance method could never run where it matters: with `auto_migrate=False` an
+  unmigrated database fails in `Engine.sqlite` before any engine exists.
 - All engine calls release the GIL except foreign-connection writes (they call Python).
 - `Engine` is thread-safe; share one instance per process. Not fork-safe: create it after
   forking (document for gunicorn `--preload` users).
-- Dataclass-like result types (`Relationship`, `CheckResult`, `LookupResult`,
-  `SubjectsResult`, `Diagnostic`, `GcStats`, `DeleteResult`) are frozen `#[pyclass]`es with
-  `__repr__`, `__eq__`, `__hash__` where sensible.
+- Dataclass-like result types (`Relationship`, `Precondition`, `CheckResult`,
+  `LookupResult`, `SubjectsResult`, `Diagnostic`, `GcStats`, `DeleteResult`,
+  `OrphanReport`) are frozen `#[pyclass]`es with `__repr__`, `__eq__`, `__hash__` where
+  sensible. Revisions in them are `Revision`.
 
 ### 2.3 Exceptions
 
 ```text
-WardenError(Exception)               .code: str  (Rust Error::code())
-├── SchemaError                      .diagnostics: list[Diagnostic]
-├── InvalidRelationshipError
-├── InvalidRequestError
-├── ConsistencyError                 (RevisionNotYetAvailable, RevisionExpired)
-├── EvaluationLimitError             (MaxDepthExceeded, FanoutExceeded, ReadLimitExceeded, LookupTooLarge, NonMonotonicCycle)
-├── WriteConflictError               (AlreadyExists, PreconditionFailed, DuplicateInBatch)
-├── StorageError                     (Store, NotMigrated, StorageVersionTooNew, ForeignConnectionMismatch)
+WardenError(Exception)               .code: str  (Rust Error::code()), .retryable: bool
+├── SchemaError                      SCHEMA_ERROR; .diagnostics: list[Diagnostic]
+├── SchemaChangeOrphansError         SCHEMA_CHANGE_ORPHANS; .orphans: list[OrphanReport] (per-group counts)
+├── NoSchemaError                    NO_SCHEMA
+├── InvalidRelationshipError         INVALID_RELATIONSHIP; .relationship: str, .reason: str (E_ code)
+├── InvalidRequestError              INVALID_REQUEST, BATCH_TOO_LARGE
+├── ConsistencyError                 REVISION_NOT_YET_AVAILABLE, REVISION_EXPIRED
+├── EvaluationLimitError             MAX_DEPTH_EXCEEDED, FANOUT_EXCEEDED, READ_LIMIT_EXCEEDED,
+│                                    LOOKUP_TOO_LARGE, NON_MONOTONIC_CYCLE
+├── StaleRelationshipError           STALE_RELATIONSHIP; .relationship: str
+├── WriteConflictError               ALREADY_EXISTS, PRECONDITION_FAILED, DUPLICATE_IN_BATCH
+└── StorageError                     STORE_ERROR, NOT_MIGRATED, STORAGE_VERSION_TOO_NEW,
+    │                                FOREIGN_CONNECTION_MISMATCH
+    └── TransactionConflictError     TRANSACTION_CONFLICT: retry the whole transaction
 ```
+Every `Error::code()` maps to exactly one class (tested by iterating `Error::CODES`).
+`retryable` is `StoreError::is_retryable()` (true for `TRANSACTION_CONFLICT` and a
+persistent `SchemaChanged`), else false.
 Python argument mistakes raise built-in `ValueError` / `TypeError`, not `WardenError`.
 
 ### 2.4 FastAPI helper (stretch, `warden.contrib.fastapi`)

@@ -180,7 +180,37 @@ impl std::fmt::Display for OrphanReport {
 }
 
 impl Error {
+    /// Every code [`code`](Self::code) can return, so bindings can prove each one is mapped
+    /// (`docs/06-api.md` §2.3).
+    pub const CODES: &'static [&'static str] = &[
+        "SCHEMA_ERROR",
+        "SCHEMA_CHANGE_ORPHANS",
+        "NO_SCHEMA",
+        "INVALID_RELATIONSHIP",
+        "INVALID_REQUEST",
+        "DUPLICATE_IN_BATCH",
+        "ALREADY_EXISTS",
+        "PRECONDITION_FAILED",
+        "BATCH_TOO_LARGE",
+        "REVISION_NOT_YET_AVAILABLE",
+        "REVISION_EXPIRED",
+        "MAX_DEPTH_EXCEEDED",
+        "NON_MONOTONIC_CYCLE",
+        "FANOUT_EXCEEDED",
+        "READ_LIMIT_EXCEEDED",
+        "STALE_RELATIONSHIP",
+        "LOOKUP_TOO_LARGE",
+        "NOT_MIGRATED",
+        "STORAGE_VERSION_TOO_NEW",
+        "FOREIGN_CONNECTION_MISMATCH",
+        "TRANSACTION_CONFLICT",
+        "STORE_ERROR",
+    ];
+
     /// Stable machine-readable code, e.g. `"PRECONDITION_FAILED"`.
+    ///
+    /// [`StoreError::Conflict`] has its own code, `TRANSACTION_CONFLICT`, because it asks
+    /// the caller to retry the whole transaction, unlike every other `STORE_ERROR`.
     pub fn code(&self) -> &'static str {
         match self {
             Self::Schema(_) => "SCHEMA_ERROR",
@@ -203,7 +233,100 @@ impl Error {
             Self::NotMigrated => "NOT_MIGRATED",
             Self::StorageVersionTooNew { .. } => "STORAGE_VERSION_TOO_NEW",
             Self::ForeignConnectionMismatch => "FOREIGN_CONNECTION_MISMATCH",
+            Self::Store(StoreError::Conflict { .. }) => "TRANSACTION_CONFLICT",
             Self::Store(_) => "STORE_ERROR",
         }
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use std::collections::BTreeSet;
+
+    use super::*;
+
+    /// Fails to compile when a variant is added, pointing here: add it to `samples` and,
+    /// if its code is new, to [`Error::CODES`].
+    fn covered(e: &Error) {
+        match e {
+            Error::Schema(_)
+            | Error::SchemaChangeOrphans(_)
+            | Error::NoSchema
+            | Error::InvalidRelationship { .. }
+            | Error::InvalidRequest { .. }
+            | Error::DuplicateInBatch(_)
+            | Error::AlreadyExists(_)
+            | Error::PreconditionFailed { .. }
+            | Error::BatchTooLarge { .. }
+            | Error::RevisionNotYetAvailable { .. }
+            | Error::RevisionExpired { .. }
+            | Error::MaxDepthExceeded { .. }
+            | Error::NonMonotonicCycle { .. }
+            | Error::FanoutExceeded { .. }
+            | Error::ReadLimitExceeded { .. }
+            | Error::StaleRelationship { .. }
+            | Error::LookupTooLarge { .. }
+            | Error::NotMigrated
+            | Error::StorageVersionTooNew { .. }
+            | Error::ForeignConnectionMismatch
+            | Error::Store(_) => {}
+        }
+    }
+
+    fn samples() -> Vec<Error> {
+        let r = Revision(1);
+        let s = String::new;
+        vec![
+            Error::Schema(warden_schema::compile("?").err().unwrap()),
+            Error::SchemaChangeOrphans(Vec::new()),
+            Error::NoSchema,
+            Error::InvalidRelationship {
+                rel: s(),
+                code: ErrorCode::UnknownType,
+                message: s(),
+            },
+            Error::InvalidRequest { message: s() },
+            Error::DuplicateInBatch(s()),
+            Error::AlreadyExists(s()),
+            Error::PreconditionFailed { index: 0 },
+            Error::BatchTooLarge { max: 1, got: 2 },
+            Error::RevisionNotYetAvailable {
+                requested: r,
+                head: r,
+            },
+            Error::RevisionExpired {
+                requested: r,
+                horizon: r,
+            },
+            Error::MaxDepthExceeded { path: Vec::new() },
+            Error::NonMonotonicCycle { path: Vec::new() },
+            Error::FanoutExceeded { node: s(), max: 1 },
+            Error::ReadLimitExceeded { max: 1 },
+            Error::StaleRelationship {
+                tuple: s(),
+                relation: s(),
+            },
+            Error::LookupTooLarge { max: 1 },
+            Error::NotMigrated,
+            Error::StorageVersionTooNew {
+                found: 2,
+                supported: 1,
+            },
+            Error::ForeignConnectionMismatch,
+            Error::Store(StoreError::Conflict { message: s() }),
+            Error::Store(StoreError::Poisoned),
+        ]
+    }
+
+    #[test]
+    fn codes_lists_every_code_once() {
+        let samples = samples();
+        samples.iter().for_each(covered);
+        let from_samples: BTreeSet<_> = samples.iter().map(Error::code).collect();
+        let listed: BTreeSet<_> = Error::CODES.iter().copied().collect();
+        assert_eq!(listed.len(), Error::CODES.len(), "duplicate in CODES");
+        assert_eq!(from_samples, listed);
+        assert!(listed.iter().all(|c| !c.starts_with("E_")));
     }
 }

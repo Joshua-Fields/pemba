@@ -98,7 +98,8 @@ Other conventions:
 - `ci.yml` (push/PR): fmt, clippy, test (ubuntu, macos, windows; property 1 at 64 cases
   plus saved regression seeds), property 1 at ≥ 1 000 cases (`prop1` job, ubuntu,
   `--ignored` in `warden-testkit`'s `properties` test), `cargo deny check`,
-  `cargo doc`, Python tests via `maturin develop` on ubuntu, coverage report (ubuntu).
+  `cargo doc`, Python tests (`maturin develop`, `pytest`, `mypy --strict` on the tests and
+  sample) on ubuntu, macos and windows, coverage report (ubuntu).
 - `wheels.yml` (tag + manual): maturin-action matrix for ADR-014 platforms; smoke test;
   upload artifacts. Publishing to PyPI/crates.io is a manual human step.
 - `proptest.yml` (manual): the same property 1 run at a larger `PROPTEST_CASES` (an

@@ -100,8 +100,8 @@ cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace --all-features
 cargo test --workspace --all-features -- --ignored   # slow/property tests, when touched
 cargo doc --workspace --no-deps                       # no broken intra-doc links
-# once warden-py exists:
-cd crates/warden-py && maturin develop && pytest -q
+# Python (in a virtualenv with maturin, pytest and mypy installed):
+cd crates/warden-py && maturin develop && pytest -q && mypy --strict tests
 ```
 
 ---
