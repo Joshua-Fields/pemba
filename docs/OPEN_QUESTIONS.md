@@ -334,5 +334,10 @@ it is resolved.
   (`crates/warden-testkit/tests/check_cost.rs`, ≤ 1 000 store reads), `#[ignore]`d and
   failing today. Plain `cargo test` runs property 1 at 64 cases plus saved seeds; the
   1 000-case run is the manual `proptest.yml` workflow
+- T1.4c phase 1: lowlink taint plus memoising cycle heads and tainted `true`s is still
+  exponential (complete group graph, subject in none: only the root is a head). Design
+  replaced by SCC fixed-point iteration (`04` §3.6 planned rule T1.4c). Adversarial tests
+  added to `check_cost.rs`, `#[ignore]`d; the complete-graph one fails today (store reads
+  for n = 5..9: 130, 652, 3 914, 27 400, 219 202)
 - Resolve by: T1.4c (bound check cost on cyclic data)
 - Resolution: (fill in)

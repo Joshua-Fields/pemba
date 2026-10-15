@@ -154,6 +154,65 @@ nested groups that contain each other) is legal. Rules:
   (OQ-021), which makes taint lowlink-style: a result carries the lowest stack index of an
   in-progress node it assumed `false`; a node whose lowlink is not below its own index has a
   settled value and is memoised.
+- **Planned rule (T1.4c, not yet implemented): SCC fixed-point iteration.** Lowlink taint
+  alone leaves the worst case exponential: on groups `g1..gn` whose `member`s all contain
+  each other, with the subject in none, every node is `false` and only the root is a cycle
+  head, so no inner `false` is ever memoised and every simple path is walked (~(n−1)! of
+  them; OQ-021). The rule below evaluates each node of a strongly connected region at most
+  once per pass.
+  - *Taint.* An `Outcome` carries `lowlink: Option<usize>` instead of `tainted`: the lowest
+    stack index of an in-progress node whose value it used, `None` if it used none. Composite
+    lowlink = min over the children actually evaluated.
+  - *Cycle hit* on the frame at index `i` (and no negated frame from `i` up, as today):
+    return `provisional[key]` (`false` if absent) with `lowlink = i`, and mark frame `i`
+    as *assumed* with that value.
+  - *Finish value.* A node with a lowlink finishes with `computed | provisional[key]`, so a
+    finished value is never below the value a cycle hit assumed for it.
+  - *Member finish.* A node finishing with `lowlink < its own index` is a member of the SCC
+    of some frame below it. Its value goes into the **pass memo** with its lowlink; a later
+    hit on it in the same pass returns that value and lowlink without re-evaluating it.
+  - *Head finish.* A node finishing at index `k` with `lowlink` `None` or `≥ k` heads its
+    SCC (or is acyclic). If `lowlink` is `None`, or no frame of the SCC was assumed with a
+    value that differs from the value it finished with, the pass is consistent: move the
+    head and every pass-memo entry with lowlink `≥ k` into the request memo (settled) and
+    clear them from the pass memo. (By the finish value, "differs" can only mean assumed
+    `false`, finished `true`.) Otherwise set `provisional[x] |= value(x)` for the head
+    and each such entry, clear those pass-memo entries, and re-run the head (pass p+1).
+    Shortcut: if the head finishes `true`, stop; memoise the head and members' `true`s and
+    drop members' `false`s (a `true` is always sound, see below).
+  - *Inner SCCs* settle inside an outer pass: a head at index `k` depends on nothing below
+    `k`, so its values are final and go straight into the request memo. They are never
+    re-run by an outer pass.
+  - *Negation.* `NonMonotonicCycle` is unchanged (current rule above; T1.4b refines it). A
+    pass-memo hit beneath a negated frame is also `NonMonotonicCycle`: the entry's value is
+    unsettled and depends on an in-progress node, which re-evaluating it today would reach
+    under negation and refuse. So every SCC that is iterated is monotone.
+  - *Termination.* `provisional` only grows (`false → true`, by `|=`), a re-run happens only
+    when some value flips, and there are at most `|S|` flips for an SCC of `|S|` nodes, so
+    at most `|S| + 1` passes.
+  - *Soundness (every value `≤` the least fixed point `μ`).* Pass 1 assumes `false = ⊥ ≤ μ`;
+    each node is a monotone function of its children, so values computed from inputs `≤ μ`
+    are `≤ f(μ) = μ`; `|=` keeps `provisional ≤ μ`. Hence any `true`, provisional or not,
+    is a correct `true`.
+  - *Leastness (final values `= μ`).* In the final pass every in-progress hit returned the
+    value its node finished with, so the values `V` of the nodes `E` evaluated in that pass
+    are mutually consistent. A `true` in `V` is `≤ μ` by soundness. A `false` in `V` was
+    computed (not taken from `provisional`), and short-circuiting means it is determined by
+    the children evaluated, all in `E` or settled. Kleene iteration from `⊥` then stays
+    `≤ V` on `E` at every step (induction, by monotonicity), so `μ ≤ V` on `E`, and with
+    soundness `V = μ` on `E`. Only nodes in `E` are memoised as settled; members evaluated
+    only in earlier passes are dropped, except their `true`s.
+  - *Cost.* Each pass evaluates each SCC node at most once, so one `check` makes at most
+    `(|S| + 1) · Σ r(x)` store reads per SCC, where `r(x)` is the reads one evaluation of
+    `x` makes (2–3 for a relation, one per arrow). Quadratic in the reachable nodes in the
+    worst case; typically one or two passes (the complete group graph above: one pass,
+    ~2n reads; with the subject in one group: the first deep path finds it).
+  - *Backstop.* `EngineConfig::max_check_reads` (proposed default **200 000**) caps store
+    reads per `check` request (per item for `check_bulk`) and fails closed with a new error
+    (`06` §1). It bounds cost against bugs in this rule and against large but legitimate
+    graphs, independently of any proof. 200 000 is twice `max_check_fanout`, so one node at
+    full fan-out (each child ≥ 1 read) still fits, and it caps a pathological check at
+    roughly 1–4 s on SQLite (at 5–20 µs per indexed point read; to be measured in T1.4c).
 
 ### 3.7 Depth
 
