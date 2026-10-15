@@ -1,0 +1,13 @@
+---
+source: crates/warden-cli/tests/schema_cmd.rs
+expression: stderr(&out)
+---
+error[E_UNEXPECTED_TOKEN]: expected `relation`, `permission` or `}`, found `;`
+ --> syntax_error.zed:4:26
+  |
+4 |     relation viewer: user;
+  |                          ^
+  |
+  = help: remove ';' — the schema language does not use semicolons
+
+error: `syntax_error.zed` rejected with 1 error

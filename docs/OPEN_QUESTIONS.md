@@ -104,3 +104,37 @@ it is resolved.
   does. Loosening later is backwards compatible; tightening would not be. The `:` after a
   relation name (`relation viewer : user`) is not part of a type reference and stays free.
   Spec `03` §2 updated.
+
+## OQ-012 — Round-trip property when the printer reorders members
+- Raised in: T0.5 (`docs/03-schema-language.md` §9)
+- Blocking: no
+- Current choice: see Resolution. Original note: §9 asked for `compile(print(compile(s))) == compile(s)` as IR equality, but
+  the printer moves relations ahead of permissions, which renumbers `RelId`s when `s`
+  interleaves them, and the recompiled `source` field is the printed text, not `s`. Literal
+  `==` cannot hold for such inputs. The property test checks (a) equality by name (ids
+  replaced by the names they stand for) for every generated input, (b) equal `hash`,
+  (c) printing is a fixed point, and (d) exact `==` of the whole `CompiledSchema` once the
+  input is canonical, plus equal `types` when the input was already in canonical member
+  order. Alternative not taken: make `compile` itself order members relations-first, which
+  would change `RelId` assignment for every schema
+- Resolve by: human review
+- Resolution: resolved in T0.5 by the human. The three-part property is accepted
+  (same schema by name with equal hash; printing is a fixed point so the IR round-trips
+  exactly once canonical; unchanged `types` for input already in canonical member order).
+  Spec `03` §9 now states it in place of literal IR equality.
+
+## OQ-013 — `warden schema fmt` output target, comments, exit code for I/O errors
+- Raised in: T0.5 (`docs/06-api.md` §3)
+- Blocking: no
+- Current choice: see Resolution. Original note: `fmt` prints to stdout and never rewrites the file in place, because the
+  canonical printer works from the IR and drops plain `//` and `/* */` comments; rewriting
+  in place would silently delete them. `fmt --check` therefore also fails for any file with
+  plain comments. Exit code 2 for "could not run" (unreadable file, bad arguments, matching
+  clap's usage-error code), 1 for a rejected schema or non-canonical file. Output colours
+  are deferred. A comment-preserving formatter (from the AST plus comment trivia) and an
+  in-place `--write` flag are possible later additions
+- Resolve by: human review
+- Resolution: resolved for now in T0.5 by the human. `schema fmt` is marked experimental
+  in its `--help` text and in `06` §3 ("drops non-doc comments; does not modify files").
+  Exit code 2 is documented for usage and I/O errors. A comment-preserving formatter is
+  task T3.8 in `08`, before the 0.1 gate.

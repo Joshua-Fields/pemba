@@ -12,6 +12,7 @@ pub mod ident;
 pub mod ir;
 mod lexer;
 mod parser;
+mod print;
 mod span;
 
 pub use compile::{Compiled, compile};

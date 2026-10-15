@@ -199,6 +199,12 @@ AC:
 - `cargo-mutants` on `eval` and schema validator: surviving mutants reviewed and either killed
   by new tests or justified in `docs/MUTANTS.md`.
 
+### T3.8 Comment-preserving formatter (print from the AST with comment trivia)
+Refs: `03` §9, `06` §3, OQ-013. Lands before the T3.7 gate.
+AC:
+- Plain comments (`//` and `/* */`) survive `warden schema fmt`.
+- `warden schema fmt --check` passes on canonical files containing comments.
+
 ### T3.7 Documentation and 0.1 gate
 AC (release gate — human signs off):
 - README: pitch, install, quick start (Python + Rust), the transactional-write example,
