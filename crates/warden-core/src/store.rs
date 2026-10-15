@@ -29,7 +29,10 @@
 //!
 //! Results are ordered by their storage columns compared byte-wise, matching SQLite's
 //! `BINARY` collation: a wildcard subject has id `"*"` and an absent subject relation is
-//! `""` (see [`subject_columns`] and [`relationship_columns`]).
+//! `""` (see [`subject_columns`] and [`relationship_columns`]). The order is part of the
+//! contract: the evaluator visits results in it and short-circuits, so it decides which
+//! error a `check` reports and how many reads it makes; every store must return the same
+//! order (`docs/05-storage.md` §2, conformance case `read_order_bytewise`).
 
 use std::cmp::Ordering;
 
@@ -71,6 +74,19 @@ pub enum StoreError {
     /// The revision counter is at `u64::MAX`; no further revision can be allocated.
     #[error("revision counter exhausted")]
     RevisionsExhausted,
+    /// The database driver failed (I/O, locking, SQL error).
+    #[error("database error: {message}")]
+    Backend {
+        /// Driver message.
+        message: String,
+    },
+    /// The engine's own tables hold a value the engine cannot interpret, e.g. a
+    /// non-numeric `storage_version`; reading on would mean guessing.
+    #[error("corrupt store metadata: {message}")]
+    Corrupt {
+        /// What was found and where.
+        message: String,
+    },
 }
 
 /// Which stored subject relations a [`ReverseFilter`] matches.

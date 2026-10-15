@@ -33,7 +33,8 @@ warden/
 
 Dependency direction (no cycles, enforced by review):
 `schema` ← `core` ← `store-*` ← `warden` ← `cli`, `py`; `testkit` depends on `core` + stores
-(dev-dependency elsewhere, except `cli`, whose `warden test` runs the fixture runner: OQ-024).
+(dev-dependency elsewhere, except `cli`, whose `warden test` runs the fixture runner, until
+T3.3 moves the fixture format and runner into a small publishable crate: OQ-024).
 
 Facade features: `sqlite` (default), `memory` (default).
 
