@@ -1,0 +1,33 @@
+# Self membership (docs/04-evaluation.md §2): `o#m` is always in S(o, m), with or without
+# tuples, but `o#m` is not in S(o, m') for another member m' unless m' contains m.
+schema: |-
+  definition user {}
+
+  definition group {
+      relation member: user | group#member
+      permission is_member = member
+  }
+
+  definition document {
+      relation viewer: group#member
+      permission view = viewer
+  }
+
+relationships: |-
+  group:eng#member@user:anne
+  document:d#viewer@group:eng#member
+
+# S(eng, member) = {anne, eng#member}; S(eng, is_member) = S(eng, member) ∪ {eng#is_member}.
+assertions:
+  assertTrue:
+    - group:eng#member@group:eng#member
+    - group:empty#member@group:empty#member
+    - group:eng#is_member@group:eng#is_member
+    - group:eng#is_member@group:eng#member
+    - document:d#view@group:eng#member
+    - document:d#view@user:anne
+  assertFalse:
+    - group:eng#member@group:other#member
+    - group:eng#member@group:eng#is_member
+    - group:empty#member@group:eng#member
+    - document:d#view@group:other#member

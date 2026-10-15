@@ -1,0 +1,10 @@
+# E_ARROW_TARGET_MISSING: An arrow target defined on none of the left relation's types.
+schema: |-
+  definition user {}
+  definition team {}
+  definition doc {
+      relation owner: user | team
+      permission view = owner->member
+  }
+expectErrors:
+  - E_ARROW_TARGET_MISSING

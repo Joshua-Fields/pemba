@@ -1,0 +1,10 @@
+# E_ARROW_LEFT_NOT_RELATION: An arrow whose left side is a permission.
+schema: |-
+  definition user {}
+  definition doc {
+      relation owner: user
+      permission edit = owner
+      permission view = edit->view
+  }
+expectErrors:
+  - E_ARROW_LEFT_NOT_RELATION

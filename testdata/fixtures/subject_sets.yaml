@@ -1,0 +1,43 @@
+# Subject sets: a document shared with `group:a#member`, where a ⊃ b ⊃ c (3 deep).
+schema: |-
+  definition user {}
+
+  definition group {
+      relation member: user | group#member
+  }
+
+  definition document {
+      relation viewer: user | group#member
+      permission view = viewer
+  }
+
+relationships: |-
+  group:a#member@group:b#member
+  group:b#member@group:c#member
+  group:a#member@user:alice
+  group:b#member@user:bob
+  group:c#member@user:carol
+  document:doc#viewer@group:a#member
+  document:other#viewer@group:c#member
+
+# S(c, member) = {carol, c#member}
+# S(b, member) = {bob} ∪ S(c, member) ∪ {b#member}
+# S(a, member) = {alice} ∪ S(b, member) ∪ {a#member}
+# S(doc, view) = S(a, member) ∪ {doc#view, doc#viewer}; S(other, view) = S(c, member) ∪ ...
+assertions:
+  assertTrue:
+    - document:doc#view@user:alice
+    - document:doc#view@user:bob
+    - document:doc#view@user:carol
+    - group:a#member@user:carol
+    - document:doc#view@group:c#member
+    - document:doc#view@group:a#member
+    - document:other#view@user:carol
+  assertFalse:
+    - document:other#view@user:bob
+    - document:other#view@user:alice
+    - document:other#view@group:a#member
+    - group:c#member@user:alice
+    - group:b#member@user:alice
+    - group:c#member@group:b#member
+    - document:doc#view@user:dave

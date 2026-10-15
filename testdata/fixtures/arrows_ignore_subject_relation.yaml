@@ -1,0 +1,37 @@
+# An arrow over a tuple whose subject is `group:eng#member` walks to `group:eng` and
+# ignores the subject relation: `owner_group->manage` reads eng's `manage`, not its members.
+schema: |-
+  definition user {}
+
+  definition group {
+      relation member: user
+      relation admin: user
+      permission manage = admin
+  }
+
+  definition document {
+      relation owner_group: group | group#member
+      permission admin_view = owner_group->manage
+      permission member_view = owner_group->member
+  }
+
+relationships: |-
+  document:d#owner_group@group:eng#member
+  document:e#owner_group@group:ops
+  group:eng#admin@user:alice
+  group:eng#member@user:bob
+  group:ops#member@user:carol
+
+# admin_view(d) = manage(eng) = {alice}; member_view(d) = member(eng) = {bob}.
+# owner_group(d) itself = S(eng, member) = {bob, eng#member}.
+assertions:
+  assertTrue:
+    - document:d#admin_view@user:alice
+    - document:d#member_view@user:bob
+    - document:d#owner_group@user:bob
+    - document:e#member_view@user:carol
+  assertFalse:
+    - document:d#admin_view@user:bob
+    - document:d#member_view@user:alice
+    - document:d#owner_group@user:alice
+    - document:e#admin_view@user:carol

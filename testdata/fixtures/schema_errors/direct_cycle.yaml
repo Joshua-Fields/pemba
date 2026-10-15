@@ -1,0 +1,10 @@
+# E_DIRECT_CYCLE: Permissions that refer to each other through computed usersets only.
+schema: |-
+  definition user {}
+  definition doc {
+      relation x_rel: user
+      permission aaa = bbb
+      permission bbb = aaa + x_rel
+  }
+expectErrors:
+  - E_DIRECT_CYCLE

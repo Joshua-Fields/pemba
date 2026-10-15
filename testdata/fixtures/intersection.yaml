@@ -1,0 +1,29 @@
+# `member & viewer`: both sides must hold; a wildcard on one side still needs the other.
+schema: |-
+  definition user {}
+
+  definition document {
+      relation member: user
+      relation viewer: user | user:*
+      permission view = member & viewer
+  }
+
+relationships: |-
+  document:d#member@user:anne
+  document:d#viewer@user:anne
+  document:d#member@user:bob
+  document:d#viewer@user:carol
+  document:p#viewer@user:*
+  document:p#member@user:dave
+
+# view(d) = {anne, bob} ∩ {anne, carol} = {anne}; view(p) = {dave} ∩ all = {dave}.
+assertions:
+  assertTrue:
+    - document:d#view@user:anne
+    - document:p#view@user:dave
+  assertFalse:
+    - document:d#view@user:bob
+    - document:d#view@user:carol
+    - document:d#view@user:eve
+    - document:p#view@user:anne
+    - document:p#view@user:eve

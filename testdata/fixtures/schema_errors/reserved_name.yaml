@@ -1,0 +1,8 @@
+# E_RESERVED_NAME: A relation named like a keyword.
+schema: |-
+  definition user {}
+  definition doc {
+      relation nil: user
+  }
+expectErrors:
+  - E_RESERVED_NAME

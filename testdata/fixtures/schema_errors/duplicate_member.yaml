@@ -1,0 +1,9 @@
+# E_DUPLICATE_MEMBER: A relation and a permission with the same name.
+schema: |-
+  definition user {}
+  definition doc {
+      relation viewer: user
+      permission viewer = viewer
+  }
+expectErrors:
+  - E_DUPLICATE_MEMBER

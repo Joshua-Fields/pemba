@@ -1,0 +1,40 @@
+# Groups that contain each other (a ⊃ b ⊃ c ⊃ a) and a group that contains itself:
+# check terminates with the least fixed point.
+schema: |-
+  definition user {}
+
+  definition group {
+      relation member: user | group#member
+  }
+
+  definition document {
+      relation viewer: group#member
+      permission view = viewer
+  }
+
+relationships: |-
+  group:a#member@group:b#member
+  group:b#member@group:c#member
+  group:c#member@group:a#member
+  group:b#member@user:bob
+  group:x#member@group:x#member
+  document:d#viewer@group:a#member
+
+# a, b, c are one cycle, so S(a) = S(b) = S(c) = {bob, a#member, b#member, c#member}.
+# S(x, member) = {x#member}: the self loop adds nothing.
+assertions:
+  assertTrue:
+    - group:a#member@user:bob
+    - group:b#member@user:bob
+    - group:c#member@user:bob
+    - group:a#member@group:c#member
+    - group:c#member@group:b#member
+    - document:d#view@user:bob
+    - group:x#member@group:x#member
+  assertFalse:
+    - group:a#member@user:eve
+    - group:c#member@user:eve
+    - document:d#view@user:eve
+    - group:x#member@user:bob
+    - group:x#member@group:a#member
+    - group:a#member@group:x#member

@@ -1,0 +1,41 @@
+# A cycle through the subtracted side of an exclusion has no well-defined answer
+# (docs/04-evaluation.md §3.6): the engine fails with NON_MONOTONIC_CYCLE when it reaches
+# one, and answers normally on data where the cycle is not reached. The reference evaluator
+# refuses this schema (it is not stratifiable), so assertions here are checked against the
+# engine and the hand-computed answers only.
+schema: |-
+  definition user {}
+
+  definition doc {
+      relation parent: doc
+      relation viewer: user
+      permission view = viewer - parent->view
+  }
+
+relationships: |-
+  // A self loop and a two-node cycle, both reached.
+  doc:a#parent@doc:a
+  doc:a#viewer@user:u
+  doc:b#parent@doc:c
+  doc:c#parent@doc:b
+  doc:b#viewer@user:u
+  doc:c#viewer@user:u
+  // Acyclic: x → y.
+  doc:x#parent@doc:y
+  doc:x#viewer@user:u
+  doc:y#viewer@user:u
+
+# view(y) = {u} \ ∅ = {u}; view(x) = {u} \ view(y) = ∅.
+# For a user who is not a viewer, the base side is false and the cycle is never reached.
+assertions:
+  assertTrue:
+    - doc:y#view@user:u
+  assertFalse:
+    - doc:x#view@user:u
+    - doc:a#view@user:other
+    - doc:b#view@user:other
+
+expectCheckErrors:
+  doc:a#view@user:u: NON_MONOTONIC_CYCLE
+  doc:b#view@user:u: NON_MONOTONIC_CYCLE
+  doc:c#view@user:u: NON_MONOTONIC_CYCLE

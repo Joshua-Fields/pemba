@@ -33,7 +33,7 @@ warden/
 
 Dependency direction (no cycles, enforced by review):
 `schema` ← `core` ← `store-*` ← `warden` ← `cli`, `py`; `testkit` depends on `core` + stores
-(dev-dependency elsewhere).
+(dev-dependency elsewhere, except `cli`, whose `warden test` runs the fixture runner: OQ-024).
 
 Facade features: `sqlite` (default), `memory` (default).
 
@@ -55,7 +55,7 @@ Check crates.io for the current version when adding; record the reason in the su
 | SQLite | `rusqlite` with `bundled` |
 | Connection pool (optional) | `r2d2` + `r2d2_sqlite`, or hand-rolled |
 | Schema hot-swap | `arc-swap` |
-| YAML fixtures | a maintained serde YAML crate (check status; `serde_yaml` is archived) |
+| YAML fixtures | `serde-saphyr` (`deserialize` feature only) + `serde` (derive); chosen in T1.5 because `serde_yaml` is archived, `serde_yaml_ng` / `serde_norway` are unmaintained forks of it with no release since 2024, and `serde_yml` has unsoundness concerns; `serde-saphyr` is pure Rust (`forbid(unsafe_code)`), actively released, and needs no `unsafe-libyaml` |
 | CLI | `clap` (derive), `anstream` or `owo-colors` |
 | Python | `pyo3` (abi3 feature), built with `maturin` |
 | HTTP (difftest only) | `ureq` |

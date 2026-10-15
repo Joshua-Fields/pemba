@@ -1,0 +1,6 @@
+# E_UNEXPECTED_CHAR: A character that starts no token.
+schema: |-
+  definition user {}
+  $
+expectErrors:
+  - E_UNEXPECTED_CHAR

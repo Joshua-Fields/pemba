@@ -1,0 +1,45 @@
+# `(viewer + edit) - banned`, with bans by user, by group and by wildcard.
+schema: |-
+  definition user {}
+
+  definition group {
+      relation member: user | group#member
+  }
+
+  definition document {
+      relation viewer: user | group#member
+      relation editor: user
+      relation banned: user | user:* | group#member
+      permission edit = editor
+      permission view = (viewer + edit) - banned
+  }
+
+relationships: |-
+  document:d#viewer@user:anne
+  document:d#viewer@group:staff#member
+  group:staff#member@user:bob
+  group:staff#member@user:mallory
+  document:d#editor@user:carol
+  document:d#editor@user:eve
+  document:d#banned@user:eve
+  document:d#banned@group:blocked#member
+  group:blocked#member@user:mallory
+  document:locked#viewer@user:anne
+  document:locked#editor@user:carol
+  document:locked#banned@user:*
+
+# view(d) = {anne, bob, mallory, carol, eve} \ {eve, mallory} = {anne, bob, carol}
+# view(locked) = {anne, carol} \ every user = ∅; edit is not affected by bans.
+assertions:
+  assertTrue:
+    - document:d#view@user:anne
+    - document:d#view@user:bob
+    - document:d#view@user:carol
+    - document:d#edit@user:eve
+    - document:locked#edit@user:carol
+  assertFalse:
+    - document:d#view@user:eve
+    - document:d#view@user:mallory
+    - document:d#view@user:zed
+    - document:locked#view@user:anne
+    - document:locked#view@user:carol

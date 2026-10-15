@@ -18,6 +18,10 @@ warden-store-sqlite.workspace = true
 warden-schema.workspace = true
 # Generators (`docs/07-testing.md` §2.2) are library code here, shared by property tests.
 proptest.workspace = true
+# Fixture files (`docs/07-testing.md` §3) are YAML.
+serde.workspace = true
+serde-saphyr.workspace = true
+thiserror.workspace = true
 
 [dev-dependencies]
 # Reads the `check_bulk` span's `cycle_passes` field in `tests/cycle_passes.rs`.

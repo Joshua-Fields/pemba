@@ -1,0 +1,8 @@
+# E_UNEXPECTED_TOKEN: SpiceDB has no `;` terminators.
+schema: |-
+  definition user {}
+  definition doc {
+      relation viewer: user;
+  }
+expectErrors:
+  - E_UNEXPECTED_TOKEN

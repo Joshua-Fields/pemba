@@ -1,0 +1,117 @@
+# A GitHub-like model: organisation → teams (nested) → repositories with
+# admin ⊇ maintain ⊇ write ⊇ read, outside collaborators, public repositories and blocks.
+schema: |-
+  definition user {}
+
+  definition organization {
+      relation owner: user
+      relation member: user
+      permission administer = owner
+      permission members = owner + member
+  }
+
+  definition team {
+      relation maintainer: user
+      relation member: user | team#members
+      permission members = maintainer + member
+  }
+
+  definition repository {
+      relation org: organization
+      relation admins: user | team#members
+      relation maintainers: user | team#members
+      relation writers: user | team#members
+      relation readers: user | user:* | team#members | organization#members
+      relation blocked: user
+      permission admin = admins + org->administer
+      permission maintain = admin + maintainers
+      permission write = (maintain + writers) - blocked
+      permission read = (write + readers) - blocked
+  }
+
+relationships: |-
+  organization:acme#owner@user:olivia
+  organization:acme#member@user:alice
+  organization:acme#member@user:bob
+  organization:acme#member@user:carol
+  organization:acme#member@user:dave
+  organization:acme#member@user:erin
+  organization:acme#member@user:frank
+  organization:other#owner@user:mallory
+
+  // sre is a child team of platform; sam is on sre but not an org member.
+  team:platform#maintainer@user:alice
+  team:platform#member@user:bob
+  team:platform#member@team:sre#members
+  team:sre#member@user:carol
+  team:sre#member@user:sam
+  team:frontend#maintainer@user:dave
+  team:frontend#member@user:erin
+
+  repository:api#org@organization:acme
+  repository:api#admins@team:platform#members
+  repository:api#writers@team:frontend#members
+  repository:api#readers@organization:acme#members
+  repository:api#blocked@user:frank
+
+  repository:web#org@organization:acme
+  repository:web#maintainers@team:frontend#members
+  repository:web#writers@user:bob
+  repository:web#writers@user:xavier
+  repository:web#readers@organization:acme#members
+
+  repository:infra#org@organization:acme
+  repository:infra#admins@team:sre#members
+  repository:infra#maintainers@user:alice
+
+  repository:docs#org@organization:acme
+  repository:docs#readers@user:*
+  repository:docs#writers@team:frontend#members
+
+  repository:legacy#org@organization:acme
+  repository:legacy#writers@user:carol
+  repository:legacy#blocked@user:carol
+
+  repository:fork#org@organization:other
+  repository:fork#readers@user:alice
+
+# Hand computation: sre = {carol, sam}; platform = {alice, bob} ∪ sre; frontend = {dave, erin};
+# acme members = {olivia, alice, bob, carol, dave, erin, frank}.
+#   api     admin = maintain = platform ∪ {olivia}; write = admin ∪ frontend;
+#           read = write ∪ acme members, minus frank
+#   web     admin {olivia}; maintain {olivia} ∪ frontend; write maintain ∪ {bob, xavier};
+#           read write ∪ acme members
+#   infra   admin sre ∪ {olivia}; maintain = write = read = admin ∪ {alice}
+#   docs    admin = maintain {olivia}; write {olivia} ∪ frontend; read every user
+#   legacy  write = read = {olivia}      (carol is a writer but blocked)
+#   fork    admin {mallory}; read {mallory, alice}
+assertions:
+  assertTrue:
+    - repository:api#admin@user:carol
+    - repository:api#admin@user:sam
+    - repository:api#admin@user:olivia
+    - repository:api#write@user:erin
+    - repository:api#read@user:dave
+    - repository:web#maintain@user:dave
+    - repository:web#write@user:xavier
+    - repository:web#read@user:frank
+    - repository:infra#maintain@user:alice
+    - repository:infra#read@user:sam
+    - repository:docs#read@user:stranger
+    - repository:legacy#write@user:olivia
+    - repository:fork#read@user:alice
+    - team:platform#members@user:carol
+  assertFalse:
+    - repository:api#read@user:frank
+    - repository:api#maintain@user:erin
+    - repository:web#admin@user:dave
+    - repository:web#maintain@user:bob
+    - repository:web#read@user:sam
+    - repository:infra#read@user:bob
+    - repository:infra#admin@user:alice
+    - repository:docs#write@user:stranger
+    - repository:legacy#write@user:carol
+    - repository:legacy#read@user:carol
+    - repository:fork#admin@user:olivia
+    - repository:fork#read@user:bob
+    - team:frontend#members@user:alice

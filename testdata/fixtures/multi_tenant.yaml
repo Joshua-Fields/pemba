@@ -1,0 +1,60 @@
+# Tenant isolation: identical structures in two tenants; nothing leaks across except an
+# explicit share.
+schema: |-
+  definition user {}
+
+  definition tenant {
+      relation admin: user
+      relation member: user
+      permission members = admin + member
+  }
+
+  definition project {
+      relation tenant: tenant
+      relation lead: user
+      permission manage = lead + tenant->admin
+      permission view = manage + tenant->members
+  }
+
+  definition document {
+      relation project: project
+      relation viewer: user
+      permission view = viewer + project->view
+  }
+
+relationships: |-
+  tenant:t1#admin@user:a_admin
+  tenant:t1#member@user:a_user
+  tenant:t2#admin@user:b_admin
+  tenant:t2#member@user:b_user
+  project:p1#tenant@tenant:t1
+  project:p1#lead@user:a_lead
+  project:p2#tenant@tenant:t2
+  document:d1#project@project:p1
+  document:d2#project@project:p2
+  document:d3#project@project:p1
+  // The one explicit cross-tenant share.
+  document:d3#viewer@user:b_user
+
+# view(p1) = {a_lead, a_admin, a_user}; view(p2) = {b_admin, b_user}
+# view(d1) = view(p1); view(d2) = view(p2); view(d3) = view(p1) ∪ {b_user}
+assertions:
+  assertTrue:
+    - document:d1#view@user:a_user
+    - document:d1#view@user:a_admin
+    - document:d1#view@user:a_lead
+    - project:p1#manage@user:a_admin
+    - document:d2#view@user:b_user
+    - document:d2#view@user:b_admin
+    - document:d3#view@user:b_user
+    - document:d3#view@user:a_user
+  assertFalse:
+    - document:d1#view@user:b_user
+    - document:d1#view@user:b_admin
+    - document:d2#view@user:a_admin
+    - document:d2#view@user:a_user
+    - document:d2#view@user:a_lead
+    - document:d3#view@user:b_admin
+    - project:p2#manage@user:a_admin
+    - project:p1#manage@user:b_admin
+    - project:p1#manage@user:a_user

@@ -352,3 +352,54 @@ it is resolved.
   `EngineConfig::max_check_reads` (default 200 000, `CheckReadsExceeded`) is the fail-closed
   backstop. Every `check_cost.rs` test passes un-ignored (the pinned case now makes well
   under its 1 000-read bound); property 1 at 1 000 cases runs in ~1 s optimised
+
+## OQ-022 — Fixture extension for expected check errors (`expectCheckErrors`)
+- Raised in: T1.5 (`docs/07-testing.md` §3, §3.1 `depth_limit`, `non_monotone_cycle`)
+- Blocking: no
+- Problem: SpiceDB validation files can only assert `true` / `false` / caveated, but
+  `depth_limit.yaml` and `non_monotone_cycle.yaml` must show a check *failing*, and
+  fail-closed means that is neither `assertTrue` nor `assertFalse`.
+- Current choice: a warden-only key `expectCheckErrors`, a map from check (assertion
+  syntax) to `Error::code()` (`MAX_DEPTH_EXCEEDED`, `NON_MONOTONIC_CYCLE`, ...), at top level
+  and per step (`07` §3.2). A map, not a list, so one check has exactly one expected code.
+  A check may not appear both here and in `assertTrue` / `assertFalse`. Checked against the
+  engine only (the oracle has no limits). The engine's default `EngineConfig` is used; no
+  per-fixture config key yet, because the default `max_depth` (50) already makes the 60-folder
+  chain fail. Not chosen: a list of `{check, error}` objects (wordier, allows duplicates)
+- Resolve by: human review
+- Resolution: (fill in)
+
+## OQ-023 — Fixture extension for write-then-assert sequences (`steps`)
+- Raised in: T1.5 (`docs/07-testing.md` §3.1 `direct`: Create/Touch/Delete visibility)
+- Blocking: no
+- Problem: a validation file has one relationship set and one assertion block, so it
+  cannot show that a delete revokes, a failed batch applies nothing, or a deleted tuple can
+  be created again.
+- Current choice: a warden-only ordered `steps:` list (`07` §3.2). The top-level
+  `relationships` + `assertions` are step 0, so `zed validate` checks the same initial state;
+  each later step is one write batch (`ops` of `create:` / `touch:` / `delete:` tuple strings),
+  an optional `expectError` code, then the step's own `assertions` and `expectCheckErrors` at
+  the new head. Preconditions and consistency other than `Latest` are not expressible yet;
+  add `preconditions:` / `at:` keys when a fixture needs them. The runner keeps its own model
+  of live tuples (not read back from the store) to feed the oracle, so a store that mishandles
+  Delete is caught by the oracle disagreeing with the engine
+- Resolve by: human review
+- Resolution: (fill in)
+
+## OQ-024 — `warden-cli` depends on the unpublished `warden-testkit`
+- Raised in: T1.5 (`docs/06-api.md` §3 `warden test`, `docs/09-repo-and-tooling.md` §1)
+- Blocking: yes, for publishing `warden-cli` to crates.io (T3.x release)
+- Problem: `07` §3 puts the runner in `warden-testkit` (`publish = false`) and `06` §3 puts
+  `warden test` in the CLI, so the CLI now has a normal dependency on the testkit (and through
+  it `proptest`, `serde`, `serde-saphyr`). `cargo publish` refuses a crate whose dependency is
+  not on crates.io.
+- Current choice: accept for now (nothing is published before the release milestone); `09`
+  §1 notes the exception. Options at release: move `fixtures` (and `reference`, which it
+  cross-checks with) into a small published crate; publish `warden-testkit`; or put
+  `warden test` behind a CLI feature that is off for the published binary
+- Also decided here, conservatively: a fixture that is not valid YAML, has an unknown key, or
+  needs exactly one of `schema` / `schemaFile` and has neither is exit 1 (input rejected, as
+  for `schema validate`), not exit 2; only an unreadable file is exit 2. `expectedLookups:`
+  is skipped with a warning (like `validation:`) until T2.4 / T2.5, rather than refused
+- Resolve by: before the first crates.io release
+- Resolution: (fill in)

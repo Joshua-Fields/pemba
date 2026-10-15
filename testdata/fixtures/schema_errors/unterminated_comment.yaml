@@ -1,0 +1,7 @@
+# E_UNTERMINATED_COMMENT: A block comment that is never closed.
+schema: |-
+  definition user {}
+  /* never closed
+  definition team {}
+expectErrors:
+  - E_UNTERMINATED_COMMENT

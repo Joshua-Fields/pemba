@@ -1,0 +1,97 @@
+# Direct relations, and Create / Touch / Delete visibility across write batches.
+# Uses the warden `steps:` extension (docs/07-testing.md §3.2); `zed validate` sees only
+# the top-level relationships and assertions (step 0).
+schema: |-
+  definition user {}
+
+  definition document {
+      relation viewer: user
+      relation editor: user
+      permission view = viewer + editor
+  }
+
+relationships: |-
+  // step 0
+  document:readme#viewer@user:anne
+  document:readme#editor@user:bob
+
+  document:spec#viewer@user:carol
+
+assertions:
+  assertTrue:
+    - document:readme#viewer@user:anne
+    - document:readme#view@user:anne
+    - document:readme#view@user:bob
+    - document:readme#editor@user:bob
+    - document:spec#view@user:carol
+  assertFalse:
+    - document:readme#editor@user:anne
+    - document:readme#viewer@user:bob
+    - document:readme#view@user:carol
+    - document:spec#view@user:anne
+    - document:readme#view@user:dan
+    - document:unknown#view@user:anne
+
+steps:
+  # Create of a new tuple is visible.
+  - ops:
+      - create: document:readme#viewer@user:dan
+    assertions:
+      assertTrue:
+        - document:readme#view@user:dan
+
+  # Create of a live tuple fails the whole batch: erin's tuple is not written either.
+  - ops:
+      - create: document:spec#viewer@user:erin
+      - create: document:readme#viewer@user:anne
+    expectError: ALREADY_EXISTS
+    assertions:
+      assertTrue:
+        - document:readme#view@user:anne
+      assertFalse:
+        - document:spec#view@user:erin
+
+  # Touch of a live tuple is a no-op; touch of a new one creates it.
+  - ops:
+      - touch: document:readme#viewer@user:anne
+      - touch: document:spec#editor@user:erin
+    assertions:
+      assertTrue:
+        - document:readme#view@user:anne
+        - document:spec#view@user:erin
+        - document:spec#editor@user:erin
+
+  # Delete removes; delete of an absent tuple is a no-op. Other tuples are untouched.
+  - ops:
+      - delete: document:readme#viewer@user:anne
+      - delete: document:readme#viewer@user:nobody
+    assertions:
+      assertTrue:
+        - document:readme#view@user:bob
+        - document:readme#view@user:dan
+      assertFalse:
+        - document:readme#view@user:anne
+        - document:readme#viewer@user:anne
+
+  # A deleted tuple can be created again.
+  - ops:
+      - create: document:readme#viewer@user:anne
+    assertions:
+      assertTrue:
+        - document:readme#view@user:anne
+
+  # The same tuple twice in one batch is refused; nothing is applied.
+  - ops:
+      - touch: document:spec#viewer@user:frank
+      - delete: document:spec#viewer@user:frank
+    expectError: DUPLICATE_IN_BATCH
+    assertions:
+      assertFalse:
+        - document:spec#view@user:frank
+
+  # Deleting the only grant revokes the permission.
+  - ops:
+      - delete: document:readme#editor@user:bob
+    assertions:
+      assertFalse:
+        - document:readme#view@user:bob

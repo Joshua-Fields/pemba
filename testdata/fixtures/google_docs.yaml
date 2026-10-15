@@ -1,0 +1,138 @@
+# A Google-Docs-like model: an organisation, nested groups, a folder tree, documents with
+# owners, editors, commenters, viewers, public links and blocks (an exclusion).
+schema: |-
+  definition user {}
+
+  definition organization {
+      relation admin: user
+      relation member: user
+      permission manage = admin
+  }
+
+  definition group {
+      relation member: user | group#member
+  }
+
+  definition folder {
+      relation org: organization
+      relation parent: folder
+      relation owner: user
+      relation editor: user | group#member
+      relation viewer: user | group#member | organization#member
+      permission edit = owner + editor + parent->edit + org->manage
+      permission view = edit + viewer + parent->view
+  }
+
+  definition document {
+      relation folder: folder
+      relation owner: user
+      relation editor: user | group#member
+      relation commenter: user | group#member
+      relation viewer: user | user:* | group#member | organization#member
+      relation blocked: user | group#member
+      permission edit = (owner + editor + folder->edit) - blocked
+      permission comment = edit + commenter
+      permission view = (comment + viewer + folder->view) - blocked
+  }
+
+relationships: |-
+  // Organisation: alice administers; mallory is a member who is blocked in places.
+  organization:acme#admin@user:alice
+  organization:acme#member@user:bob
+  organization:acme#member@user:carol
+  organization:acme#member@user:dave
+  organization:acme#member@user:erin
+  organization:acme#member@user:mallory
+
+  // Groups: eng_leads is nested in eng.
+  group:eng#member@user:bob
+  group:eng#member@user:carol
+  group:eng#member@group:eng_leads#member
+  group:eng_leads#member@user:dave
+  group:design#member@user:erin
+  group:contractors#member@user:frank
+  group:contractors#member@user:mallory
+
+  // Folders: root (whole org can view) > engineering > specs; root > design.
+  folder:root#org@organization:acme
+  folder:root#owner@user:alice
+  folder:root#viewer@organization:acme#member
+  folder:engineering#parent@folder:root
+  folder:engineering#org@organization:acme
+  folder:engineering#editor@group:eng#member
+  folder:specs#parent@folder:engineering
+  folder:specs#org@organization:acme
+  folder:design#parent@folder:root
+  folder:design#editor@group:design#member
+  // An external folder owned by grace, outside the organisation.
+  folder:shared_ext#owner@user:grace
+  folder:shared_ext#viewer@group:contractors#member
+
+  // Documents.
+  document:roadmap#folder@folder:root
+  document:roadmap#owner@user:alice
+  document:arch#folder@folder:specs
+  document:arch#commenter@user:frank
+  document:arch#blocked@user:carol
+  document:mockups#folder@folder:design
+  document:mockups#commenter@group:eng#member
+  document:secret#folder@folder:engineering
+  document:secret#viewer@user:frank
+  document:secret#blocked@group:contractors#member
+  document:press#owner@user:heidi
+  document:press#viewer@user:*
+  document:contract#folder@folder:shared_ext
+  document:contract#editor@user:frank
+  document:contract#blocked@user:mallory
+  document:handbook#owner@user:alice
+  document:handbook#viewer@organization:acme#member
+
+# Hand computation (members = {bob, carol, dave, erin, mallory}, eng = {bob, carol, dave}):
+#   folder edit:  root {alice}; engineering eng ∪ {alice}; specs = engineering;
+#                 design {erin, alice}; shared_ext {grace}
+#   folder view:  root, engineering, specs, design = {alice} ∪ members;
+#                 shared_ext {grace, frank, mallory}
+#   roadmap   edit {alice};             view {alice} ∪ members
+#   arch      edit {alice, bob, dave};  comment edit ∪ {frank};
+#             view {alice, bob, dave, erin, mallory, frank}           (carol blocked)
+#   mockups   edit {erin, alice};       comment edit ∪ eng;  view {alice} ∪ members
+#   secret    edit {alice} ∪ eng;       view {alice, bob, carol, dave, erin}
+#             (frank and mallory blocked through contractors)
+#   press     edit {heidi};             view every user
+#   contract  edit {frank, grace};      view {frank, grace}           (mallory blocked)
+#   handbook  edit {alice};             view {alice} ∪ members
+assertions:
+  assertTrue:
+    - document:roadmap#view@user:bob
+    - document:roadmap#edit@user:alice
+    - document:arch#edit@user:dave
+    - document:arch#edit@user:alice
+    - document:arch#view@user:erin
+    - document:arch#comment@user:frank
+    - document:arch#view@user:frank
+    - document:mockups#comment@user:carol
+    - document:mockups#edit@user:erin
+    - document:secret#view@user:erin
+    - document:secret#edit@user:carol
+    - document:press#view@user:ivan
+    - document:contract#edit@user:grace
+    - document:contract#view@user:frank
+    - document:handbook#view@user:mallory
+    - folder:specs#edit@user:bob
+    - group:eng#member@user:dave
+  assertFalse:
+    - document:arch#edit@user:carol
+    - document:arch#view@user:carol
+    - document:arch#comment@user:erin
+    - document:roadmap#edit@user:bob
+    - document:roadmap#view@user:ivan
+    - document:roadmap#view@user:grace
+    - document:mockups#edit@user:bob
+    - document:secret#view@user:frank
+    - document:secret#view@user:mallory
+    - document:press#edit@user:ivan
+    - document:contract#view@user:mallory
+    - document:contract#view@user:alice
+    - document:handbook#edit@user:bob
+    - folder:shared_ext#view@user:alice
+    - folder:design#edit@user:bob

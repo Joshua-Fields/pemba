@@ -1,0 +1,39 @@
+# `user:*` matches every user, including ones no tuple mentions, but never a subject set
+# and never another type.
+schema: |-
+  definition user {}
+
+  definition bot {}
+
+  definition group {
+      relation member: user
+  }
+
+  definition document {
+      relation viewer: user | user:* | bot | group#member
+      permission view = viewer
+  }
+
+relationships: |-
+  document:public#viewer@user:*
+  document:private#viewer@user:anne
+  document:team#viewer@group:eng#member
+  group:eng#member@user:bob
+
+# S(public, view)  = every user
+# S(private, view) = {anne}
+# S(team, view)    = {bob, group:eng#member}
+assertions:
+  assertTrue:
+    - document:public#view@user:anne
+    - document:public#viewer@user:bob
+    - document:public#view@user:zed
+    - document:private#view@user:anne
+    - document:team#view@user:bob
+    - document:team#view@group:eng#member
+  assertFalse:
+    - document:private#view@user:zed
+    - document:public#view@group:eng#member
+    - document:public#view@bot:r2
+    - document:team#view@user:anne
+    - document:team#view@user:zed

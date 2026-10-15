@@ -1,0 +1,14 @@
+# E_ARROW_CHAIN: An arrow whose right side is another arrow.
+schema: |-
+  definition user {}
+  definition folder {
+      relation parent: folder
+      relation viewer: user
+      permission view = viewer
+  }
+  definition doc {
+      relation parent: folder
+      permission view = parent->parent->view
+  }
+expectErrors:
+  - E_ARROW_CHAIN

@@ -1,0 +1,8 @@
+# E_UNKNOWN_TYPE: An allowed type that is not defined.
+schema: |-
+  definition user {}
+  definition doc {
+      relation viewer: usr
+  }
+expectErrors:
+  - E_UNKNOWN_TYPE
