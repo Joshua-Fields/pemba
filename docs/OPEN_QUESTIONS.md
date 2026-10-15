@@ -468,4 +468,31 @@ it is resolved.
   transaction); `06` §1 documents that such a revision is void. `warden_revisions`'s
   "never reuse ids" comment holds only for committed revisions.
 - Resolve by: human review
+- Resolution: resolved in T2.3 by the human: (a)–(f) all accepted as written. `06` §1 now
+  states that `StoreError::Conflict` means the caller's whole transaction is stale and must
+  be rolled back and retried from the start. Consequence of (d): because
+  `warden-store-sqlite` re-exports `rusqlite` (and `SqliteTxn::new` takes its
+  `Transaction`), a `rusqlite` major-version bump is a breaking change for
+  `warden-store-sqlite` and needs a major (pre-1.0: minor) version bump of that crate
+
+## OQ-027 — Read snapshots: shape of the API (T2.3)
+- Raised in: T2.3 (`docs/05-storage.md` §2 "Revision checks", `docs/04-evaluation.md` §1)
+- Blocking: no
+- Current choice:
+  (a) New object-safe trait method `ReadStore::snapshot(&self) -> Result<Box<dyn ReadStore +
+  '_>, StoreError>`, with a default returning the store itself (via a new blanket
+  `impl ReadStore for &T`). The snapshot is itself a `ReadStore`, so the evaluator is
+  unchanged. A public trait change: added to `05` §2.
+  (b) The memory store keeps the default: its range check is authoritative (same lock as
+  the rows), so a concurrent GC fails a read closed instead of hiding rows. Wrappers that
+  override nothing (test stores) inherit the default too.
+  (c) The SQLite snapshot holds its leased connection in a `Mutex` because `ReadStore` is
+  `Sync` and `rusqlite::Connection` is not; one request uses it from one thread, so the lock
+  is never contended.
+  (d) The cross-process test pauses the request through a test-only wrapper store whose
+  snapshot calls a hook after the first data read; there is no hook in library code.
+  (e) Property 4 covers historical reads at every revision of a generated history, not GC:
+  there is no `Engine::gc` yet (T2.6). GC expiry is covered by the snapshot tests and the
+  conformance suite.
+- Resolve by: human review
 - Resolution: (fill in)

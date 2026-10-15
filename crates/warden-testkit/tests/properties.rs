@@ -1,4 +1,4 @@
-//! Properties 1, 5 and 6 of `docs/07-testing.md` §2.3, plus checks that the generators
+//! Properties 1, 4, 5 and 6 of `docs/07-testing.md` §2.3, plus checks that the generators
 //! produce what §2.2 asks for.
 //!
 //! Property 1 runs on the memory store only; the SQLite store arrives in M2, and on both
@@ -6,7 +6,9 @@
 //! `#[ignore]`d `prop1_*_full` tests (`cargo test -- --ignored`, ci.yml's `prop1` job, and
 //! the manual `proptest.yml` workflow) run at least 1 000, or `PROPTEST_CASES` if higher.
 //! Property 5 (memory store ≡ SQLite store) runs 64 cases plainly and at least 1 000 in
-//! `prop5_*_full`, likewise ignored. Property 6 always runs at least 1 000.
+//! `prop5_*_full`, likewise ignored. Property 4 (historical reads at `Exact(r)`, on both
+//! stores) likewise: 64 cases plainly, at least 1 000 in the ignored `prop4_*_full`.
+//! Property 6 always runs at least 1 000.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
@@ -335,13 +337,13 @@ mod prop5 {
     use super::config;
 
     /// A SQLite store in a fresh directory, removed on drop (store first).
-    struct TempSqlite {
-        store: Option<SqliteStore>,
+    pub(super) struct TempSqlite {
+        pub(super) store: Option<SqliteStore>,
         dir: PathBuf,
     }
 
     impl TempSqlite {
-        fn new() -> Self {
+        pub(super) fn new() -> Self {
             static NEXT: AtomicU32 = AtomicU32::new(0);
             let dir = std::env::temp_dir().join(format!(
                 "warden-prop5-{}-{}",
@@ -535,6 +537,180 @@ mod prop5 {
         #[ignore = "slow: 1 000+ cases; run with --ignored"]
         fn prop5_memory_and_sqlite_agree_full(ops in generate::store_ops()) {
             equivalent(&ops)?;
+        }
+    }
+}
+
+// ---- property 4: historical reads ----
+
+mod prop4 {
+    use std::collections::BTreeSet;
+
+    use proptest::prelude::*;
+    use warden_core::model::{Consistency, Relationship, Revision, WriteOp, WriteRequest};
+    use warden_core::store::WritableStore;
+    use warden_core::{CheckRequest, Engine};
+    use warden_store_memory::MemoryStore;
+    use warden_testkit::generate::{self, Case};
+    use warden_testkit::reference::Reference;
+
+    use super::{compile, config, query, unlimited};
+
+    /// One batch: `(tuple index, delete?)` pairs, the index taken modulo the case's tuples.
+    type Batch = Vec<(usize, bool)>;
+
+    /// A case and 1–8 batches that touch and delete its tuples, deletes about a third of
+    /// the time so that sets both grow and shrink.
+    fn history() -> impl Strategy<Value = (Case, Vec<Batch>)> {
+        let op = (any::<usize>(), prop::bool::weighted(0.35));
+        (
+            generate::case(),
+            prop::collection::vec(prop::collection::vec(op, 1..=6), 1..=8),
+        )
+    }
+
+    /// Writes the schema and every batch to `engine`; returns the tuple set visible at
+    /// each revision, indexed by revision.
+    fn replay<S: WritableStore>(
+        engine: &Engine<S>,
+        src: &str,
+        case: &Case,
+        batches: &[Batch],
+    ) -> Result<Vec<BTreeSet<Relationship>>, TestCaseError> {
+        let schema_rev = engine.write_schema(src).unwrap().revision;
+        prop_assert_eq!(schema_rev, Revision(1));
+        let mut sets = vec![BTreeSet::new(); 2];
+        for batch in batches {
+            let mut set = sets.last().cloned().unwrap_or_default();
+            let mut seen = BTreeSet::new();
+            let mut ops = Vec::new();
+            if !case.tuples.is_empty() {
+                for &(i, delete) in batch {
+                    let i = i % case.tuples.len();
+                    if !seen.insert(i) {
+                        continue; // a tuple twice in one batch is DuplicateInBatch
+                    }
+                    let t = case.tuples[i].clone();
+                    if delete {
+                        set.remove(&t);
+                        ops.push(WriteOp::Delete(t));
+                    } else {
+                        set.insert(t.clone());
+                        ops.push(WriteOp::Touch(t));
+                    }
+                }
+            }
+            let rev = engine
+                .write(WriteRequest {
+                    ops,
+                    preconditions: Vec::new(),
+                })
+                .map_err(|e| TestCaseError::fail(format!("write failed: {e}")))?;
+            prop_assert_eq!(rev.0, sets.len() as u64);
+            sets.push(set);
+        }
+        Ok(sets)
+    }
+
+    /// Property 4 for one history: `check` at `Exact(r)` equals the oracle on the tuples
+    /// as of `r`, for every revision, on the memory and the SQLite store.
+    fn historical_reads_match_reference(
+        case: &Case,
+        batches: &[Batch],
+    ) -> Result<(), TestCaseError> {
+        let src = case.schema.source();
+        let schema = compile(&src);
+        let full = Reference::new(&schema, &case.tuples)
+            .map_err(|e| TestCaseError::fail(format!("oracle refused a generated case: {e}")))?;
+        // Every revision's oracle gets the full universe, so the same queries resolve at
+        // all of them.
+        let universe = full.universe();
+        let queries: Vec<_> = case
+            .queries
+            .iter()
+            .map(|&q| query(&schema, &full, &universe, q))
+            .collect();
+
+        let memory = Engine::builder()
+            .store(MemoryStore::new())
+            .config(unlimited())
+            .build()
+            .unwrap();
+        // Declared first so the engine, and the store it owns, closes before the
+        // directory is removed.
+        let mut sqlite_dir = super::prop5::TempSqlite::new();
+        let sqlite = Engine::builder()
+            .store(sqlite_dir.store.take().unwrap())
+            .config(unlimited())
+            .build()
+            .unwrap();
+        let sets = replay(&memory, &src, case, batches)?;
+        prop_assert_eq!(&replay(&sqlite, &src, case, batches)?, &sets);
+
+        // Revision 0 (before the schema) is skipped: the schema check, not MVCC, decides it.
+        for (r, set) in sets.iter().enumerate().skip(1) {
+            let rev = Revision(r as u64);
+            let tuples: Vec<_> = set.iter().cloned().collect();
+            let oracle = Reference::with_objects(&schema, &tuples, &universe)
+                .map_err(|e| TestCaseError::fail(format!("oracle at {rev}: {e}")))?;
+            for (resource, member, subject) in &queries {
+                let want = oracle.check(resource, member, subject).unwrap();
+                let request = CheckRequest {
+                    resource: resource.clone(),
+                    permission: member.clone(),
+                    subject: subject.clone(),
+                    consistency: Consistency::Exact(rev),
+                };
+                let got = [
+                    ("memory", memory.check(request.clone())),
+                    ("sqlite", sqlite.check(request)),
+                ];
+                for (store, got) in got {
+                    match got {
+                        Ok(resp) => {
+                            prop_assert_eq!(resp.revision, rev);
+                            prop_assert_eq!(
+                                resp.allowed,
+                                want,
+                                "{}: check({}#{}@{}) at {}",
+                                store,
+                                resource,
+                                member,
+                                subject,
+                                rev
+                            );
+                        }
+                        Err(e) => {
+                            return Err(TestCaseError::fail(format!(
+                                "{store}: check({resource}#{member}@{subject}) at {rev} failed: {e}"
+                            )));
+                        }
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig { cases: 64, ..config(0) })]
+
+        /// Property 4, quick: 64 cases.
+        #[test]
+        fn prop4_historical_reads_match_reference((case, batches) in history()) {
+            historical_reads_match_reference(&case, &batches)?;
+        }
+    }
+
+    proptest! {
+        #![proptest_config(config(1000))]
+
+        /// Property 4: after interleaved writes and deletes, `check` at `Exact(r)` equals
+        /// the oracle on the tuple set as of `r`, on both stores, ≥ 1 000 cases.
+        #[test]
+        #[ignore = "slow: 1 000+ cases; run with --ignored"]
+        fn prop4_historical_reads_match_reference_full((case, batches) in history()) {
+            historical_reads_match_reference(&case, &batches)?;
         }
     }
 }

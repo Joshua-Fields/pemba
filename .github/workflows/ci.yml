@@ -55,8 +55,8 @@ jobs:
       - uses: actions/checkout@v5
       - uses: Swatinem/rust-cache@v2
       # Only the properties binary: warden-difftest's ignored tests need SpiceDB
-      # (difftest.yml). `prop1_*_full` and `prop5_*_full` (memory ≡ SQLite, ~25 s) run at
-      # least 1 000 cases each.
+      # (difftest.yml). `prop1_*_full`, `prop4_*_full` (historical reads, both stores, ~8 s)
+      # and `prop5_*_full` (memory ≡ SQLite, ~25 s) run at least 1 000 cases each.
       - run: cargo test -p warden-testkit --test properties -- --ignored
 
   deny:

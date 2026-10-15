@@ -11,7 +11,10 @@ Every algorithm here must agree with the reference evaluator (`docs/07` §2) on 
 
 1. Validate the request against the schema (types/relations exist, subject type valid).
    Invalid → `Err(InvalidRequest{..})` — never evaluate a malformed request.
-2. Resolve `Consistency` → one `Revision` (`docs/02` §4). Use it for every read.
+2. Take one store snapshot (`ReadStore::snapshot()`, `docs/05` §2 "Revision checks"),
+   resolve `Consistency` → one `Revision` against it (`docs/02` §4), and make every read of
+   the request through that snapshot at that revision. `check_bulk` uses one snapshot for
+   the whole call. The snapshot is released when the request returns, on every path.
 3. Create a fresh `EvalContext { rev, memo, stack, depth, stats }`. Nothing is shared
    between requests except the immutable schema and the store.
 4. Evaluate. Return `{ result, revision, stats }`.

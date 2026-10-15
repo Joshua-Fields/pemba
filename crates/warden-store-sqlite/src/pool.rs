@@ -40,14 +40,16 @@ impl ReaderPool {
         &self,
         f: impl FnOnce(&Connection) -> Result<T, StoreError>,
     ) -> Result<T, StoreError> {
-        let lease = Lease {
+        f(self.lease()?.conn()?)
+    }
+
+    /// Leases an idle connection until the lease is dropped, waiting for one if all are
+    /// leased.
+    pub(crate) fn lease(&self) -> Result<Lease<'_>, StoreError> {
+        Ok(Lease {
             pool: self,
             conn: Some(self.take()?),
-        };
-        match &lease.conn {
-            Some(conn) => f(conn),
-            None => Err(StoreError::Poisoned),
-        }
+        })
     }
 
     fn take(&self) -> Result<Connection, StoreError> {
@@ -83,10 +85,19 @@ impl ReaderPool {
     }
 }
 
-/// Returns its connection to the pool when dropped, including on unwind.
-struct Lease<'a> {
+/// Returns its connection to the pool when dropped, including on unwind; a transaction
+/// left open on it is rolled back then.
+#[derive(Debug)]
+pub(crate) struct Lease<'a> {
     pool: &'a ReaderPool,
     conn: Option<Connection>,
+}
+
+impl Lease<'_> {
+    pub(crate) fn conn(&self) -> Result<&Connection, StoreError> {
+        // Only `drop` takes the connection out.
+        self.conn.as_ref().ok_or(StoreError::Poisoned)
+    }
 }
 
 impl Drop for Lease<'_> {

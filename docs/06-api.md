@@ -124,7 +124,15 @@ same number, so never keep a revision from a rolled-back transaction. On error t
 own statements are undone to a savepoint, but the caller should roll back anyway. With
 SQLite, wrap the caller's transaction in `SqliteTxn` and open it with `BEGIN IMMEDIATE`: a
 deferred transaction that read before another connection committed cannot take the write
-lock, and the write fails with the retryable `StoreError::Conflict` (`05` §5.1):
+lock, and the write fails with the retryable `StoreError::Conflict` (`05` §5.1).
+
+`StoreError::Conflict` (`is_retryable()` is true) means the caller's **whole transaction is
+stale**, not just the failed statement: it read a snapshot that another connection has since
+committed past, so everything it decided on (its own reads, preconditions, application rows)
+may be out of date. Roll the whole transaction back and run it again from the start,
+re-reading what it depends on; retrying only the `write_in` call inside the same transaction
+fails the same way.
+
 
 ```rust
 let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;

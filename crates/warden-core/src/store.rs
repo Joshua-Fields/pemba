@@ -25,6 +25,13 @@
 //! returning an answer from incomplete history (below the horizon) or one that a later
 //! commit could change (above head).
 //!
+//! # Snapshots
+//!
+//! A request reads through [`ReadStore::snapshot`]: one consistent view of the store for
+//! the whole request, so its revision check and all its reads see the same state even if
+//! another process commits or garbage-collects meanwhile (`docs/05-storage.md` §2,
+//! "Revision checks").
+//!
 //! # Ordering
 //!
 //! Results are ordered by their storage columns compared byte-wise, matching SQLite's
@@ -281,6 +288,97 @@ pub trait ReadStore: Send + Sync {
     ///
     /// A [`StoreError`] if the backend fails.
     fn current_schema(&self) -> Result<Option<StoredSchema>, StoreError>;
+
+    /// A view of the store in which every call, [`head_revision`](Self::head_revision)
+    /// and [`gc_horizon`](Self::gc_horizon) included, sees one fixed state: no commit or
+    /// GC that happens after the snapshot is taken becomes visible through it, whichever
+    /// process makes it. The engine takes one per request, resolves the request's
+    /// revision against it and makes every read through it. Dropping the snapshot
+    /// releases whatever it holds (on SQLite, a read transaction).
+    ///
+    /// The default returns the store itself, which is right for a store whose reads at a
+    /// revision cannot change while it is readable and whose range check is authoritative
+    /// (the memory store: a GC is seen at once and fails the read closed). A store that
+    /// can be changed by another process, or caches its range, must override it.
+    ///
+    /// # Errors
+    ///
+    /// A [`StoreError`] if the backend fails to start the snapshot.
+    fn snapshot(&self) -> Result<Box<dyn ReadStore + '_>, StoreError> {
+        Ok(Box::new(self))
+    }
+}
+
+/// A shared reference reads like the store itself, so a store can be its own snapshot.
+impl<T: ReadStore + ?Sized> ReadStore for &T {
+    fn head_revision(&self) -> Result<Revision, StoreError> {
+        (**self).head_revision()
+    }
+
+    fn gc_horizon(&self) -> Result<Revision, StoreError> {
+        (**self).gc_horizon()
+    }
+
+    fn exists(&self, rev: Revision, rel: &Relationship) -> Result<bool, StoreError> {
+        (**self).exists(rev, rel)
+    }
+
+    fn read_subject_sets(
+        &self,
+        rev: Revision,
+        resource: &ObjectRef,
+        relation: &RelName,
+    ) -> Result<Vec<(ObjectRef, RelName)>, StoreError> {
+        (**self).read_subject_sets(rev, resource, relation)
+    }
+
+    fn read_related_objects(
+        &self,
+        rev: Revision,
+        resource: &ObjectRef,
+        relation: &RelName,
+    ) -> Result<Vec<ObjectRef>, StoreError> {
+        (**self).read_related_objects(rev, resource, relation)
+    }
+
+    fn read_reverse(
+        &self,
+        rev: Revision,
+        f: &ReverseFilter,
+    ) -> Result<Vec<(ObjectRef, RelName)>, StoreError> {
+        (**self).read_reverse(rev, f)
+    }
+
+    fn read_relationships(
+        &self,
+        rev: Revision,
+        f: &RelationshipFilter,
+        limit: u32,
+        after: Option<&Relationship>,
+    ) -> Result<Vec<Relationship>, StoreError> {
+        (**self).read_relationships(rev, f, limit, after)
+    }
+
+    fn read_tuples(
+        &self,
+        rev: Revision,
+        resource: &ObjectRef,
+        relation: &RelName,
+    ) -> Result<Vec<SubjectRef>, StoreError> {
+        (**self).read_tuples(rev, resource, relation)
+    }
+
+    fn count_by_relation(&self, rev: Revision) -> Result<Vec<RelationCount>, StoreError> {
+        (**self).count_by_relation(rev)
+    }
+
+    fn current_schema(&self) -> Result<Option<StoredSchema>, StoreError> {
+        (**self).current_schema()
+    }
+
+    fn snapshot(&self) -> Result<Box<dyn ReadStore + '_>, StoreError> {
+        (**self).snapshot()
+    }
 }
 
 /// Mutations. Each method is one atomic transaction that commits at a new revision
