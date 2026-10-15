@@ -22,6 +22,10 @@ allow = [
 confidence-threshold = 0.9
 # The allow list is policy, not an inventory of what is currently in the tree.
 unused-allowed-license = "allow"
+# Build-time only (pyo3-build-config). The LLVM exception only adds permissions to Apache-2.0.
+exceptions = [
+    { crate = "target-lexicon", allow = ["Apache-2.0 WITH LLVM-exception"] },
+]
 
 [bans]
 multiple-versions = "warn"

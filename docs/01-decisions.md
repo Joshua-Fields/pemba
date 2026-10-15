@@ -121,6 +121,7 @@ differs, match SpiceDB and update this ADR). Everything else listed is rejected 
 
 ## ADR-014 — Python is the first binding; packaging via maturin
 
-**Decision.** `warden-py` crate built with maturin into abi3 wheels (Python ≥ 3.9 —
-confirm the current oldest supported CPython before release) for Linux x86_64/aarch64
+**Decision.** `warden-py` crate built with maturin into abi3 wheels (Python ≥ 3.11,
+pyo3 feature `abi3-py311`: 3.9 is end-of-life and 3.10 reaches it in October 2026; re-check
+the oldest supported CPython before each release) for Linux x86_64/aarch64
 (manylinux), macOS x86_64/arm64, Windows x86_64. Type stubs (`.pyi`) shipped.

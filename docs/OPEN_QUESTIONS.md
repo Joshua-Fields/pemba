@@ -604,4 +604,36 @@ it is resolved.
   cached schema, the engine checks the store's version (one query) and revalidates against
   a newer schema before refusing, so a relation another process just added is accepted.
 - Resolve by: human review
+- Resolution: resolved in T3.1 by the human. (a), (b), (e)–(h) accepted. (c): runtime error
+  codes have no `E_` prefix; the code is `SCHEMA_CHANGE_ORPHANS` and `03` §10 now says so.
+  (d): accepted and documented in `04` §1 and `06` §1.1 (Rust) and §2.2 (Python):
+  `Exact(r)` means "the current schema applied to the data as of `r`", not "what was
+  allowed at `r`", with the removed-`banned` example; it is not an audit log.
+
+## OQ-031 — Python binding details decided in T3.1
+- Raised in: T3.1 (`docs/06-api.md` §1.1, §2.2, §2.3; ADR-014)
+- Blocking: no
+- Current choice:
+  (a) `Error::code()` returns `TRANSACTION_CONFLICT` for `Store(StoreError::Conflict)`
+  instead of `STORE_ERROR`, so "every code maps to exactly one class" holds with
+  `TransactionConflictError` as its own class (a `StorageError` subclass). New
+  `Error::CODES` lists every code; a core test fails to compile when a variant is added.
+  (b) `Engine.migrate()` removed from §2.2, matching OQ-025 (d): with
+  `auto_migrate=False` an unmigrated database fails in `Engine.sqlite` before an engine
+  exists, so an instance method could never do the job. The deploy step is
+  `Engine.sqlite(path)` with the default `auto_migrate=True`.
+  (c) Classes not in the old §2.3: `NoSchemaError` (`NO_SCHEMA` had no class),
+  `StaleRelationshipError`, `SchemaChangeOrphansError` (`.orphans`), and
+  `BATCH_TOO_LARGE` under `InvalidRequestError`. `WardenError.retryable` mirrors
+  `StoreError::is_retryable()`. The classes are Python (`warden/_errors.py`), chosen by
+  code in Rust, so they are ordinary subclassable exceptions.
+  (d) `**consistency` spelled out as keyword-only `at_least` / `at_exactly` everywhere, so
+  `mypy --strict` checks it. `Engine.sqlite` takes `str | os.PathLike[str]`.
+  `delete_relationships` gains `limit`. Malformed tuple/object strings raise `ValueError`.
+  Filters use `subject_relation=""` for "no subject relation".
+  (e) `write(conn=...)` is accepted by the signature but raises `NotImplementedError`
+  until T3.2.
+  (f) `Revision` is a Python `int` subclass (PyO3 cannot subclass `int`); results build it
+  on access.
+- Resolve by: human review
 - Resolution: (fill in)

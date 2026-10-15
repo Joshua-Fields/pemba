@@ -6,9 +6,35 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
+publish = false
 
-[lints]
-workspace = true
+[lib]
+name = "_warden"
+crate-type = ["cdylib"]
+# An extension module leaves the Python symbols to the interpreter that loads it, so a
+# Rust test binary could not link; the bindings are tested by pytest (`tests/`).
+test = false
+doctest = false
+
+# Not `workspace = true`: PyO3's macros expand to `unsafe` blocks, so the workspace's
+# `forbid(unsafe_code)` cannot apply here. No `unsafe` is written by hand in this crate.
+[lints.rust]
+unsafe_code = "allow"
+missing_docs = "warn"
+unreachable_pub = "warn"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+module_name_repetitions = "allow"
+must_use_candidate = "allow"
 
 [dependencies]
 warden = { workspace = true, features = ["sqlite", "memory"] }
+warden-schema.workspace = true
+# Python bindings (ADR-014); abi3 so one wheel per platform covers every CPython >= 3.11.
+# `generate-import-lib` lets the Windows build link without a Python development install.
+pyo3 = { version = "0.30.1", features = ["abi3-py311", "extension-module", "generate-import-lib"] }

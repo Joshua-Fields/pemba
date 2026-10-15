@@ -178,7 +178,7 @@ AC:
 ### T2.6 Schema change safety, delete-by-filter, GC
 Refs: `03` §10, `05` §7–8.
 AC:
-- `E_SCHEMA_CHANGE_ORPHANS` with per-relation counts; permission removal always allowed.
+- `SCHEMA_CHANGE_ORPHANS` with per-relation counts; permission removal always allowed.
 - `write_schema` makes stale relationships (OQ-019 (e) and the two remaining cases)
   impossible **at head**: a test proves they cannot arise at head after any accepted
   `write_schema`. Historical reads (`Exact(r)` before a schema change) can still meet tuples
