@@ -1,0 +1,7 @@
+# Lint levels live in [workspace.lints] in Cargo.toml; this file only tunes lint behaviour.
+# Unit tests may unwrap/expect/panic (docs/09-repo-and-tooling.md §3).
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-panic-in-tests = true
+# Proper nouns used throughout the docs; ".." keeps clippy's defaults.
+doc-valid-idents = ["SpiceDB", "PyO3", "SQLite", "PostgreSQL", ".."]

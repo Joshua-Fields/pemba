@@ -1,0 +1,15 @@
+[package]
+name = "warden-difftest"
+description = "Differential tests of warden against SpiceDB."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+warden-testkit.workspace = true

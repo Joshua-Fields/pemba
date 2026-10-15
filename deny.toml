@@ -1,0 +1,34 @@
+# cargo-deny configuration (docs/09-repo-and-tooling.md §2).
+
+[graph]
+all-features = true
+
+[advisories]
+# Unmaintained and unsound crates are reported alongside vulnerabilities.
+unmaintained = "all"
+yanked = "deny"
+
+[licenses]
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-DFS-2016",
+    "Unicode-3.0",
+    "Zlib",
+]
+confidence-threshold = 0.9
+# The allow list is policy, not an inventory of what is currently in the tree.
+unused-allowed-license = "allow"
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+allow-wildcard-paths = false
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
