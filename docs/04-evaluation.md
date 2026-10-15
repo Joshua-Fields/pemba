@@ -374,14 +374,60 @@ Unit-test every cell, and property-test the algebra against a finite universe mo
 
 ### 6.2 Forward evaluation
 
-`gather(o, m) -> SubjectSet` mirrors §2:
-- `Direct`: object subjects of `subject_type` → `Ids`; wildcard `subject_type:*` →
-  `AllExcept(∅)`; stored subject sets `x#y` → `gather(x, y)`; union all.
+`gather(o, m) -> SubjectSet` mirrors §2, for one `subject_type` at one revision:
+- `Direct` (`read_tuples`): object subjects of `subject_type` → `Ids`; a wildcard
+  `subject_type:*` → `AllExcept(∅)` if the relation allows that wildcard (as `check`, §3.3,
+  which ignores a stored wildcard the schema does not allow); stored subject sets `x#y` →
+  `gather(x, y)`, resolved and checked for staleness exactly as `check` does
+  (`StaleRelationship`); union all. Subjects of other types contribute ∅. Fan-out is checked
+  per node as in §3.5.
 - `Computed`, `Union`, `Intersection`, `Exclusion`, `Arrow Any/All` via the algebra
-  (`All` over zero objects → `Ids(∅)`).
-- Memo per `(o, m)`; cycles: in-progress → `Ids(∅)` tainted; through negation →
-  `Err(NonMonotonicCycle)`; tainted results not memoised. Same rules as §3.6 (whose SCC
-  iteration, added for `check` in T1.4c, should be reused here when this is built).
+  (`All` over zero objects, or over any object whose type lacks the target → `Ids(∅)`).
+  An intersection stops at the first `Ids(∅)` operand and an exclusion does not evaluate its
+  `sub` side when the base is `Ids(∅)`, as `check` short-circuits on `false`.
+- **Cycles: exactly §3.6's SCC fixed-point iteration, with `SubjectSet` values in place of
+  booleans.** One implementation serves both (`warden-core::scc`, generic over the value):
+  - *Order.* Values are compared by `≤` (subset of the denoted sets): `Ids(a) ≤ Ids(b)` iff
+    `a ⊆ b`; `Ids(a) ≤ AllExcept(x)` iff `a ∩ x = ∅`; `AllExcept(x) ≤ AllExcept(y)` iff
+    `y ⊆ x`; `AllExcept(x) ≤ Ids(b)` never (the universe of ids is unbounded). `⊥` is
+    `Ids(∅)`, the join is `∪`, and the top `AllExcept(∅)` plays the role of `true`.
+    For `bool`, `false < true`.
+  - *SCC stack and lowlinks* as §3.6: a node is pushed on first visit and stays until the
+    head of its region settles; an outcome carries `low`, the lowest SCC-stack position whose
+    unsettled value it used.
+  - *Hit on a node in progress*: negation-depth check first (differing depth →
+    `NonMonotonicCycle`), else return `provisional[key]` (`⊥` if absent) with `low = p`,
+    and record on the entry the value that was assumed.
+  - *Hit on a finished member* (the pass memo): return its value and `low`, after the same
+    negation-depth check against its region's head.
+  - *Finish value*: `computed ∪ provisional[key]`, so never below what any hit assumed.
+  - *Member finish / head finish* as §3.6. At a head, the pass is consistent unless some
+    entry's finished value **grew** past the value a hit assumed for it: a strict increase in
+    `≤` (for `bool`: an assumed `false` that finished `true`). Consistent, or the head's value
+    is the top: settle (memoise every entry, or for a top head the head and every member
+    whose value is the top) and pop. Otherwise `provisional[x] := provisional[x] ∪ value(x)`
+    for every entry, pop the members, and re-run the head.
+  - *Request memo*: `(o, m) → SubjectSet`, settled values only. Unsettled values never leave
+    the SCC stack.
+  - *Termination.* `provisional` values only grow (each is a join with the previous one),
+    and a re-run needs some entry to grow strictly. A value is `Ids(a)` or `AllExcept(x)`
+    where `a` and `x` contain only ids mentioned in the stored data (every operation of
+    §6.1 builds its sets from its operands' sets, and `Direct` only adds stored ids), so
+    each node's provisional value climbs a chain of length at most `2·|D| + 2` over the
+    data's ids `D` (`Ids` growing by one id at a time, then `AllExcept` shrinking): at most
+    `|S| · (2·|D| + 2) + 1` passes per region of `|S|` nodes. The soundness and leastness
+    arguments of §3.6 carry over word for word with `≤` for implication: every value is
+    `≤ μ` because each pass starts from provisional values `≤ μ` and every operator used
+    under positive polarity is monotone; and in the final, consistent pass the values are a
+    fixed point reached from below, so they equal `μ`.
+  - *Negation.* As §3.6 (stratified): a cycle whose ends differ in negation depth is
+    `NonMonotonicCycle`; the `sub` side of an exclusion must come back settled (`low =
+    None`) or the request fails closed with an internal error.
+- *Cost bound.* `lookup_subjects` counts its store reads against
+  `EngineConfig::max_check_reads` (the whole request is one `gather`, evaluated by the same
+  per-node, per-pass rules as one `check`, so the same `(|S| + 1)`-passes-style bound and the
+  same default apply) and fails closed with `CheckReadsExceeded`. `max_depth` applies as for
+  `check`.
 
 ### 6.3 Invariant (property test)
 

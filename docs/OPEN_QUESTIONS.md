@@ -523,4 +523,37 @@ it is resolved.
   (g) Fixtures: `expectedLookups.resources` at top level only (after step 0); `expect` is
   order-insensitive but may not repeat an id.
 - Resolve by: human review
+- Resolution: resolved in T2.5 by the human: (a)–(g) all accepted as written. `06` §1 now
+  tells callers to loop until `next_cursor` is `None` and that any page, not only the last,
+  may be empty. Whether to cache phase 1 candidates per (revision, query) across pages, given
+  (d), is a T3.5 benchmark question.
+
+## OQ-029 — `lookup_subjects` details (T2.5)
+- Raised in: T2.5 (`docs/04-evaluation.md` §6, `docs/06-api.md` §1, `docs/07-testing.md` §3)
+- Blocking: no
+- Current choice:
+  (a) Cost bound: store reads count against the existing `max_check_reads` and fail with
+  `CheckReadsExceeded`, rather than a new limit. One `lookup_subjects` is one evaluation by
+  the same per-node, per-pass rules as one `check` (`04` §6.2), so the same bound reasoning
+  and default (200 000) apply; a separate knob would add API surface with no different
+  default to justify it. Cost: the error name says "check". Alternative: a
+  `max_lookup_reads` with its own variant, if T3.5 shows `gather` needs a different budget.
+  (b) Cycles: §3.6's SCC iteration is shared, not copied: `warden-core::scc` is generic
+  over a small lattice trait (`bool` for `check`, `SubjectSet` for `gather`). `check` was
+  moved onto it unchanged (all `check` tests, `cycle_passes.rs` pass counts and property 1
+  agree). The `bool` "assumed `false`" flag became "the value a hit assumed", and "a re-run
+  is needed" became "some value grew strictly past what was assumed", identical for `bool`.
+  (c) `gather` fan-out counts every tuple read on a relation (`check` counts subject sets
+  only, because it looks objects up by `exists`): stricter, so it can fail where `check`
+  would not, never the reverse.
+  (d) Stale subject sets: `gather` resolves every stored set on a node it reaches and fails
+  with `StaleRelationship` on any stale one; `check` can short-circuit past one after a
+  `true`. Fail closed; T2.6 makes stale tuples impossible.
+  (e) A stored wildcard counts only if the relation allows it (as `check`, `04` §3.3).
+  (f) Short-circuits mirror `check`: an intersection stops at `Ids(∅)`, an exclusion skips
+  its `sub` side when the base is `Ids(∅)`, `.all` stops at `Ids(∅)`.
+  (g) The response carries no `EvalStats`; the `lookup_subjects` span has them plus
+  `results` and `wildcard`. Not paginated (`04` §6 has no cursor).
+  (h) Fixture `expect` format for subjects: a map `ids` / `wildcard` / `excluded` (`07` §3).
+- Resolve by: human review
 - Resolution: (fill in)

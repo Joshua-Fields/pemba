@@ -11,7 +11,8 @@
 //! disagreed, so a wrong hand-computed answer, an engine bug and an oracle bug are told
 //! apart. `expectedLookups.resources` is checked the same way: the file's ids, the engine's
 //! pages (at the default page size and at size 1), and the oracle's answer over its
-//! universe. Expected errors (`expectCheckErrors`) are checked against the engine only: the
+//! universe. So is `expectedLookups.subjects`: the oracle's answer is a wildcard when it
+//! allows its fresh id, which stands in for every object never written. Expected errors (`expectCheckErrors`) are checked against the engine only: the
 //! oracle has no evaluation limits and refuses non-stratifiable schemas outright.
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -22,7 +23,10 @@ use serde::Deserialize;
 use serde::de::IgnoredAny;
 use warden_core::model::{Consistency, ObjectRef, Relationship, SubjectRef, WriteOp, WriteRequest};
 use warden_core::store::WritableStore;
-use warden_core::{CheckRequest, Engine, EngineConfig, Error, LookupResourcesRequest};
+use warden_core::{
+    CheckRequest, Engine, EngineConfig, Error, LookupResourcesRequest, LookupSubjectsRequest,
+    LookupSubjectsResponse,
+};
 use warden_schema::ir::CompiledSchema;
 use warden_store_memory::MemoryStore;
 
@@ -219,8 +223,55 @@ struct Assertions {
 struct ExpectedLookups {
     #[serde(default)]
     resources: Vec<ResourceLookup>,
-    /// `lookup_subjects` expectations: recognised, not checked until T2.5.
-    subjects: Option<IgnoredAny>,
+    #[serde(default)]
+    subjects: Vec<SubjectLookup>,
+}
+
+/// `query` is `type:id#permission@subject_type`; `expect` the answer: `ids` (any order),
+/// or `wildcard: true` with `excluded` ids (any order).
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SubjectLookup {
+    query: String,
+    expect: SubjectsExpect,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+struct SubjectsExpect {
+    #[serde(default)]
+    ids: Vec<String>,
+    #[serde(default)]
+    wildcard: bool,
+    #[serde(default)]
+    excluded: Vec<String>,
+}
+
+impl SubjectsExpect {
+    fn from_response(r: &LookupSubjectsResponse) -> Self {
+        Self {
+            ids: r.subject_ids.iter().map(ToString::to_string).collect(),
+            wildcard: r.wildcard,
+            excluded: r.excluded_ids.iter().map(ToString::to_string).collect(),
+        }
+    }
+
+    fn sorted(&self) -> Self {
+        let mut s = self.clone();
+        s.ids.sort();
+        s.excluded.sort();
+        s
+    }
+}
+
+impl fmt::Display for SubjectsExpect {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.wildcard {
+            write!(f, "every object except {:?}", self.excluded)
+        } else {
+            write!(f, "{:?}", self.ids)
+        }
+    }
 }
 
 /// `query` is `type#permission@subject`; `expect` the ids, in any order.
@@ -388,6 +439,7 @@ impl<S: WritableStore> Runner<S> {
         );
         if let Some(lookups) = &f.expected_lookups {
             self.lookup_resources(&schema, &lookups.resources, report);
+            self.lookup_subjects(&schema, &lookups.subjects, report);
         }
         for (i, step) in f.steps.iter().enumerate() {
             let at = format!("steps[{i}].");
@@ -667,6 +719,74 @@ impl<S: WritableStore> Runner<S> {
         }
     }
 
+    /// Each `expectedLookups.subjects` entry, answered by the engine and by the oracle
+    /// (every object of the subject type in its universe, plus its fresh id standing in for
+    /// objects never written: if the fresh id is in, the answer is a wildcard).
+    fn lookup_subjects(
+        &self,
+        schema: &CompiledSchema,
+        lookups: &[SubjectLookup],
+        report: &mut Report,
+    ) {
+        let location = "expectedLookups.subjects";
+        let live: Vec<Relationship> = self.live.iter().cloned().collect();
+        for l in lookups {
+            report.checked += 1;
+            let req = match parse_subjects_lookup(&l.query) {
+                Ok(r) => r,
+                Err(e) => {
+                    report.fail(location, &l.query, e);
+                    continue;
+                }
+            };
+            let want = l.expect.sorted();
+            let dup = |v: &[String]| v.windows(2).any(|w| w[0] == w[1]);
+            if dup(&want.ids) || dup(&want.excluded) {
+                report.fail(location, &l.query, "`expect` lists an id twice");
+                continue;
+            }
+            if (want.wildcard && !want.ids.is_empty())
+                || (!want.wildcard && !want.excluded.is_empty())
+            {
+                report.fail(
+                    location,
+                    &l.query,
+                    "`expect` has `ids` with `wildcard: true`, or `excluded` without it",
+                );
+                continue;
+            }
+            let mut problems = Vec::new();
+            match self.engine.lookup_subjects(req.clone()) {
+                Ok(r) => {
+                    let got = SubjectsExpect::from_response(&r);
+                    if got != want {
+                        problems.push(format!("engine says {got}"));
+                    }
+                }
+                Err(e) => problems.push(format!("engine failed with {}: {e}", e.code())),
+            }
+            match Reference::with_objects(schema, &live, std::slice::from_ref(&req.resource)) {
+                Ok(oracle) => match oracle_subjects(&oracle, &req) {
+                    Ok(got) if got == want => {}
+                    Ok(got) => problems.push(format!("reference evaluator says {got}")),
+                    Err(e) => problems.push(format!("reference evaluator failed: {e}")),
+                },
+                Err(e @ ReferenceError::NotStratifiable { .. }) => report.warnings.push(format!(
+                    "`{location}`: reference evaluator declined ({e}); engine and expected \
+                     answers only"
+                )),
+                Err(e) => problems.push(format!("reference evaluator failed: {e}")),
+            }
+            if !problems.is_empty() {
+                report.fail(
+                    location,
+                    &l.query,
+                    format!("expected {want}, but {}", problems.join("; ")),
+                );
+            }
+        }
+    }
+
     /// Every page concatenated, later pages at the first page's revision.
     fn lookup_pages(
         &self,
@@ -710,14 +830,63 @@ fn warn_unsupported(f: &FixtureFile, report: &mut Report) {
             .warnings
             .push("`validation:` is not supported; skipped".to_owned());
     }
-    if f.expected_lookups
-        .as_ref()
-        .is_some_and(|l| l.subjects.is_some())
-    {
-        report
-            .warnings
-            .push("`expectedLookups.subjects:` is not supported until T2.5; skipped".to_owned());
+}
+
+/// `type:id#permission@subject_type` → a lookup at `Latest`.
+fn parse_subjects_lookup(query: &str) -> Result<LookupSubjectsRequest, String> {
+    let query = query.trim();
+    let bad = |why: String| format!("not a lookup (`type:id#permission@subject_type`): {why}");
+    let (resource, rest) = query
+        .split_once('#')
+        .ok_or_else(|| bad("no `#`".to_owned()))?;
+    let (permission, subject_type) = rest
+        .split_once('@')
+        .ok_or_else(|| bad("no `@`".to_owned()))?;
+    Ok(LookupSubjectsRequest::new(
+        resource.parse().map_err(|e| bad(format!("{e}")))?,
+        permission.parse().map_err(|e| bad(format!("{e}")))?,
+        subject_type.parse().map_err(|e| bad(format!("{e}")))?,
+    ))
+}
+
+/// The oracle's answer to `req`: the objects of the subject type it allows; a wildcard
+/// excluding the ones it denies if it allows its fresh id (an object never written).
+fn oracle_subjects(
+    oracle: &Reference,
+    req: &LookupSubjectsRequest,
+) -> Result<SubjectsExpect, ReferenceError> {
+    let (mut allowed, mut denied, mut fresh) = (Vec::new(), Vec::new(), false);
+    for o in oracle.universe() {
+        if o.object_type != req.subject_type {
+            continue;
+        }
+        let yes = oracle.check(
+            &req.resource,
+            &req.permission,
+            &SubjectRef::Object(o.clone()),
+        )?;
+        if o.object_id.as_str() == FRESH_ID {
+            fresh = yes;
+        } else if yes {
+            allowed.push(o.object_id.to_string());
+        } else {
+            denied.push(o.object_id.to_string());
+        }
     }
+    Ok(if fresh {
+        SubjectsExpect {
+            ids: Vec::new(),
+            wildcard: true,
+            excluded: denied,
+        }
+    } else {
+        SubjectsExpect {
+            ids: allowed,
+            wildcard: false,
+            excluded: Vec::new(),
+        }
+    }
+    .sorted())
 }
 
 /// `type#permission@subject` → a first-page lookup at `Latest`.

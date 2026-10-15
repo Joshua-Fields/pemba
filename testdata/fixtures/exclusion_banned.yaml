@@ -43,3 +43,15 @@ assertions:
     - document:d#view@user:zed
     - document:locked#view@user:anne
     - document:locked#view@user:carol
+
+# Lookups, from the computation above.
+expectedLookups:
+  subjects:
+    - query: "document:d#view@user"
+      expect: { ids: [anne, bob, carol] }
+    - query: "document:d#edit@user"
+      expect: { ids: [carol, eve] }
+    - query: "document:locked#view@user"
+      expect: { ids: [] }
+    - query: "group:staff#member@user"
+      expect: { ids: [bob, mallory] }

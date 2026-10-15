@@ -32,6 +32,7 @@ use crate::error::Error;
 use crate::model::{
     Consistency, ObjectId, ObjectRef, RelName, Relationship, Revision, SubjectRef, TypeName,
 };
+use crate::scc::{self, Finish, Hit, Scc, min_low};
 use crate::store::{ReadStore, StoreError};
 
 /// Asks whether `subject` has `permission` on `resource` (`docs/04-evaluation.md` §3.1).
@@ -227,13 +228,8 @@ pub(crate) fn invalid(message: String) -> Error {
     Error::InvalidRequest { message }
 }
 
-/// A node's value and the lowest SCC-stack position whose unsettled value it used (`None`
-/// if it used none, so the value is settled).
-#[derive(Clone, Copy, Debug)]
-struct Outcome {
-    value: bool,
-    low: Option<usize>,
-}
+/// A `check` node's value.
+type Outcome = scc::Outcome<bool>;
 
 impl Outcome {
     const TRUE: Self = Self {
@@ -246,38 +242,6 @@ impl Outcome {
     };
 }
 
-fn min_low(a: Option<usize>, b: Option<usize>) -> Option<usize> {
-    match (a, b) {
-        (Some(a), Some(b)) => Some(a.min(b)),
-        (a, None) => a,
-        (None, b) => b,
-    }
-}
-
-/// A node on the SCC stack: pushed on first visit, removed when its region's head settles.
-/// Positions are stable while it is there (the stack only loses suffixes), unlike call-stack
-/// indices, which a later sibling reuses once a frame pops.
-#[derive(Debug)]
-struct SccEntry {
-    key: NodeKey,
-    /// Call-stack index while in progress; `None` once finished in this pass.
-    frame: Option<usize>,
-    /// The finished value (meaningful once `frame` is `None`, and for the head).
-    value: bool,
-    /// Lowest SCC-stack position this node's value depends on.
-    low: usize,
-    /// A cycle hit returned `false` for this node while it was in progress.
-    assumed_false: bool,
-}
-
-/// A node in progress, with its negation depth: how many subtracted sides of exclusions
-/// it was pushed inside (§3.6).
-#[derive(Debug)]
-struct Frame {
-    key: NodeKey,
-    neg_depth: u32,
-}
-
 /// Evaluates checks for one subject at one revision.
 pub(crate) struct Evaluator<'a> {
     schema: &'a CompiledSchema,
@@ -286,14 +250,8 @@ pub(crate) struct Evaluator<'a> {
     limits: Limits,
     subject: &'a Subject,
     memo: &'a mut Memo,
-    stack: Vec<Frame>,
-    /// Nodes of regions not yet settled (§3.6); finished entries here form the pass memo.
-    scc: Vec<SccEntry>,
-    scc_pos: HashMap<NodeKey, usize>,
-    /// Values found by earlier passes of a head still iterating; only ever `false → true`.
-    provisional: HashMap<NodeKey, bool>,
-    /// How many subtracted sides of exclusions evaluation is currently inside.
-    neg_depth: u32,
+    /// Cycle handling (§3.6).
+    cycle: Scc<bool>,
     /// Store reads by the current `check`, against `limits.max_reads`.
     check_reads: u64,
     stats: EvalStats,
@@ -315,11 +273,7 @@ impl<'a> Evaluator<'a> {
             limits,
             subject,
             memo,
-            stack: Vec::new(),
-            scc: Vec::new(),
-            scc_pos: HashMap::new(),
-            provisional: HashMap::new(),
-            neg_depth: 0,
+            cycle: Scc::new(),
             check_reads: 0,
             stats: EvalStats::default(),
         }
@@ -337,11 +291,7 @@ impl<'a> Evaluator<'a> {
     }
 
     fn reset(&mut self) {
-        self.stack.clear();
-        self.scc.clear();
-        self.scc_pos.clear();
-        self.provisional.clear();
-        self.neg_depth = 0;
+        self.cycle.reset();
     }
 
     /// Counters accumulated over every [`check`](Self::check) so far; `elapsed` is left to
@@ -354,7 +304,7 @@ impl<'a> Evaluator<'a> {
     fn eval(&mut self, key: &NodeKey, depth: u32) -> Result<Outcome, Error> {
         self.stats.max_depth_reached = self.stats.max_depth_reached.max(depth);
         if depth > self.limits.max_depth {
-            let mut path: Vec<String> = self.stack.iter().map(|f| self.name(&f.key)).collect();
+            let mut path: Vec<String> = self.cycle.path_from(0).map(|k| self.name(k)).collect();
             path.push(self.name(key));
             return Err(Error::MaxDepthExceeded { path });
         }
@@ -362,8 +312,10 @@ impl<'a> Evaluator<'a> {
             self.stats.memo_hits += 1;
             return Ok(Outcome { value, low: None });
         }
-        if let Some(&p) = self.scc_pos.get(key) {
-            return self.on_scc_hit(p, key);
+        match self.cycle.hit(key)? {
+            Some(Hit::Found(out)) => return Ok(out),
+            Some(Hit::NonMonotonic { from }) => return Err(self.non_monotonic(from, key)),
+            None => {}
         }
         if self.subject.set.as_ref() == Some(key) {
             return Ok(Outcome::TRUE);
@@ -377,22 +329,11 @@ impl<'a> Evaluator<'a> {
                 // Unreachable: every key is built from ids of this same schema.
                 invalid(format!("internal: node {key:?} is not in the schema"))
             })?;
-        let p = self.scc.len();
-        self.scc.push(SccEntry {
-            key: key.clone(),
-            frame: Some(self.stack.len()),
-            value: false,
-            low: p,
-            assumed_false: false,
-        });
-        self.scc_pos.insert(key.clone(), p);
+        let p = self.cycle.begin(key);
         let mut passes = 0;
         loop {
             passes += 1;
-            self.stack.push(Frame {
-                key: key.clone(),
-                neg_depth: self.neg_depth,
-            });
+            self.cycle.push_frame(key);
             let out = match member {
                 Member::Relation(r) => self.eval_direct(key, &r.allowed, depth),
                 Member::Permission(perm) => {
@@ -400,126 +341,21 @@ impl<'a> Evaluator<'a> {
                     self.eval_expr(key, &perm.expr, depth, &mut fanout)
                 }
             };
-            self.stack.pop();
-            let out = out?;
-            // Never below what a cycle hit assumed, so a re-run is only ever caused by an
-            // assumed `false` turning `true`.
-            let value = out.value || self.provisional.get(key).copied().unwrap_or(false);
-
-            if let Some(l) = out.low.filter(|&l| l < p) {
-                // A member of a region headed further down: finish for this pass. Nodes
-                // above it on the SCC stack are in that region too.
-                let entry = &mut self.scc[p];
-                entry.frame = None;
-                entry.value = value;
-                entry.low = l;
-                for e in &mut self.scc[p + 1..] {
-                    e.low = e.low.min(l);
-                }
-                return Ok(Outcome {
-                    value,
-                    low: Some(l),
-                });
-            }
-
-            // `key` heads the region `scc[p..]`.
-            self.scc[p].value = value;
-            let changed = self.scc[p..].iter().any(|e| e.assumed_false && e.value);
-            if value || !changed {
-                // Consistent: every value is the least fixed point. Or the head is `true`,
-                // which is sound whatever was assumed, as is every member's `true`.
-                for e in self.scc.drain(p..) {
-                    self.scc_pos.remove(&e.key);
-                    self.provisional.remove(&e.key);
-                    if e.value || !changed {
-                        self.memo.insert(e.key, e.value);
+            self.cycle.pop_frame();
+            match self.cycle.finish(key, p, out?, self.memo) {
+                Finish::Done(out) => {
+                    if out.low.is_none() && passes > 1 {
+                        self.stats.cycle_passes += passes;
                     }
+                    return Ok(out);
                 }
-                if passes > 1 {
-                    self.stats.cycle_passes += passes;
-                }
-                return Ok(Outcome { value, low: None });
+                Finish::Rerun => {}
             }
-
-            for e in self.scc.drain(p..) {
-                if e.key != *key {
-                    self.scc_pos.remove(&e.key);
-                }
-                let v = self.provisional.entry(e.key.clone()).or_insert(false);
-                *v |= e.value;
-            }
-            self.scc.push(SccEntry {
-                key: key.clone(),
-                frame: Some(self.stack.len()),
-                value: false,
-                low: p,
-                assumed_false: false,
-            });
         }
-    }
-
-    /// §3.6: `key` is on the SCC stack at position `p`, in progress or finished this pass.
-    fn on_scc_hit(&mut self, p: usize, key: &NodeKey) -> Result<Outcome, Error> {
-        let Some(entry) = self.scc.get(p) else {
-            return Err(invalid(format!("internal: SCC position {p} out of range")));
-        };
-        let (frame, value, low) = (entry.frame, entry.value, entry.low);
-        if let Some(i) = frame {
-            // Depth never falls along the stack, so the path from `key` (its own
-            // expression included) to this closing edge crosses a subtracted side exactly
-            // when the depths differ. In `view = viewer - parent->view` with
-            // `doc:a#parent@doc:a` the only frame is `doc:a#view`, at depth 0; the edge
-            // back to it is evaluated at depth 1.
-            if self.crosses_negation(i) {
-                return Err(self.non_monotonic(i, key));
-            }
-            let value = self.provisional.get(key).copied().unwrap_or(false);
-            if !value {
-                self.scc[p].assumed_false = true;
-            }
-            return Ok(Outcome {
-                value,
-                low: Some(p),
-            });
-        }
-        // A finished member: its value depends on its region's head, still in progress
-        // (`low` names it; every member shares its head's depth). So this hit closes a
-        // cycle through the head, and is non-monotone if the path from the head to here
-        // crosses a subtracted side.
-        let Some(i) = self
-            .scc
-            .get(low..)
-            .and_then(|r| r.iter().find_map(|e| e.frame))
-        else {
-            return Err(invalid(format!(
-                "internal: no node in progress at or above SCC position {low}"
-            )));
-        };
-        if self.crosses_negation(i) {
-            return Err(self.non_monotonic(i, key));
-        }
-        Ok(Outcome {
-            value,
-            low: Some(low),
-        })
-    }
-
-    /// Whether the path from call-stack frame `i` to the current point of evaluation
-    /// crosses the subtracted side of an exclusion.
-    fn crosses_negation(&self, i: usize) -> bool {
-        self.stack
-            .get(i)
-            .is_none_or(|f| f.neg_depth != self.neg_depth)
     }
 
     fn non_monotonic(&self, i: usize, key: &NodeKey) -> Error {
-        let mut path: Vec<String> = self
-            .stack
-            .get(i..)
-            .unwrap_or_default()
-            .iter()
-            .map(|f| self.name(&f.key))
-            .collect();
+        let mut path: Vec<String> = self.cycle.path_from(i).map(|k| self.name(k)).collect();
         path.push(self.name(key));
         Error::NonMonotonicCycle { path }
     }
@@ -625,9 +461,9 @@ impl<'a> Evaluator<'a> {
                 if !b.value {
                     return Ok(b);
                 }
-                self.neg_depth += 1;
+                self.cycle.enter_sub();
                 let s = self.eval_expr(key, sub, depth, fanout);
-                self.neg_depth -= 1;
+                self.cycle.leave_sub();
                 let s = s?;
                 // Everything the subtracted side used is settled: a value depending on a
                 // node in progress could only come from a hit at that node's depth, and
@@ -737,29 +573,7 @@ impl<'a> Evaluator<'a> {
         rel: RelName,
         allowed: &[AllowedSubject],
     ) -> Result<NodeKey, Error> {
-        let resolved = self
-            .schema
-            .type_id(object.object_type.as_str())
-            .and_then(|ty| Some((ty, self.schema.type_def(ty)?.member_id(rel.as_str())?)));
-        match resolved {
-            Some((ty, r)) if allowed.contains(&AllowedSubject::Set(ty, r)) => Ok(NodeKey {
-                ty,
-                id: object.object_id,
-                rel: r,
-            }),
-            _ => Err(Error::StaleRelationship {
-                tuple: Relationship {
-                    resource: resource.clone(),
-                    relation: relation.clone(),
-                    subject: SubjectRef::Set {
-                        object,
-                        relation: rel,
-                    },
-                }
-                .to_string(),
-                relation: format!("{}#{relation}", self.type_name(key.ty)),
-            }),
-        }
+        resolve_set(self.schema, key, resource, relation, object, rel, allowed)
     }
 
     fn check_fanout(&self, key: &NodeKey, read: usize) -> Result<(), Error> {
@@ -798,39 +612,92 @@ impl<'a> Evaluator<'a> {
     }
 
     fn object_ref(&self, key: &NodeKey) -> ObjectRef {
-        ObjectRef {
-            object_type: TypeName::from_schema(&self.type_name(key.ty)),
-            object_id: key.id.clone(),
-        }
+        object_ref(self.schema, key)
     }
 
     fn rel_name(&self, ty: TypeId, rel: RelId) -> RelName {
-        RelName::from_schema(&self.member_name(ty, rel))
+        rel_name(self.schema, ty, rel)
     }
 
-    fn type_name(&self, ty: TypeId) -> Arc<str> {
-        self.schema
-            .type_def(ty)
-            .map_or_else(|| Arc::from("?"), |t| Arc::clone(&t.name))
-    }
-
-    fn member_name(&self, ty: TypeId, rel: RelId) -> Arc<str> {
-        match self.schema.type_def(ty).and_then(|t| t.member(rel)) {
-            Some(Member::Relation(r)) => Arc::clone(&r.name),
-            Some(Member::Permission(p)) => Arc::clone(&p.name),
-            None => Arc::from("?"),
-        }
-    }
-
-    /// `type:id#member`, for error paths.
     fn name(&self, key: &NodeKey) -> String {
-        format!(
-            "{}:{}#{}",
-            self.type_name(key.ty),
-            key.id,
-            self.member_name(key.ty, key.rel)
-        )
+        name(self.schema, key)
     }
+}
+
+/// The node for a stored subject set `object#rel` on `resource#relation` (`key`).
+///
+/// # Errors
+///
+/// [`Error::StaleRelationship`] if the relation does not allow that form, including
+/// when its type or relation is no longer defined.
+pub(crate) fn resolve_set(
+    schema: &CompiledSchema,
+    key: &NodeKey,
+    resource: &ObjectRef,
+    relation: &RelName,
+    object: ObjectRef,
+    rel: RelName,
+    allowed: &[AllowedSubject],
+) -> Result<NodeKey, Error> {
+    let resolved = schema
+        .type_id(object.object_type.as_str())
+        .and_then(|ty| Some((ty, schema.type_def(ty)?.member_id(rel.as_str())?)));
+    match resolved {
+        Some((ty, r)) if allowed.contains(&AllowedSubject::Set(ty, r)) => Ok(NodeKey {
+            ty,
+            id: object.object_id,
+            rel: r,
+        }),
+        _ => Err(Error::StaleRelationship {
+            tuple: Relationship {
+                resource: resource.clone(),
+                relation: relation.clone(),
+                subject: SubjectRef::Set {
+                    object,
+                    relation: rel,
+                },
+            }
+            .to_string(),
+            relation: format!("{}#{relation}", type_name(schema, key.ty)),
+        }),
+    }
+}
+
+/// The object `key` is a member of.
+pub(crate) fn object_ref(schema: &CompiledSchema, key: &NodeKey) -> ObjectRef {
+    ObjectRef {
+        object_type: TypeName::from_schema(&type_name(schema, key.ty)),
+        object_id: key.id.clone(),
+    }
+}
+
+/// The name of member `rel` of type `ty`.
+pub(crate) fn rel_name(schema: &CompiledSchema, ty: TypeId, rel: RelId) -> RelName {
+    RelName::from_schema(&member_name(schema, ty, rel))
+}
+
+fn type_name(schema: &CompiledSchema, ty: TypeId) -> Arc<str> {
+    schema
+        .type_def(ty)
+        .map_or_else(|| Arc::from("?"), |t| Arc::clone(&t.name))
+}
+
+fn member_name(schema: &CompiledSchema, ty: TypeId, rel: RelId) -> Arc<str> {
+    match schema.type_def(ty).and_then(|t| t.member(rel)) {
+        Some(Member::Relation(r)) => Arc::clone(&r.name),
+        Some(Member::Permission(p)) => Arc::clone(&p.name),
+        None => Arc::from("?"),
+    }
+}
+
+/// `type:id#member`, for error paths.
+pub(crate) fn name(schema: &CompiledSchema, key: &NodeKey) -> String {
+    format!(
+        "{}:{}#{}",
+        type_name(schema, key.ty),
+        key.id,
+        member_name(schema, key.ty, key.rel)
+    )
 }
 
 #[cfg(test)]
@@ -1011,8 +878,7 @@ mod tests {
             ev.check(&key("a")),
             Err(Error::CheckReadsExceeded { max: 5 })
         ));
-        assert!(ev.scc.is_empty() && ev.scc_pos.is_empty() && ev.provisional.is_empty());
-        assert!(ev.stack.is_empty());
+        assert!(ev.cycle.is_empty());
         // The read budget is per check.
         assert!(ev.check(&key("z")).unwrap());
         for g in ["a", "b", "c"] {

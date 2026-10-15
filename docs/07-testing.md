@@ -93,6 +93,10 @@ every pull request (~1 s since T1.4c bounded check cost, OQ-021); the manual
 1. `engine.check == reference.check` for memory store and SQLite store.
 2. `engine.lookup_resources` (all pages concatenated) == `{ o : reference.check(o, m, s) }`.
 3. `engine.lookup_subjects` agrees with reference for every subject in `U[t]` (`docs/04` §6.3).
+   Runs on both stores over both generator variants, plus a fixed schema with wildcards
+   on both sides of exclusions and intersections under recursion (random data): the
+   generated schemas put a wildcard beneath an exclusion in only ~2% of cases, which would
+   leave the cofinite cells of `04` §6.1 barely exercised end to end.
 4. After random interleaved writes/deletes, `check` at `Exact(r)` equals the reference run on
    the tuple set as of revision `r` (MVCC correctness).
 5. Memory store and SQLite store return identical results for identical op sequences.
@@ -147,7 +151,14 @@ expectErrors:                       # optional: schema or write must fail with t
 - `relationships` is a single multi-line string (as in SpiceDB), one tuple per line; `//`
   comment lines and blank lines allowed. They are written as one batch of `Touch` ops.
 - SpiceDB's `validation:` (expected relations) and `assertCaveated:` keys are **recognised and
-  skipped with a warning** in the MVP. So is `expectedLookups.subjects:` until T2.5 checks it.
+  skipped with a warning** in the MVP.
+- `expectedLookups.subjects` (T2.5), also after step 0: `query` is
+  `type:id#permission@subject_type`; `expect` is a map `{ ids: [...] }` or
+  `{ wildcard: true, excluded: [...] }` (keys default to empty / `false`; ids in any order,
+  each once; `ids` with `wildcard`, or `excluded` without it, is a failure). The runner
+  answers with the engine and with the oracle, whose answer is a wildcard exactly when it
+  allows its fresh id (standing in for every object never written), excluding the denied
+  ids of its universe.
 - `expectedLookups.resources` (T2.4) is checked after step 0 (top level only; steps have no
   lookups yet). `query` is `type#permission@subject`; `expect` lists ids in any order, each
   once. The runner answers each with the engine, concatenating every page at the first
