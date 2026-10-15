@@ -147,7 +147,13 @@ expectErrors:                       # optional: schema or write must fail with t
 - `relationships` is a single multi-line string (as in SpiceDB), one tuple per line; `//`
   comment lines and blank lines allowed. They are written as one batch of `Touch` ops.
 - SpiceDB's `validation:` (expected relations) and `assertCaveated:` keys are **recognised and
-  skipped with a warning** in the MVP. So is `expectedLookups:` until T2.4 / T2.5 check it.
+  skipped with a warning** in the MVP. So is `expectedLookups.subjects:` until T2.5 checks it.
+- `expectedLookups.resources` (T2.4) is checked after step 0 (top level only; steps have no
+  lookups yet). `query` is `type#permission@subject`; `expect` lists ids in any order, each
+  once. The runner answers each with the engine, concatenating every page at the first
+  page's revision, once at the default page size and once at page size 1, and with the
+  oracle as `{ o ∈ U[type] : check(o, permission, subject) }` (without its fresh stand-in
+  id), and names each that disagrees with the file.
   Any other unknown key is a failure, so a misspelt `assertTure` cannot silently test nothing.
 - `expectErrors` lists the codes (`E_...`) the schema compile, or the `relationships` write,
   must fail with, compared as a multiset. A write failure that is not a relationship

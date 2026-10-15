@@ -202,3 +202,66 @@ fn crlf_fixture_gives_identical_results() {
         assert_eq!(got, want, "{name}");
     }
 }
+
+// ---- expectedLookups (T2.4) ----
+
+#[test]
+fn lookup_expectations_pass_in_any_order() {
+    let r = run_text(&format!(
+        "{SCHEMA}  doc:b#viewer@user:anne\nexpectedLookups:\n  resources:\n    - query: doc#view@user:anne\n      expect: [b, a]\n    - query: doc#view@user:bob\n      expect: []\n"
+    ));
+    assert!(r.passed(), "{r:?}");
+    assert_eq!(r.checked, 2);
+    assert!(r.warnings.is_empty(), "{:?}", r.warnings);
+}
+
+#[test]
+fn wrong_lookup_expectation_is_reported_by_engine_and_oracle() {
+    let r = run_text(&format!(
+        "{SCHEMA}expectedLookups:\n  resources:\n    - query: doc#view@user:anne\n      expect: [a, z]\n"
+    ));
+    assert_eq!(r.failures.len(), 1, "{r:?}");
+    assert_eq!(r.failures[0].location, "expectedLookups.resources");
+    assert_eq!(r.failures[0].assertion, "doc#view@user:anne");
+    assert_eq!(
+        r.failures[0].message,
+        "expected [\"a\", \"z\"], but engine (limit None) says [\"a\"]; engine (limit Some(1)) \
+         says [\"a\"]; reference evaluator says [\"a\"]"
+    );
+}
+
+#[test]
+fn malformed_lookups_are_failures() {
+    for (lookup, want) in [
+        (
+            "    - query: doc-view@user:anne\n      expect: []\n",
+            "not a lookup",
+        ),
+        (
+            "    - query: doc#view@user:anne\n      expect: [a, a]\n",
+            "twice",
+        ),
+        (
+            "    - query: doc#nope@user:anne\n      expect: []\n",
+            "INVALID_REQUEST",
+        ),
+        (
+            "    - query: doc#view@user:anne\n      expected: [a]\n",
+            "expected",
+        ),
+    ] {
+        let r = run_text(&format!("{SCHEMA}expectedLookups:\n  resources:\n{lookup}"));
+        assert_eq!(r.failures.len(), 1, "{lookup}: {r:?}");
+        assert!(r.failures[0].message.contains(want), "{lookup}: {r:?}");
+    }
+}
+
+#[test]
+fn subject_lookups_are_skipped_with_a_warning_until_t2_5() {
+    let r = run_text(&format!(
+        "{SCHEMA}expectedLookups:\n  subjects:\n    - query: doc:a#view@user\n      expect: {{ wildcard: false, excluded: [] }}\n"
+    ));
+    assert!(r.passed(), "{r:?}");
+    assert_eq!(r.warnings.len(), 1, "{:?}", r.warnings);
+    assert!(r.warnings[0].contains("expectedLookups.subjects"));
+}

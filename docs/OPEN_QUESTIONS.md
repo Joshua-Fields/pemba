@@ -495,4 +495,32 @@ it is resolved.
   there is no `Engine::gc` yet (T2.6). GC expiry is covered by the snapshot tests and the
   conformance suite.
 - Resolve by: human review
+- Resolution: resolved in T2.4 by the human: (a)–(e) all accepted as written. Follow-up for
+  (e): T2.6's AC now extends property 4 to GC (reads at `Exact(r)` below the horizon fail
+  with `RevisionExpired`).
+
+## OQ-028 — `lookup_resources` details the spec leaves open (T2.4)
+- Raised in: T2.4 (`docs/04-evaluation.md` §5, `docs/06-api.md` §1, `docs/07-testing.md` §3)
+- Blocking: no
+- Current choice (conservative where it matters):
+  (a) A subject-set subject `t:id#r` seeds tuples naming it exactly even if
+  `subject_set_uses[(t, r)]` is empty. `check` finds such a tuple by exact `exists`
+  whatever the schema allows, so gating the query on the schema could make a lookup omit a
+  resource `check` allows (a stale tuple left by a schema change; T2.6 makes those
+  impossible). One extra reverse read per lookup.
+  (b) Reverse-read rows with a type or relation the schema no longer defines are skipped:
+  no schema member reaches them. Stale subject *sets* that do resolve are kept as
+  candidates; phase 2's `check` then fails the page with `StaleRelationship` as it would.
+  (c) `next_cursor` is set when candidates remain after a full page, even if all of them
+  will be denied, so a last page can be empty (`04` §5.2 read literally). Alternative not
+  taken: evaluate ahead until one more is allowed (extra work on every page).
+  (d) Each page re-runs phase 1 in full; nothing is cached between pages (a page is its own
+  request and snapshot, `05` §2). Pagination therefore costs phase 1 per page.
+  (e) A `check` error on any candidate fails the whole page, even one the page would not
+  have returned anyway: the page cannot know which candidates it may skip.
+  (f) The response carries no `EvalStats`; the `lookup_resources` tracing span has
+  `nodes_visited`, `candidates`, `results`, `phase1_reads` and phase 2's `EvalStats` fields.
+  (g) Fixtures: `expectedLookups.resources` at top level only (after step 0); `expect` is
+  order-insensitive but may not repeat an id.
+- Resolve by: human review
 - Resolution: (fill in)
