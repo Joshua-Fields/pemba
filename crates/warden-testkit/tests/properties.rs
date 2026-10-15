@@ -3,7 +3,8 @@
 //!
 //! Property 1 runs on the memory store only; the SQLite store arrives in M2. Plain
 //! `cargo test` runs it for 64 cases; the `#[ignore]`d `prop1_check_matches_reference_full`
-//! (`cargo test -- --ignored`, and the manual `proptest.yml` workflow) runs at least 1 000,
+//! (`cargo test -- --ignored`, ci.yml's `prop1` job, and the manual `proptest.yml`
+//! workflow) runs at least 1 000,
 //! or `PROPTEST_CASES` if higher.
 //! Property 6 always runs at least 1 000.
 

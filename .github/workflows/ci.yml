@@ -45,6 +45,19 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --workspace --all-features
 
+  prop1:
+    name: property 1, 1000 cases
+    runs-on: ubuntu-latest
+    # ~1 s locally since T1.4c bounded check cost (OQ-021); the cap catches a regression to
+    # exponential cost instead of letting it run for the default six hours.
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: Swatinem/rust-cache@v2
+      # Only the properties binary: warden-difftest's ignored tests need SpiceDB
+      # (difftest.yml). `prop1_check_matches_reference_full` runs at least 1 000 cases.
+      - run: cargo test -p warden-testkit --test properties -- --ignored
+
   deny:
     name: cargo-deny
     runs-on: ubuntu-latest
