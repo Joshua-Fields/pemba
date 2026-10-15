@@ -7,6 +7,7 @@
 
 mod engine;
 mod error;
+mod eval;
 pub mod model;
 pub mod store;
 mod validate;
@@ -16,4 +17,5 @@ pub use engine::{
     SchemaWriteResult,
 };
 pub use error::Error;
+pub use eval::{CheckItem, CheckRequest, CheckResponse, EvalStats};
 pub use warden_schema::{ErrorCode, SchemaError, SchemaErrors};

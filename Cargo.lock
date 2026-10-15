@@ -674,6 +674,7 @@ dependencies = [
 name = "warden"
 version = "0.0.0"
 dependencies = [
+ "tracing",
  "warden-core",
  "warden-store-memory",
  "warden-store-sqlite",

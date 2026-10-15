@@ -21,3 +21,6 @@ sqlite = ["dep:warden-store-sqlite"]
 warden-core.workspace = true
 warden-store-memory = { workspace = true, optional = true }
 warden-store-sqlite = { workspace = true, optional = true }
+
+[dev-dependencies]
+tracing.workspace = true

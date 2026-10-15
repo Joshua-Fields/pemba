@@ -71,6 +71,28 @@ pub enum Error {
         /// The lowest readable revision.
         horizon: Revision,
     },
+    /// A `check` went deeper than `EngineConfig::max_depth` nested evaluations.
+    #[error("maximum evaluation depth exceeded: {}", path.join(" → "))]
+    MaxDepthExceeded {
+        /// The nodes being evaluated, outermost first, ending with the one that would
+        /// have exceeded the limit, e.g. `["document:a#view", "folder:b#view"]`.
+        path: Vec<String>,
+    },
+    /// Evaluation reached a node already in progress through the subtracted side of an
+    /// exclusion, which has no well-defined answer (`docs/04-evaluation.md` §3.6).
+    #[error("cycle through an exclusion: {}", path.join(" → "))]
+    NonMonotonicCycle {
+        /// The cycle, starting and ending with the repeated node.
+        path: Vec<String>,
+    },
+    /// One node read more than `EngineConfig::max_check_fanout` tuples.
+    #[error("node {node} read more than {max} tuples")]
+    FanoutExceeded {
+        /// The node, e.g. `document:a#viewer`.
+        node: String,
+        /// The configured maximum.
+        max: usize,
+    },
     /// The store failed.
     #[error(transparent)]
     Store(#[from] StoreError),
@@ -90,6 +112,9 @@ impl Error {
             Self::BatchTooLarge { .. } => "BATCH_TOO_LARGE",
             Self::RevisionNotYetAvailable { .. } => "REVISION_NOT_YET_AVAILABLE",
             Self::RevisionExpired { .. } => "REVISION_EXPIRED",
+            Self::MaxDepthExceeded { .. } => "MAX_DEPTH_EXCEEDED",
+            Self::NonMonotonicCycle { .. } => "NON_MONOTONIC_CYCLE",
+            Self::FanoutExceeded { .. } => "FANOUT_EXCEEDED",
             Self::Store(_) => "STORE_ERROR",
         }
     }

@@ -207,3 +207,47 @@ it is resolved.
 - Resolve by: human review; revisit validating `Delete` ops of tuples left behind by a schema
   change once T2.6 lands (it should then be impossible)
 - Resolution: (fill in)
+
+## OQ-018 — Which cycles count as "through negation"
+- Raised in: T1.3 (`docs/04-evaluation.md` §3.6)
+- Blocking: no
+- Current choice: §3.6 as written, plus one fix. Frames pushed while evaluating an
+  exclusion's `sub` side are `negated` and so is everything beneath; a cycle is
+  `NonMonotonicCycle` if any frame from the repeated node to the top is negated **or the
+  edge closing the cycle is evaluated under negation**. Without that last clause the
+  self-loop `view = viewer - parent->view` with `doc:a#parent@doc:a` finds no negated
+  frame (the only frame is `doc:a#view`, pushed outside the `sub` side), returns a tainted
+  `false` and grants `view` — an unsound `true`. Consequence of the literal "everything
+  beneath" rule: a cycle that lies entirely *inside* a `sub` side and is itself monotone
+  (e.g. `view = viewer - banned`, `banned: group#member`, nested groups that contain each
+  other) is also refused, although its value is well defined. Tests:
+  `self_loop_through_exclusion_is_non_monotonic_cycle`,
+  `any_cycle_beneath_subtracted_side_is_refused`
+- Proposed relaxation (needs human sign-off and property tests): give each frame the
+  number of `sub` sides entered on its path and refuse only when the current count is
+  greater than the repeated frame's, i.e. when an edge *of the cycle* crosses a `sub` side
+- Resolve by: human review; differential test against SpiceDB in T3.4
+- Resolution: (fill in)
+
+## OQ-019 — `check` details the spec leaves open
+- Raised in: T1.3 (`docs/04-evaluation.md` §1, §3; `docs/06-api.md` §1)
+- Blocking: no
+- Current choice:
+  (a) `CheckItem` was undefined: it is `CheckRequest` without `consistency`.
+  (b) Depth: the root node is evaluated at depth 1 and each nested `eval` adds one, so
+  `max_depth = N` allows N nested nodes; `MaxDepthExceeded.path` lists the stack plus the
+  node that would have exceeded it.
+  (c) Fan-out: "tuples read by one node" sums every arrow read in a permission node's
+  expression; for a relation it is the subject-set read. More than `max_check_fanout` errors.
+  (d) Request validation (§1 step 1): resource type and member must exist; an object
+  subject's type must exist; a subject set's type and member (relation or permission) must
+  exist. Whether the subject type can reach the permission at all is not checked; such a
+  check is simply `false`.
+  (e) Stored subject sets whose form is not an allowed type of the relation (only possible
+  after a schema change, until T2.6 refuses orphaning changes) are skipped in fan-out, as
+  if step 3 queried each allowed `x#y` separately. The exact-hit step still matches any
+  stored tuple exactly as §3.3 says.
+  (f) `check_bulk`: `Store` and mid-call `RevisionExpired` fail the call; all other errors
+  are per item (documented in `06` §1)
+- Resolve by: human review
+- Resolution: (fill in)
