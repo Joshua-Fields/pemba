@@ -109,6 +109,18 @@ pub enum Error {
         /// The relation it was found on, e.g. `doc#banned`.
         relation: String,
     },
+    /// The database has no engine tables, or an older layout, and migrations are not
+    /// allowed to run automatically (`docs/05-storage.md` §4.1).
+    #[error("the database is not migrated to the current storage version")]
+    NotMigrated,
+    /// The database was migrated by a newer library than this one.
+    #[error("storage version {found} is newer than the supported version {supported}")]
+    StorageVersionTooNew {
+        /// `storage_version` found in the database.
+        found: u32,
+        /// The newest storage version this library knows.
+        supported: u32,
+    },
     /// The store failed.
     #[error(transparent)]
     Store(#[from] StoreError),
@@ -133,6 +145,8 @@ impl Error {
             Self::FanoutExceeded { .. } => "FANOUT_EXCEEDED",
             Self::CheckReadsExceeded { .. } => "CHECK_READS_EXCEEDED",
             Self::StaleRelationship { .. } => "STALE_RELATIONSHIP",
+            Self::NotMigrated => "NOT_MIGRATED",
+            Self::StorageVersionTooNew { .. } => "STORAGE_VERSION_TOO_NEW",
             Self::Store(_) => "STORE_ERROR",
         }
     }

@@ -208,6 +208,9 @@ Refs: ADR-014, `09` §4.
 AC:
 - maturin-built abi3 wheels for the platforms in ADR-014; smoke-tested on each.
 - `cargo publish --dry-run` passes for publishable crates. (Actual publishing: human only.)
+- Fixture format and engine-only runner moved from `warden-testkit` into a small publishable
+  crate that `warden-cli` depends on; the oracle cross-check stays in `warden-testkit` as an
+  optional hook for internal tests (OQ-024). The CLI no longer depends on `warden-testkit`.
 
 ### T3.4 Differential testing against SpiceDB
 Refs: `07` §4.

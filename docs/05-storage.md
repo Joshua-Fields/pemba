@@ -29,12 +29,14 @@ pub trait ReadStore: Send + Sync {
     /// Exact tuple exists at `rev`?
     fn exists(&self, rev: Revision, rel: &Relationship) -> Result<bool, StoreError>;
 
-    /// Visible stored subject *sets* on `resource#relation` (subject_relation non-empty).
+    /// Visible stored subject *sets* on `resource#relation` (subject_relation non-empty),
+    /// ordered by (subject_type, subject_id, subject_relation) byte-wise.
     fn read_subject_sets(&self, rev: Revision, resource: &ObjectRef, relation: &RelName)
         -> Result<Vec<(ObjectRef, RelName)>, StoreError>;
 
     /// Distinct related objects on `resource#relation`, wildcards excluded,
-    /// subject relation dropped. Used by arrows.
+    /// subject relation dropped, ordered by (subject_type, subject_id) byte-wise.
+    /// Used by arrows.
     fn read_related_objects(&self, rev: Revision, resource: &ObjectRef, relation: &RelName)
         -> Result<Vec<ObjectRef>, StoreError>;
 
@@ -49,7 +51,8 @@ pub trait ReadStore: Send + Sync {
                           limit: u32, after: Option<&Relationship>)
         -> Result<Vec<Relationship>, StoreError>;
 
-    /// All visible tuples on `resource#relation` (used by lookup_subjects).
+    /// All visible tuples on `resource#relation` (used by lookup_subjects), ordered by
+    /// (subject_type, subject_id, subject_relation) byte-wise.
     fn read_tuples(&self, rev: Revision, resource: &ObjectRef, relation: &RelName)
         -> Result<Vec<SubjectRef>, StoreError>;
 
@@ -101,6 +104,17 @@ pub trait SqlStore: WritableStore {
     fn dialect(&self) -> &dyn SqlDialect;
 }
 ```
+
+Result order (T2.1): every read that returns a list has a fixed order, compared byte-wise on
+the storage columns (SQLite `BINARY` collation; wildcard id `*`, absent subject relation
+`''`), as given on each method above; `read_reverse` orders by (resource_type, resource_id,
+relation). The order is part of the contract, not a convenience: the evaluator visits
+subject sets and arrow targets in the order the store returns them, and short-circuits, so
+the order decides which branch's error (`MaxDepthExceeded`, `FanoutExceeded`, ...) a `check`
+reports and how many reads it makes. Two stores returning the same set in different orders
+would give different answers to the same request (property 5). The conformance suite pins
+the order (`read_order_bytewise`), and the SQLite queries (§6) have a matching `ORDER BY`
+that the forward index satisfies without a sort.
 
 Object safety (decided in T1.1): `ReadStore` and `WritableStore` are object-safe, so the
 evaluator, tooling and the conformance suite can use `&dyn ReadStore` / `&dyn WritableStore`.
@@ -180,9 +194,12 @@ CREATE UNIQUE INDEX IF NOT EXISTS warden_rel_live
                              subject_type, subject_id, subject_relation)
     WHERE deleted_rev IS NULL;
 
--- Forward reads (check, arrows).
+-- Forward reads (check, arrows). Subject columns follow the resource columns so the index
+-- order is the §2 result order (no sort step); created_rev/deleted_rev make it covering.
 CREATE INDEX IF NOT EXISTS warden_rel_fwd
-    ON warden_relationships (resource_type, resource_id, relation, created_rev);
+    ON warden_relationships (resource_type, resource_id, relation,
+                             subject_type, subject_id, subject_relation,
+                             created_rev, deleted_rev);
 
 -- Reverse reads (lookups).
 CREATE INDEX IF NOT EXISTS warden_rel_rev
@@ -226,9 +243,13 @@ should use WAL for concurrency.
 - One **writer** connection behind a `Mutex` (SQLite has one writer anyway).
 - A small **reader pool** (default 4, configurable) of connections — hand-rolled
   `Mutex<Vec<Connection>>` + condvar or `r2d2`/`r2d2_sqlite` (justify if added).
-- `:memory:` SQLite is supported only with a pool size of 1 and a shared-cache URI
-  (`file::memory:?cache=shared`); otherwise each connection would see a different database.
-  Simpler: for in-memory use, recommend `warden-store-memory`.
+- In-memory SQLite is **not supported** (decided in T2.1, OQ-025): it cannot use WAL, a
+  plain `:memory:` database is per-connection, and a shared-cache one replaces WAL's
+  snapshot isolation with table locks. Opening one fails with `InvalidRequest` (any
+  connection whose `journal_mode` does not come back `wal` does). Use `warden-store-memory`.
+- Reader connections are opened read-only, after the writer has set WAL and migrated.
+- A reader returned to the pool inside a transaction is rolled back (or discarded if that
+  fails) so no caller inherits an old snapshot.
 
 ---
 
@@ -298,9 +319,17 @@ SELECT subject_type, subject_id, subject_relation FROM warden_relationships
 WHERE resource_type=? AND resource_id=? AND relation=?
   AND <visible at ?R>
   [AND subject_relation <> '']                 -- read_subject_sets
-  [AND subject_id <> '*']                      -- read_related_objects (+ DISTINCT on type,id)
 ORDER BY subject_type, subject_id, subject_relation;
+
+-- read_related_objects
+SELECT DISTINCT subject_type, subject_id FROM warden_relationships
+WHERE resource_type=? AND resource_id=? AND relation=?
+  AND <visible at ?R> AND subject_id <> '*'
+ORDER BY subject_type, subject_id;
 ```
+All three, and §6.1, are a covering-index seek on `warden_rel_fwd` with no
+`USE TEMP B-TREE` step: the `ORDER BY` (and `DISTINCT`) is the index order, which is the §2
+result order.
 
 ### 6.3 `read_reverse`
 ```sql
@@ -311,8 +340,16 @@ WHERE subject_type=? AND subject_id=?
   AND <visible at ?R>
 ORDER BY resource_type, resource_id, relation;
 ```
-Covered by `warden_rel_rev`. Verify with `EXPLAIN QUERY PLAN` in a test that each query
-uses an index (no full `SCAN warden_relationships`).
+Seeks `warden_rel_rev`; the `DISTINCT`/`ORDER BY` needs a temporary B-tree because
+`resource_id` is not in that index (accepted: the result set is one subject's resources).
+
+Every §6 query names its index with `INDEXED BY` (`warden_rel_fwd` for §6.1–6.2,
+`warden_rel_rev` for §6.3). Without it SQLite answers `read_reverse` with a resource type
+from `warden_rel_fwd` (index order matches the `ORDER BY`, but it ranges over every resource
+of that type), and `ANALYZE` statistics from the app (`PRAGMA optimize`) could move any
+query; with it a lost index is a prepare error, not a slow plan. `EXPLAIN QUERY PLAN` tests
+in `warden-store-sqlite` pin every query (all twelve §6.3 filter shapes) by index name, with
+and without `ANALYZE` statistics.
 
 ---
 

@@ -35,6 +35,7 @@ const CASES: &[(&str, Case)] = &[
     ("read_subject_sets", read_subject_sets),
     ("read_related_objects", read_related_objects),
     ("read_tuples", read_tuples),
+    ("read_order_bytewise", read_order_bytewise),
     ("read_reverse_filters", read_reverse_filters),
     ("read_relationships_filters", read_relationships_filters),
     ("pagination_ordering", pagination_ordering),
@@ -547,6 +548,66 @@ fn read_tuples(s: &dyn WritableStore) {
         read(r2),
         ["group:eng", "group:eng#member", "user:*", "user:Bob"]
     );
+}
+
+/// The forward reads' order is byte-wise column order (`docs/05-storage.md` §2): type before
+/// id before relation, uppercase before lowercase, `"10"` before `"9"`, a prefix first.
+/// `warden-store-sqlite`'s `forward_reads_are_in_column_order` uses the same data.
+fn read_order_bytewise(s: &dyn WritableStore) {
+    let rev = write(
+        s,
+        &touch(&[
+            "doc:1#viewer@team:a#member",
+            "doc:1#viewer@group:b#member",
+            "doc:1#viewer@group:a#member",
+            "doc:1#viewer@group:a#admin",
+            "doc:1#viewer@group:B#member",
+            "doc:1#viewer@group:a_b#admin",
+            "doc:1#viewer@group:9#member",
+            "doc:1#viewer@folder:b",
+            "doc:1#viewer@folder:B",
+            "doc:1#viewer@folder:a#owner",
+            "doc:1#viewer@folder:a",
+            "doc:1#viewer@drive:z",
+            "doc:1#viewer@folder:*",
+            "doc:1#viewer@folder:10",
+            "doc:1#viewer@folder:9",
+        ]),
+    );
+    let (doc, viewer) = (obj("doc:1"), name("viewer"));
+    assert_eq!(
+        pairs(&s.read_subject_sets(rev, &doc, &viewer).unwrap()),
+        [
+            "folder:a#owner",
+            "group:9#member",
+            "group:B#member",
+            "group:a#admin",
+            "group:a#member",
+            "group:a_b#admin",
+            "group:b#member",
+            "team:a#member",
+        ]
+    );
+    assert_eq!(
+        strs(&s.read_related_objects(rev, &doc, &viewer).unwrap()),
+        [
+            "drive:z",
+            "folder:10",
+            "folder:9",
+            "folder:B",
+            "folder:a",
+            "folder:b",
+            "group:9",
+            "group:B",
+            "group:a",
+            "group:a_b",
+            "group:b",
+            "team:a",
+        ]
+    );
+    let tuples = strs(&s.read_tuples(rev, &doc, &viewer).unwrap());
+    assert_eq!(tuples.len(), 15);
+    assert_eq!(tuples[..3], ["drive:z", "folder:*", "folder:10"]);
 }
 
 fn read_reverse_filters(s: &dyn WritableStore) {

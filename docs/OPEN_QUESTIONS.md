@@ -402,4 +402,37 @@ it is resolved.
   for `schema validate`), not exit 2; only an unreadable file is exit 2. `expectedLookups:`
   is skipped with a warning (like `validation:`) until T2.4 / T2.5, rather than refused
 - Resolve by: before the first crates.io release
+- Resolution: resolved in T2.1 by the human (docs only; the move itself is a T3.3 AC). Before
+  T3.3 the fixture format and the engine-only fixture runner move out of `warden-testkit`
+  into a small publishable crate, which `warden-cli` depends on for `warden test`. The
+  reference-evaluator (oracle) cross-check stays in `warden-testkit` as an optional hook
+  the runner accepts, used by internal tests only; the published CLI runs fixtures against
+  the engine alone. `warden-testkit` stays `publish = false`
+
+## OQ-025 — SQLite store details decided in T2.1
+- Raised in: T2.1 (`docs/05-storage.md` §2, §4, §6; `docs/06-api.md` §1)
+- Blocking: no
+- Current choice:
+  (a) `warden_rel_fwd` is now (resource_type, resource_id, relation, subject_type,
+  subject_id, subject_relation, created_rev, deleted_rev) instead of (resource_type,
+  resource_id, relation, created_rev). The old index could not serve the §6.2 `ORDER BY`
+  (the §2 result order), so every forward read sorted; the new one returns rows in index
+  order and is covering for §6.1–6.2. Storage version 1 is unreleased, so no migration is
+  needed. Spec §4 updated; a test checks the migration DDL equals the §4 DDL.
+  (b) §6 queries name their index with `INDEXED BY`: unpinned, SQLite answered
+  `read_reverse` with a resource type from `warden_rel_fwd` (a range over every resource
+  of the type), and app-run `ANALYZE` could move any plan.
+  (c) In-memory SQLite is rejected (`InvalidRequest`) instead of supported with a
+  shared-cache URI and pool size 1 (§4.2): no WAL, and shared cache swaps snapshot
+  isolation for table locks. Conservative; `warden-store-memory` covers the use.
+  (d) `auto_migrate` lives on `SqliteConfig`, read by `SqliteStore::open`, because the store
+  is opened (and its version checked) before any engine exists; the explicit step is
+  `SqliteStore::migrate(path, &config)`. `EngineConfig::auto_migrate` and
+  `Engine::migrate()` (`06` §1) currently do nothing for SQLite; proposal: remove both, or
+  make `Engine::migrate` delegate through a store method, decided in T2.2/T2.3.
+  (e) A database at an *older* storage version with `auto_migrate = false` is
+  `NotMigrated` (same as missing tables). A `warden_meta` table without a numeric
+  `storage_version` is `StoreError::Corrupt`, never migrated over.
+  (f) New `StoreError` variants: `Backend { message }` (driver failure) and `Corrupt`.
+- Resolve by: human review
 - Resolution: (fill in)
