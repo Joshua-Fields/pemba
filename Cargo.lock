@@ -743,7 +743,9 @@ dependencies = [
 name = "warden-testkit"
 version = "0.0.0"
 dependencies = [
+ "proptest",
  "warden-core",
+ "warden-schema",
  "warden-store-memory",
  "warden-store-sqlite",
 ]

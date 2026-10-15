@@ -96,17 +96,29 @@ AC:
 - Reference evaluator independent of `warden-core::eval`.
 - Generators per §2.2; properties 1 and 6 from §2.3 passing at ≥ 1 000 cases.
 
+### T1.4c Bound check cost on cyclic data
+Refs: `04` §3.6, `06` §1, OQ-021. After T1.4, before T1.4b.
+AC:
+- Taint is lowlink-style: each result carries the lowest stack index of an in-progress node
+  it assumed `false`.
+- A node that finishes as its own cycle head (lowlink not below its own stack index) is
+  memoised.
+- Tainted `true` results are memoised (`04` §3.6 allows this with property tests).
+- New per-request cap on total store reads, `EngineConfig::max_check_reads`; exceeding it
+  returns a new error (fail closed), documented in `06`.
+- The OQ-021 test (`check_on_dense_cyclic_data_reads_a_bounded_number_of_tuples`) passes
+  with its `#[ignore]` removed.
+- Property 1 at ≥ 1 000 cases passes in under 60 s optimised, on several seeds.
+
 ### T1.4b Stratified negation for cycles
-Refs: `04` §3.6 (planned rule), OQ-018. After T1.4 (needs the reference evaluator).
+Refs: `04` §3.6 (planned rule), OQ-018. After T1.4c (needs lowlink-style taint).
 AC:
 - A cycle is `NonMonotonicCycle` only if the path from the in-progress node (including its own
   expression) to the closing edge crosses the subtracted side of an exclusion.
 - A monotone cycle wholly inside a subtracted side is evaluated as a least fixed point, then
   negated: `any_cycle_beneath_subtracted_side_is_refused` becomes a test of the correct
   answer (nested banned groups that contain each other).
-- Taint is lowlink-style: each result carries the lowest stack index of an in-progress node
-  it assumed `false`; results whose lowlink is below their own stack index are never
-  memoised. The `A = B + C`, `B = A` tests still pass.
+- The `A = B + C`, `B = A` tests still pass.
 - Every existing `NonMonotonicCycle` test (self-loop and two-node cycles through
   `view = viewer - parent->view`) still errors.
 - Property 1 (`07` §2.3) passes at ≥ 1 000 cases with a generator variant that allows
@@ -166,6 +178,8 @@ AC:
 Refs: `03` §10, `05` §7–8.
 AC:
 - `E_SCHEMA_CHANGE_ORPHANS` with per-relation counts; permission removal always allowed.
+- A test proves stale relationships (OQ-019 (e) and the two remaining cases) cannot arise
+  after `write_schema`.
 - Multi-process schema reload test (two engines on one SQLite file).
 - `delete_relationships` with limit; `gc` in batches; `RevisionExpired` after GC.
 

@@ -150,9 +150,10 @@ nested groups that contain each other) is legal. Rules:
 - **Planned rule (T1.4b, decided, not yet implemented):** a cycle is `NonMonotonicCycle` only
   if the path from the in-progress node (including its own expression) to the closing edge
   crosses a `sub` side. A monotone cycle wholly inside a `sub` side is evaluated as a least
-  fixed point and then negated (stratified negation). Taint becomes lowlink-style: a result
-  carries the lowest stack index of an in-progress node it assumed `false`; a node whose
-  lowlink is not below its own index has a settled value. See OQ-018.
+  fixed point and then negated (stratified negation). See OQ-018. It builds on T1.4c
+  (OQ-021), which makes taint lowlink-style: a result carries the lowest stack index of an
+  in-progress node it assumed `false`; a node whose lowlink is not below its own index has a
+  settled value and is memoised.
 
 ### 3.7 Depth
 

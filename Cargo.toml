@@ -38,3 +38,12 @@ expect_used = "deny"
 panic = "deny"
 module_name_repetitions = "allow"
 must_use_candidate = "allow"
+
+# Property tests (`docs/07-testing.md` §2.3) run 1 000+ generated cases through the engine,
+# whose uncached re-evaluation of cyclic data makes that slow unoptimised. Only affects
+# `cargo test` builds.
+[profile.test.package.warden-testkit]
+opt-level = 3
+
+[profile.test.package.warden-core]
+opt-level = 3
