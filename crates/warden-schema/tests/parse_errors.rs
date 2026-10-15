@@ -533,3 +533,67 @@ fn code_display_is_the_spec_string() {
         assert_eq!(code.as_str(), s);
     }
 }
+
+// ---- whitespace inside type references (OQ-011) ----
+
+#[test]
+fn whitespace_around_hash_in_subject_set() {
+    check(
+        "whitespace_in_subject_set",
+        "definition doc {\n    relation viewer: group # member\n}",
+        ErrorCode::UnexpectedToken,
+    );
+}
+
+#[test]
+fn whitespace_around_colon_in_wildcard() {
+    check(
+        "whitespace_in_wildcard",
+        "definition doc {\n    relation viewer: user : *\n}",
+        ErrorCode::UnexpectedToken,
+    );
+}
+
+#[test]
+fn any_whitespace_inside_a_type_reference_is_rejected() {
+    for allowed in [
+        "group #member",
+        "group# member",
+        "group/*c*/#member",
+        "user :*",
+        "user: *",
+        "iam/group# member",
+    ] {
+        let src = format!("definition doc {{ relation viewer: {allowed} }}");
+        let err = parse(&src).expect_err(&src);
+        assert_eq!(err.code, ErrorCode::UnexpectedToken, "{allowed}: {err}");
+        assert!(err.message.contains("whitespace"), "{allowed}: {err}");
+    }
+    // The relation's own `:` is not part of a type reference.
+    assert!(parse("definition doc { relation viewer : user | group#member | user:* }").is_ok());
+}
+
+// ---- SpiceDB precedence note on E_AMBIGUOUS_OPERATORS ----
+
+#[test]
+fn spicedb_note_only_when_union_is_involved() {
+    let note = |expr: &str| {
+        parse(&format!("definition doc {{ permission p_ab = {expr} }}"))
+            .expect_err(expr)
+            .note
+    };
+    assert_eq!(
+        note("a_ab + b_ab & c_ab").as_deref(),
+        Some(
+            "SpiceDB gives `+` higher precedence than `&` and `-`, so it would read this as `(a_ab + b_ab) & c_ab`"
+        )
+    );
+    assert_eq!(
+        note("a_ab - b_ab + c_ab").as_deref(),
+        Some(
+            "SpiceDB gives `+` higher precedence than `&` and `-`, so it would read this as `a_ab - (b_ab + c_ab)`"
+        )
+    );
+    assert_eq!(note("a_ab & b_ab - c_ab"), None);
+    assert_eq!(note("a_ab - b_ab & c_ab"), None);
+}

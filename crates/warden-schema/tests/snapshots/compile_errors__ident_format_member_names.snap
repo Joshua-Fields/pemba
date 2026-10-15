@@ -1,0 +1,21 @@
+---
+source: crates/warden-schema/tests/compile_errors.rs
+description: "definition user {}\ndefinition doc {\n    relation trailing_: user\n    permission vw = trailing_\n}"
+---
+error[E_IDENT_FORMAT]: relation name `trailing_` must end with a lowercase letter or digit, found '_'
+ --> 3:22
+  |
+3 |     relation trailing_: user
+  |                      ^
+  |
+  = help: identifiers are 3 to 64 characters of `a-z`, `0-9` and `_`, start with a letter or `_`, and end with a letter or digit
+
+error[E_IDENT_FORMAT]: permission name `vw` must be at least 3 characters
+ --> 4:16
+  |
+4 |     permission vw = trailing_
+  |                ^^
+  |
+  = help: identifiers are 3 to 64 characters of `a-z`, `0-9` and `_`, start with a letter or `_`, and end with a letter or digit
+
+error: schema rejected with 2 errors

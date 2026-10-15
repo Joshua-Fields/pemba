@@ -1,0 +1,13 @@
+---
+source: crates/warden-schema/tests/compile_errors.rs
+description: "definition user {}\ndefinition doc {\n    relation banned: user\n    permission view = banned - view\n}"
+---
+error[E_DIRECT_CYCLE]: permission `view` depends on itself: `view` → `view`
+ --> 4:16
+  |
+4 |     permission view = banned - view
+  |                ^^^^
+  |
+  = help: recursion is only allowed through a relation or an arrow (e.g. `parent->view`); rewrite one of these permissions so it does not refer back to the others
+
+error: schema rejected with 1 error

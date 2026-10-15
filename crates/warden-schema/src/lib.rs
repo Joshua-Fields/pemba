@@ -6,12 +6,15 @@
 #![forbid(unsafe_code)]
 
 pub mod ast;
+mod compile;
 mod diagnostic;
 pub mod ident;
+pub mod ir;
 mod lexer;
 mod parser;
 mod span;
 
-pub use diagnostic::{ErrorCode, SchemaError};
+pub use compile::{Compiled, compile};
+pub use diagnostic::{ErrorCode, SchemaError, SchemaErrors};
 pub use parser::parse;
 pub use span::Span;

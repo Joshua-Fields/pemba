@@ -8,6 +8,7 @@ error[E_AMBIGUOUS_OPERATORS]: `-` and `+` cannot be mixed without parentheses
 2 |     permission view = viewer - banned + owner
   |                                       ^
   |
+  = note: SpiceDB gives `+` higher precedence than `&` and `-`, so it would read this as `viewer - (banned + owner)`
   = help: add parentheses to say which grouping you mean, either
               (viewer - banned) + owner
           or
