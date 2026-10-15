@@ -637,3 +637,124 @@ it is resolved.
   on access.
 - Resolve by: human review
 - Resolution: (fill in)
+
+## OQ-032 — Two SQLite copies in one process: native connections vs the app's `sqlite3`
+- Raised in: T3.2 phase 0 (ADR-006, `docs/05-storage.md` §4.2 and §10, ADR-014;
+  <https://www.sqlite.org/howtocorrupt.html> §2.2–2.3)
+- Blocking: **yes**, for T3.2 and for 0.1
+- Problem: ADR-006 says reads use the engine's own connections. In `warden-py` those are
+  `rusqlite` with `bundled` SQLite, while the app's `sqlite3` module uses CPython's own copy.
+  On POSIX, SQLite works around `close()` dropping every `fcntl` lock the process holds on
+  a file by keeping a process-wide list of open files. Each copy has its own list, so a
+  close by one copy silently drops the other copy's locks. Foreign mode puts both copies on
+  one file in one process by design.
+- Test (`crates/warden-py/probes/sqlite_copies/run_probe.py`, deterministic, no timing):
+  a bundled-copy connection (built like `warden-py`: rusqlite 0.40.2, SQLite 3.53.2) holds
+  `BEGIN IMMEDIATE` plus an uncommitted insert on a WAL database. A separate process's
+  `BEGIN IMMEDIATE` (busy timeout 0) fails, as it should. Then in the same process, Python
+  runs `sqlite3.connect(f)`, one `SELECT` and `close()`, and the separate process tries
+  again. **Result: the bug is real.** The separate process gets the write lock and commits,
+  and the bundled connection commits too, believing it held the lock throughout. Python's
+  last close also checkpoints and **deletes `-wal` and `-shm`** under the open writer: it
+  takes the EXCLUSIVE lock, which never conflicts within one process. Afterwards
+  `PRAGMA integrity_check` says `ok`, but **the other process's committed row is gone**.
+  That is silent loss of a committed transaction, worse than a crash. Same result:
+  - locally: WSL2 Ubuntu 26.04 with distro Python 3.14.4 (dynamic
+    `/usr/lib/x86_64-linux-gnu/libsqlite3.so.0.8.6`, 3.46.1), and with uv-managed 3.11.17
+    (SQLite 3.53.1 built into the interpreter, so 3.51's new close() defences on both sides
+    do not help)
+  - all four CI jobs (`.github/workflows/oq032-probe.yml`, PR #22). `ubuntu-latest`,
+    setup-python 3.11.17 and 3.13.16: `_sqlite3` in `/opt/hostedtoolcache/...` loads the
+    system `/usr/lib/x86_64-linux-gnu/libsqlite3.so.0.8.6` (3.45.1). `macos-latest` (arm64),
+    python.org builds 3.11.9 (SQLite 3.45.1) and 3.13.16 (3.50.4): `_sqlite3` links only
+    `libSystem`, so SQLite is compiled into it.
+  - Controls: no in-process close, a close by the *same* (bundled) copy, and `connect()` +
+    `close()` with no statement in between (CPython opens the WAL index lazily) all keep
+    the lock. A raw `open()`/`close()` of `-shm` (no SQLite at all, §2.2) also loses it.
+  - Not tested: Windows, which locks with `LockFileEx` per handle and does not have this
+    mechanism. Also not tested: read snapshots losing their WAL read locks. Inferred: the
+    same close drops them, so a checkpoint could overwrite pages an open `check` is still
+    reading, giving wrong answers rather than errors.
+- Option A, prototyped (`crates/warden-py/probes/pystore`): a store whose every statement
+  (reads, native writes, migration, GC) runs on Python `sqlite3` connections the engine
+  owns, so only CPython's copy touches the file. It reuses `WriteTxn`, `SqlDialect`,
+  `ReadStore`, `warden_core::write` and the production SQL text, included verbatim from
+  `warden-store-sqlite/src/sql.rs`. **The store conformance suite passes (all 25 cases).**
+  Check latency on `google_docs.yaml` (42 tuples, its 32 assertions, each timed from the
+  Python call to its answer, release builds, WSL2 8 CPUs, Python 3.14.4 with SQLite
+  3.46.1, 200 rounds; two runs agree within 5 %):
+
+  | store | 1 thread p50 / p99 µs | 8 threads p50 / p99 µs | 8 threads checks/s |
+  |---|---|---|---|
+  | rusqlite store (today) | 36 / 120 | 327 / 1 440 | 19 500 |
+  | A: GIL re-taken per statement | 100 / 300 | 40 500 / 85 000 | 190 |
+  | A: GIL held for the whole check, pool 8 | 96 / 330 | 51 000 / 114 000 | 157 |
+  | A: checks serialised by a Rust mutex, GIL held | 97 / 300 | 138 / 620 | 6 700 |
+
+  Single-threaded, A costs about 2.7× (about 60 µs more per check, roughly 10 statements
+  that each cross into Python). Unserialised, it collapses under threads: `sqlite3`
+  releases the GIL inside every `execute`, so 8 threads convoy on it. A 0.1 ms
+  `sys.setswitchinterval` changes this little (294 checks/s). Holding the GIL for a whole
+  check also **deadlocks** once threads outnumber pooled connections: a thread waiting
+  for the pool holds the GIL that a thread with a connection needs. Serialising requests
+  (take a Rust mutex without the GIL, then hold the GIL for the whole request) gives
+  6 700 checks/s with p99 below the native store's. The parallelism lost does not matter,
+  because the GIL serialises the SQL anyway. Lookups were not measured.
+- Option B, linking rusqlite against the SQLite `_sqlite3` uses. Assessed, not built:
+  - Linux distro Python, and `actions/setup-python`'s Linux builds: `_sqlite3` loads the
+    system `libsqlite3.so.0`. An extension linked dynamically to the same soname would
+    share it. But a manylinux wheel may not depend on `libsqlite3.so.0` (not on the
+    manylinux allow-list), and `auditwheel repair` would vendor a renamed copy, which is
+    a second copy again. That leaves `dlopen`/`dlsym` of the already-loaded library at
+    runtime, which needs hand-written `unsafe` FFI, and golden rule 5 forbids that.
+  - python.org macOS builds: SQLite is compiled into `_sqlite3.so`. There is no library
+    to link against, and its symbols are not a supported interface.
+  - uv-managed (python-build-standalone): SQLite is built into the interpreter (`_sqlite3`
+    is a built-in module). Same as macOS.
+  - conda: `_sqlite3` loads `$CONDA_PREFIX/lib/libsqlite3.so`, a different file per
+    environment. Only a conda-built package (not a PyPI wheel) could link to it.
+  - Windows python.org: `DLLs/sqlite3.dll`. Linkable in principle, but Windows is not
+    affected anyway.
+  - Variant B′: `libsqlite3-sys`'s `loadable_extension` feature, with warden loaded as a
+    SQLite extension through the app's `conn.load_extension`. It uses the host's API
+    table, so the copy is right by construction. But `enable_load_extension` is missing
+    from several builds (e.g. macOS system Python), and it puts every call behind a
+    function-pointer table.
+  - Detecting a mismatch: equal version strings prove nothing. Two copies of 3.45.1 still
+    corrupt. A real check must compare the *address* of a SQLite symbol in each copy
+    (`dladdr`/`dl_iterate_phdr`, or `/proc/self/maps` on Linux), which is again `unsafe`,
+    per-platform FFI. **B cannot be made reliable for PyPI wheels.**
+- Rust-side variant: two rusqlite majors, each bundling SQLite, in one binary. Cargo
+  already prevents this. `libsqlite3-sys` declares `links = "sqlite3"`, and Cargo refuses
+  two packages with the same `links` key in one graph, so mismatched rusqlite and sqlx
+  majors are a build error, not a second copy. The risk that remains is a C or `-sys`
+  dependency that compiles its own `sqlite3.c` without that key (some embedded-DB and
+  `cc`-built crates do), or a Rust host process that also loads a Python or other runtime
+  with its own SQLite. `SqliteTxn` (`Engine::write_in`) is safe because it takes the
+  caller's `rusqlite::Transaction` from the re-exported `rusqlite`, which is the same copy
+  by construction. Document: "open the app's connection through
+  `warden_store_sqlite::rusqlite`".
+- Current choice (conservative, until resolved): T3.2 is on hold. The rusqlite store stays
+  as it is. Phase 1 must not ship foreign mode over native connections, because that is
+  exactly the corrupting configuration.
+- Recommendation:
+  1. **Option A for `warden-py`'s SQLite store**, with requests serialised (one Rust mutex
+     taken without the GIL, the GIL then held for the whole request, reader pool kept for
+     snapshots). It is correct by construction on every platform, needs no `unsafe`, and
+     conformance already passes. Cost: about 2.7× single-threaded latency (still about
+     100 µs) and about a third of the rusqlite store's multi-thread throughput. For an
+     in-process engine next to a Python web app, that is acceptable.
+  2. Do not offer the rusqlite store in Python on a file any CPython `sqlite3` connection
+     might open. Simplest: `Engine.sqlite()` always uses option A, and the native store is
+     kept for Rust callers and the CLI. One driver per process means no warning to get
+     wrong.
+  3. Reject option B.
+  4. Rust: add the `links` explanation and the "use the re-exported `rusqlite`" rule to
+     `docs/05-storage.md` §4.2 and `docs/06-api.md` §1. Optionally add a debug-build check
+     that `rusqlite::version()` equals the caller connection's `sqlite_version()`. That
+     is necessary but not sufficient, so it is only a smoke alarm.
+  5. Before 0.1, phase 1 must also measure lookups under option A, add the probe as a
+     permanent regression test (running the real `warden` package instead of the probe
+     module, expecting `lock held`), and document it for gunicorn/threads users.
+- Resolve by: human review of this entry and the draft ADR-006 amendment, then phase 1
+- Resolution: (fill in)

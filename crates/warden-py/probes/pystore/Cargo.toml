@@ -1,0 +1,22 @@
+# OQ-032 option A prototype (T3.2 phase 0): a store whose every SQL statement runs on
+# Python `sqlite3` connections the engine owns, so only CPython's SQLite copy touches the
+# file. Not a workspace member and never shipped; `bench.py` and `conformance.py` drive it.
+[package]
+name = "warden-pystore-prototype"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[lib]
+name = "warden_pystore_prototype"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { version = "0.30.1", features = ["abi3-py311", "extension-module"] }
+warden-core = { path = "../../../warden-core" }
+warden-testkit = { path = "../../../warden-testkit" }
+
+[profile.release]
+debug = false
