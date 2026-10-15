@@ -4,3 +4,5 @@
 //! and `docs/06-api.md` (Rust API).
 
 #![forbid(unsafe_code)]
+
+pub mod model;
