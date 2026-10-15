@@ -1,14 +1,19 @@
 //! The `Engine`: schema management, writes and reads over a store (`docs/06-api.md` §1).
 
+use std::collections::HashMap;
 use std::fmt::Write as _;
 use std::sync::{Arc, PoisonError, RwLock, RwLockReadGuard, RwLockWriteGuard};
+use std::time::Instant;
 
 use warden_schema::SchemaError;
 use warden_schema::ir::CompiledSchema;
 
 use crate::error::Error;
+use crate::eval::{
+    self, CheckItem, CheckRequest, CheckResponse, EvalStats, Evaluator, Limits, Memo,
+};
 use crate::model::{
-    Consistency, Precondition, Relationship, RelationshipFilter, Revision, WriteRequest,
+    Consistency, Precondition, Relationship, RelationshipFilter, Revision, SubjectRef, WriteRequest,
 };
 use crate::store::{StoreError, WritableStore};
 use crate::validate::{validate_filter, validate_ops};
@@ -331,6 +336,142 @@ impl<S: WritableStore> Engine<S> {
         })
     }
 
+    /// Does `req.subject` have `req.permission` on `req.resource`
+    /// (`docs/04-evaluation.md` §3)?
+    ///
+    /// Never answers `false` (or `true`) in place of an error: if anything goes wrong
+    /// during evaluation the whole check fails.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::NoSchema`]; [`Error::InvalidRequest`] if the resource type, permission,
+    /// subject type or subject relation is not defined, or the subject is a wildcard;
+    /// [`Error::RevisionNotYetAvailable`] / [`Error::RevisionExpired`] if the consistency
+    /// cannot be met; [`Error::MaxDepthExceeded`], [`Error::NonMonotonicCycle`] or
+    /// [`Error::FanoutExceeded`] if evaluation hits a limit or an undefined cycle;
+    /// [`Error::StaleRelationship`] if it meets a stored subject set the schema no longer
+    /// allows; [`Error::Store`] if the store fails.
+    #[allow(
+        clippy::needless_pass_by_value,
+        reason = "signature fixed by docs/06-api.md §1"
+    )]
+    pub fn check(&self, req: CheckRequest) -> Result<CheckResponse, Error> {
+        let span = tracing::info_span!(
+            "check",
+            resource = %req.resource,
+            permission = %req.permission,
+            subject = %req.subject,
+            revision = tracing::field::Empty,
+            allowed = tracing::field::Empty,
+            store_reads = tracing::field::Empty,
+            tuples_read = tracing::field::Empty,
+            memo_hits = tracing::field::Empty,
+            max_depth_reached = tracing::field::Empty,
+            elapsed_us = tracing::field::Empty,
+        );
+        let _entered = span.enter();
+        let start = Instant::now();
+        let schema = self.current_schema()?;
+        let (root, subject) = eval::resolve(&schema, &req.resource, &req.permission, &req.subject)?;
+        let revision = self.resolve(req.consistency)?;
+        span.record("revision", revision.0);
+        let mut memo = Memo::new();
+        let mut evaluator = Evaluator::new(
+            &schema,
+            &self.store,
+            revision,
+            self.limits(),
+            &subject,
+            &mut memo,
+        );
+        let result = evaluator.check(root);
+        let mut stats = evaluator.stats();
+        stats.elapsed = start.elapsed();
+        record_stats(&span, &stats);
+        let allowed = result?;
+        span.record("allowed", allowed);
+        Ok(CheckResponse {
+            allowed,
+            revision,
+            stats,
+        })
+    }
+
+    /// Runs every item as a [`check`](Self::check) at one revision resolved from `c`,
+    /// returning one result per item in order. Items with the same subject share a memo.
+    ///
+    /// An item that is invalid or hits an evaluation limit fails on its own; the others
+    /// still run.
+    ///
+    /// # Errors
+    ///
+    /// The whole call fails with [`Error::NoSchema`]; [`Error::RevisionNotYetAvailable`] /
+    /// [`Error::RevisionExpired`] if the consistency cannot be met (or the revision is
+    /// garbage-collected mid-call); [`Error::Store`] if the store fails on any item.
+    /// Per item: as [`check`](Self::check).
+    pub fn check_bulk(
+        &self,
+        items: Vec<CheckItem>,
+        c: Consistency,
+    ) -> Result<Vec<Result<bool, Error>>, Error> {
+        let span = tracing::info_span!(
+            "check_bulk",
+            items = items.len(),
+            revision = tracing::field::Empty,
+            store_reads = tracing::field::Empty,
+            tuples_read = tracing::field::Empty,
+            memo_hits = tracing::field::Empty,
+            max_depth_reached = tracing::field::Empty,
+            elapsed_us = tracing::field::Empty,
+        );
+        let _entered = span.enter();
+        let start = Instant::now();
+        let schema = self.current_schema()?;
+        let revision = self.resolve(c)?;
+        span.record("revision", revision.0);
+        let limits = self.limits();
+        // Memoised values are untainted, so they hold for any check with the same subject
+        // at the same revision.
+        let mut memos: HashMap<SubjectRef, Memo> = HashMap::new();
+        let mut stats = EvalStats::default();
+        let mut results = Vec::with_capacity(items.len());
+        let mut failure = None;
+        for item in items {
+            let result =
+                match eval::resolve(&schema, &item.resource, &item.permission, &item.subject) {
+                    Ok((root, subject)) => {
+                        let memo = memos.entry(item.subject).or_default();
+                        let mut evaluator =
+                            Evaluator::new(&schema, &self.store, revision, limits, &subject, memo);
+                        let result = evaluator.check(root);
+                        stats.absorb(&evaluator.stats());
+                        result
+                    }
+                    Err(e) => Err(e),
+                };
+            match result {
+                Err(e @ (Error::Store(_) | Error::RevisionExpired { .. })) => {
+                    failure = Some(e);
+                    break;
+                }
+                r => results.push(r),
+            }
+        }
+        stats.elapsed = start.elapsed();
+        record_stats(&span, &stats);
+        match failure {
+            Some(e) => Err(e),
+            None => Ok(results),
+        }
+    }
+
+    fn limits(&self) -> Limits {
+        Limits {
+            max_depth: self.config.max_depth,
+            max_fanout: self.config.max_check_fanout,
+        }
+    }
+
     /// Resolves `c` to the single revision a request reads at, checked once against the
     /// store's head and GC horizon (`docs/02-data-model.md` §4, `docs/05-storage.md` §2).
     fn resolve(&self, c: Consistency) -> Result<Revision, Error> {
@@ -368,9 +509,20 @@ impl<S: WritableStore> Engine<S> {
     }
 }
 
+fn record_stats(span: &tracing::Span, stats: &EvalStats) {
+    span.record("store_reads", stats.store_reads);
+    span.record("tuples_read", stats.tuples_read);
+    span.record("memo_hits", stats.memo_hits);
+    span.record("max_depth_reached", stats.max_depth_reached);
+    span.record(
+        "elapsed_us",
+        u64::try_from(stats.elapsed.as_micros()).unwrap_or(u64::MAX),
+    );
+}
+
 /// A GC between resolving the revision and reading can move the horizon past it; report
 /// that as the expiry it is rather than as a store failure.
-fn read_error(e: StoreError) -> Error {
+pub(crate) fn read_error(e: StoreError) -> Error {
     match e {
         StoreError::RevisionOutOfRange {
             requested, horizon, ..

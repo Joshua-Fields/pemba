@@ -96,6 +96,23 @@ AC:
 - Reference evaluator independent of `warden-core::eval`.
 - Generators per §2.2; properties 1 and 6 from §2.3 passing at ≥ 1 000 cases.
 
+### T1.4b Stratified negation for cycles
+Refs: `04` §3.6 (planned rule), OQ-018. After T1.4 (needs the reference evaluator).
+AC:
+- A cycle is `NonMonotonicCycle` only if the path from the in-progress node (including its own
+  expression) to the closing edge crosses the subtracted side of an exclusion.
+- A monotone cycle wholly inside a subtracted side is evaluated as a least fixed point, then
+  negated: `any_cycle_beneath_subtracted_side_is_refused` becomes a test of the correct
+  answer (nested banned groups that contain each other).
+- Taint is lowlink-style: each result carries the lowest stack index of an in-progress node
+  it assumed `false`; results whose lowlink is below their own stack index are never
+  memoised. The `A = B + C`, `B = A` tests still pass.
+- Every existing `NonMonotonicCycle` test (self-loop and two-node cycles through
+  `view = viewer - parent->view`) still errors.
+- Property 1 (`07` §2.3) passes at ≥ 1 000 cases with a generator variant that allows
+  recursive members (monotone cycles) under the subtracted side, compared against the
+  reference evaluator extended with stratified evaluation of the `sub` side.
+
 ### T1.5 Fixture runner + corpus (part 1)
 Refs: `07` §3.
 AC:

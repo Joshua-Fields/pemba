@@ -207,3 +207,97 @@ it is resolved.
 - Resolve by: human review; revisit validating `Delete` ops of tuples left behind by a schema
   change once T2.6 lands (it should then be impossible)
 - Resolution: (fill in)
+
+## OQ-018 — Which cycles count as "through negation"
+- Raised in: T1.3 (`docs/04-evaluation.md` §3.6)
+- Blocking: no
+- Current choice: §3.6 as written, plus one fix. Frames pushed while evaluating an
+  exclusion's `sub` side are `negated` and so is everything beneath; a cycle is
+  `NonMonotonicCycle` if any frame from the repeated node to the top is negated **or the
+  edge closing the cycle is evaluated under negation**. Without that last clause the
+  self-loop `view = viewer - parent->view` with `doc:a#parent@doc:a` finds no negated
+  frame (the only frame is `doc:a#view`, pushed outside the `sub` side), returns a tainted
+  `false` and grants `view` — an unsound `true`. Consequence of the literal "everything
+  beneath" rule: a cycle that lies entirely *inside* a `sub` side and is itself monotone
+  (e.g. `view = viewer - banned`, `banned: group#member`, nested groups that contain each
+  other) is also refused, although its value is well defined. Tests:
+  `self_loop_through_exclusion_is_non_monotonic_cycle`,
+  `any_cycle_beneath_subtracted_side_is_refused`
+- Resolve by: T1.4b
+- Resolution: decided by the human in T1.3 review. Keep the conservative rule above for now
+  (it fails closed). Planned rule, recorded in `04` §3.6: a cycle is `NonMonotonicCycle` only
+  if the path from the in-progress node (including its own expression) to the closing edge
+  crosses a subtracted side; a monotone cycle wholly inside a subtracted side is evaluated as
+  a least fixed point and then negated (stratified negation). Implemented in T1.4b, after the
+  reference evaluator, with lowlink-style taint (lowest in-progress stack index)
+
+## OQ-019 — `check` details the spec leaves open
+- Raised in: T1.3 (`docs/04-evaluation.md` §1, §3; `docs/06-api.md` §1)
+- Blocking: no
+- Current choice:
+  (a) `CheckItem` was undefined: it is `CheckRequest` without `consistency`.
+  (b) Depth: the root node is evaluated at depth 1 and each nested `eval` adds one, so
+  `max_depth = N` allows N nested nodes; `MaxDepthExceeded.path` lists the stack plus the
+  node that would have exceeded it.
+  (c) Fan-out: "tuples read by one node" sums every arrow read in a permission node's
+  expression; for a relation it is the subject-set read. More than `max_check_fanout` errors.
+  (d) Request validation (§1 step 1): resource type and member must exist; an object
+  subject's type must exist; a subject set's type and member (relation or permission) must
+  exist. Whether the subject type can reach the permission at all is not checked; such a
+  check is simply `false`.
+  (e) Stored subject sets whose form is not an allowed type of the relation (only possible
+  after a schema change, until T2.6 refuses orphaning changes) fail the check with
+  `StaleRelationship { tuple, relation }`. Originally (a5f9dc5) they were skipped, which
+  fails open on the subtracted side of an exclusion: drop `group#member` from `banned` and
+  every member of a banned group gains access. Changed in T1.3 review; the fan-out query now
+  runs even for relations that allow no subject sets (`04` §3.3). Tests:
+  `stale_subject_set_on_subtracted_side_is_an_error_not_true`,
+  `stale_subject_set_on_granting_side_is_an_error_not_false`,
+  `stale_subject_set_of_removed_type_is_an_error`,
+  `stale_subject_set_fails_only_its_check_bulk_item`.
+  Still open, same class: a stale *object* tuple is matched by the exact-hit step (grants on
+  the granting side), and a stale arrow-related object whose type the tupleset no longer
+  allows is treated like a type lacking the target (∅, which fails open under exclusion,
+  e.g. `view = viewer - parent->banned`). Both need a decision; T2.6 removes all three cases
+  (f) `check_bulk`: `Store` and mid-call `RevisionExpired` fail the call; all other errors
+  are per item (documented in `06` §1)
+- Resolve by: human review
+- Resolution: (fill in)
+
+## OQ-020 — Reference evaluator's Kleene iteration is unsound with a recursive exclusion base
+- Raised in: after T1.3 review (`docs/07-testing.md` §2.1), for T1.4
+- Blocking: yes, for T1.4 (the oracle must be right before property 1 means anything)
+- Problem: §2.1 recomputes every `S(o, m)` from ∅ until nothing changes. That is only sound
+  for monotone schemas, and the generator restriction in §2.1 only keeps recursion out of an
+  exclusion's `sub` side; a recursive *base* side is still allowed. Example:
+  `permission view = (viewer - banned) + parent->view`, `folder:a#parent@folder:b`,
+  `folder:b#parent@folder:a`, user `u` both `viewer` and `banned` on `a`. The correct
+  (stratified) answer is `view(a) = view(b) = ∅`, and the T1.3 engine returns `false` for both.
+  Simulated (scratch script, not committed), what the iteration does depends on details §2.1
+  leaves open:
+  - simultaneous (Jacobi) updates, `banned` direct as above: converges to ∅ (correct, by luck:
+    `viewer` and `banned` fill in the same round);
+  - simultaneous updates with `banned` one hop deeper (e.g. `banned: group#member`): round 1
+    sees `banned = ∅`, `u` enters `view(a)`, then alternates between `view(a)` and `view(b)`
+    forever (`a- -b a- -b ...`), so the iteration never terminates;
+  - in-place (Gauss-Seidel) updates in source order, either variant: stops changing after
+    round 1 with `u ∈ view(a)` and `u ∈ view(b)`, kept alive by the cycle. That is a wrong
+    answer that still looks like a fixed point, which is worse than not terminating.
+- Current choice: none yet (T1.4 not started). Proposed fix for T1.4: stratify by the
+  `(type, member)` dependency graph (edges from computed references, arrow targets on every
+  allowed type, and subject-set allowed types) and evaluate each stratum to a fixed point
+  before any stratum that subtracts it. A schema where a `sub` side depends on its own
+  stratum is not stratifiable. **Refusing such schemas applies only to the reference
+  evaluator (`warden-testkit::reference`) and the proptest generators**: the oracle declines
+  to answer and the generators must not produce them. The schema compiler keeps accepting
+  them and the engine keeps evaluating them, deciding per check from the data
+  (`NonMonotonicCycle` only when a cycle is actually reached, `04` §3.6); hand-written
+  `NonMonotonicCycle` tests cover that behaviour. Add the example above,
+  in both the direct and one-hop-`banned` variants, as a fixed regression case, and add
+  generators that put recursion on the base side of an exclusion. Note: stratifying by
+  type-level graph is coarser than the engine's data-level cycle check, so some schemas the
+  engine evaluates on cycle-free data may be refused by the oracle. That is acceptable for an
+  oracle as long as the generators avoid those schemas. Relates to OQ-018 / T1.4b, whose
+  stratified `sub`-side evaluation should reuse the same strata
+- Resolve by: T1.4 (human to confirm the stratification approach)
+- Resolution: (fill in)
