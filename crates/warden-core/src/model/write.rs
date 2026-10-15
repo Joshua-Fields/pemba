@@ -6,7 +6,7 @@
 use std::fmt;
 
 use super::names::{ObjectId, RelName, TypeName};
-use super::refs::Relationship;
+use super::refs::{Relationship, SubjectRef};
 
 /// One operation in a write batch.
 ///
@@ -39,6 +39,73 @@ pub struct RelationshipFilter {
     pub subject_id: Option<String>,
     /// `Some(None)` = must have no subject relation.
     pub subject_relation: Option<Option<RelName>>,
+}
+
+/// A condition checked at head, inside the write transaction, before any op is applied.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Precondition {
+    /// At least one live relationship matches the filter.
+    MustExist(RelationshipFilter),
+    /// No live relationship matches the filter.
+    MustNotExist(RelationshipFilter),
+}
+
+/// An all-or-nothing write batch (`docs/02-data-model.md` §5).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+pub struct WriteRequest {
+    /// Applied in order, all at one new revision.
+    pub ops: Vec<WriteOp>,
+    /// Checked before any op; the first failure aborts the batch.
+    pub preconditions: Vec<Precondition>,
+}
+
+impl WriteOp {
+    /// The relationship this op creates, touches or deletes.
+    pub fn relationship(&self) -> &Relationship {
+        match self {
+            Self::Create(r) | Self::Touch(r) | Self::Delete(r) => r,
+        }
+    }
+}
+
+impl RelationshipFilter {
+    /// A filter matching every relationship on resources of `resource_type`.
+    pub fn new(resource_type: TypeName) -> Self {
+        Self {
+            resource_type,
+            resource_id: None,
+            relation: None,
+            subject_type: None,
+            subject_id: None,
+            subject_relation: None,
+        }
+    }
+
+    /// Whether `rel` matches. A wildcard subject `t:*` has subject type `t` and subject id
+    /// `"*"`, as in the storage columns (`docs/05-storage.md` §4).
+    pub fn matches(&self, rel: &Relationship) -> bool {
+        let (subject_type, subject_id, subject_relation) = match &rel.subject {
+            SubjectRef::Object(o) => (&o.object_type, o.object_id.as_str(), None),
+            SubjectRef::Set { object, relation } => (
+                &object.object_type,
+                object.object_id.as_str(),
+                Some(relation),
+            ),
+            SubjectRef::Wildcard { object_type } => (object_type, "*", None),
+        };
+        self.resource_type == rel.resource.object_type
+            && self
+                .resource_id
+                .as_ref()
+                .is_none_or(|id| *id == rel.resource.object_id)
+            && self.relation.as_ref().is_none_or(|r| *r == rel.relation)
+            && self.subject_type.as_ref().is_none_or(|t| t == subject_type)
+            && self.subject_id.as_deref().is_none_or(|id| id == subject_id)
+            && self
+                .subject_relation
+                .as_ref()
+                .is_none_or(|want| want.as_ref() == subject_relation)
+    }
 }
 
 impl fmt::Display for WriteOp {

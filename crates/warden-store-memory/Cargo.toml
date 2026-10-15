@@ -12,3 +12,6 @@ workspace = true
 
 [dependencies]
 warden-core.workspace = true
+
+[dev-dependencies]
+warden-testkit.workspace = true
