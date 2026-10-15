@@ -44,6 +44,9 @@ jobs:
       - uses: actions/checkout@v5
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --workspace --all-features
+      # Property tests at full case counts (docs/07 §2.3). Not workspace-wide: the
+      # warden-difftest ignored tests need SpiceDB and run in difftest.yml.
+      - run: cargo test -p warden-testkit --all-features -- --ignored
 
   deny:
     name: cargo-deny

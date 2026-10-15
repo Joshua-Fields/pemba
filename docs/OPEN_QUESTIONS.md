@@ -262,11 +262,15 @@ it is resolved.
   (f) `check_bulk`: `Store` and mid-call `RevisionExpired` fail the call; all other errors
   are per item (documented in `06` §1)
 - Resolve by: human review
-- Resolution: (fill in)
+- Resolution: partly resolved by the human after T1.3. The remaining stale cases of (e) (a
+  stale object tuple matched by the exact-hit step; a stale arrow-related object whose type
+  the tupleset no longer allows, treated as ∅) are deferred to T2.6, which makes all three
+  impossible after `write_schema`; its acceptance criteria now require a test proving it.
+  (a)–(d) and (f): (fill in)
 
 ## OQ-020 — Reference evaluator's Kleene iteration is unsound with a recursive exclusion base
 - Raised in: after T1.3 review (`docs/07-testing.md` §2.1), for T1.4
-- Blocking: yes, for T1.4 (the oracle must be right before property 1 means anything)
+- Blocking: no (was blocking T1.4; resolved there)
 - Problem: §2.1 recomputes every `S(o, m)` from ∅ until nothing changes. That is only sound
   for monotone schemas, and the generator restriction in §2.1 only keeps recursion out of an
   exclusion's `sub` side; a recursive *base* side is still allowed. Example:
@@ -283,7 +287,7 @@ it is resolved.
   - in-place (Gauss-Seidel) updates in source order, either variant: stops changing after
     round 1 with `u ∈ view(a)` and `u ∈ view(b)`, kept alive by the cycle. That is a wrong
     answer that still looks like a fixed point, which is worse than not terminating.
-- Current choice: none yet (T1.4 not started). Proposed fix for T1.4: stratify by the
+- Current choice: see Resolution. Proposed fix for T1.4: stratify by the
   `(type, member)` dependency graph (edges from computed references, arrow targets on every
   allowed type, and subject-set allowed types) and evaluate each stratum to a fixed point
   before any stratum that subtracts it. A schema where a `sub` side depends on its own
@@ -300,4 +304,36 @@ it is resolved.
   oracle as long as the generators avoid those schemas. Relates to OQ-018 / T1.4b, whose
   stratified `sub`-side evaluation should reuse the same strata
 - Resolve by: T1.4 (human to confirm the stratification approach)
+- Resolution: resolved in T1.4 as proposed, at the human's direction. The oracle
+  (`warden-testkit::reference`) stratifies by the `(type, member)` graph above, with every
+  edge reached through a `sub` side negative; a component holding a negative edge returns
+  `ReferenceError::NotStratifiable` instead of an answer; components are evaluated in
+  dependency order, each from ∅ to a fixed point. Monotone recursion inside a `sub` side is
+  already handled (it is an earlier component), so T1.4b needs no oracle change. `07` §2.1
+  rewritten. Both variants of the example are fixed tests (`oq020_banned_direct`,
+  `oq020_banned_one_hop_deeper` in `crates/warden-testkit/tests/reference.rs`), checking
+  the oracle and the engine; generators put recursion on exclusion base sides
+
+## OQ-021 — Property 1 at 1 000 cases sometimes runs for minutes (engine re-evaluation)
+- Raised in: T1.4 (`docs/07-testing.md` §2.3, `docs/04-evaluation.md` §3.6)
+- Blocking: no for correctness; yes for the CI step `cargo test -p warden-testkit -- --ignored`,
+  which can run far past any reasonable job time on an unlucky seed
+- Observed (property tests built with `opt-level = 3` for `warden-core`/`warden-testkit`):
+  one 1 000-case run of `prop1_check_matches_reference_full` took 3.0 s; the next, with a
+  different random seed, was still running after 573 s and was stopped. The slow side is
+  the engine, not the oracle. Example found earlier (release build, deterministic seed): 2
+  types, 30 tuples, every relation allowing subject sets of the other type's permissions
+  (dense mutual recursion over ids `a`..`f`); the oracle took 21 ms for the whole case,
+  one engine `check` took 170 ms with 32 726 store reads at depth 29, and that case
+  accounted for ~0.95 s of a 1.1 s 1 000-case total. Time is dominated by a few such cases.
+  The 64-case `prop1_check_matches_reference` in plain `cargo test` takes ~2 s.
+- Cause (believed, not profiled): §3.6 never memoises tainted results, so inside a cyclic
+  region the evaluator re-walks every simple path; that is exponential on dense cyclic data.
+  This is a performance property of the specified algorithm, not a wrong answer: no
+  disagreement with the oracle has been found
+- Current choice: nothing changed in the engine, generator ranges or case counts; no
+  per-case timeout. The CI step was added as instructed and will hang on such seeds
+- Resolve by: human decision. Options: T1.4b's lowlink taint (memoise results whose lowlink
+  is not below their own stack index) likely removes most of the blow-up; or a CI job
+  timeout; or a fixed proptest seed in CI
 - Resolution: (fill in)

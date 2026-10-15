@@ -94,7 +94,9 @@ Other conventions:
 
 ## 4. CI workflows
 
-- `ci.yml` (push/PR): fmt, clippy, test (ubuntu, macos, windows), `cargo deny check`,
+- `ci.yml` (push/PR): fmt, clippy, test (ubuntu, macos, windows; plus
+  `cargo test -p warden-testkit -- --ignored` for full-count property tests, built with
+  `opt-level = 3` for `warden-core`/`warden-testkit` via `[profile.test.package.*]`), `cargo deny check`,
   `cargo doc`, Python tests via `maturin develop` on ubuntu, coverage report (ubuntu).
 - `wheels.yml` (tag + manual): maturin-action matrix for ADR-014 platforms; smoke test;
   upload artifacts. Publishing to PyPI/crates.io is a manual human step.

@@ -15,3 +15,6 @@ workspace = true
 warden-core.workspace = true
 warden-store-memory.workspace = true
 warden-store-sqlite.workspace = true
+warden-schema.workspace = true
+# Generators (`docs/07-testing.md` §2.2) are library code here, shared by property tests.
+proptest.workspace = true

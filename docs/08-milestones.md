@@ -166,6 +166,8 @@ AC:
 Refs: `03` §10, `05` §7–8.
 AC:
 - `E_SCHEMA_CHANGE_ORPHANS` with per-relation counts; permission removal always allowed.
+- A test proves stale relationships (OQ-019 (e) and the two remaining cases) cannot arise
+  after `write_schema`.
 - Multi-process schema reload test (two engines on one SQLite file).
 - `delete_relationships` with limit; `gc` in batches; `RevisionExpired` after GC.
 

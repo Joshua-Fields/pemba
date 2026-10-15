@@ -40,28 +40,42 @@ Coverage target (`cargo llvm-cov`): ≥ 90% lines for `warden-schema` and `warde
 It must not share evaluation code with `warden-core::eval` (it may share the schema IR types
 and parsers).
 
-### 2.1 Algorithm (Kleene iteration)
+### 2.1 Algorithm (stratified fixed points, OQ-020)
 
 1. Universe `U[t]` for each type `t` = every object id of type `t` appearing anywhere in the
-   tuples **plus one fresh id** `__fresh__` (to test wildcard semantics for never-seen subjects).
-2. For every object `o` and member `m`, maintain `S(o, m)` as an explicit finite set of
-   subjects (object subjects as `(type,id)`; subject sets as `(type,id,rel)`), initially ∅,
-   plus self membership (`docs/04` §2).
-3. Repeat: recompute every `S(o, m)` from the semantics table in `docs/04` §2 using the
-   current sets (wildcards expand to `U[t]`), until nothing changes.
-4. `check(o, m, s) = s ∈ S(o, m)`.
+   tuples **plus one fresh id** `__fresh__` (a valid object id; it stands for every
+   never-seen object, to test wildcard semantics). Tuples must not use `__fresh__`, and
+   queries must stay inside the universe (two unseen ids are not interchangeable).
+2. **Dependency graph** over members `(type, member)`. Edges: a permission to every member
+   it computes; an arrow `t->p` to the tupleset `(T, t)` and to `(X, p)` for every type `X`
+   allowed on `t` that has `p`; a relation allowing the subject set `x#y` to `(x, y)`. Every
+   edge reached through the `sub` side of an exclusion, at any depth (including the base of
+   an exclusion nested inside a `sub`), is **negative**.
+3. **Strata** = strongly connected components. If a component contains a negative edge, the
+   schema is not stratifiable and the oracle returns `ReferenceError::NotStratifiable`
+   ("unsupported"), never an answer. The engine still accepts such schemas and decides per
+   check from the data (`docs/04` §3.6); hand-written tests cover it.
+4. Evaluate components in dependency order. For each, every `S(o, m)` (all `o` in `U[t]`,
+   all `(t, m)` in the component) starts at ∅ and is recomputed from the semantics table in
+   `docs/04` §2 (wildcards expand to `U[t]`, objects only; `.all` over zero objects is ∅;
+   self membership `o#m ∈ S(o, m)`), reading earlier components as fixed, until nothing
+   changes. Inside a component every edge is positive, so the sets only grow: this is the
+   least fixed point. Monotone recursion inside a `sub` side is just an earlier component.
+5. `check(o, m, s) = s ∈ S(o, m)`.
 
-Iteration converges for monotone schemas. The property-test **generators must not put
-recursive members under the `sub` side of an exclusion** (exclusion `sub` = a non-recursive
-relation with only plain object subjects). Non-monotone cycles are covered by hand-written
-tests expecting `NonMonotonicCycle`.
+Plain Kleene iteration over all members at once (the previous algorithm) is wrong once a
+recursive member sits on the base side of an exclusion: depending on update order it stops
+at a non-least fixed point or never stops (OQ-020).
 
 ### 2.2 Generators (`proptest` strategies)
 
 - Schemas: 1–4 types, 1–4 relations and 0–3 permissions per type; allowed types drawn from
   object / subject-set / wildcard; expressions of depth ≤ 3 over union, intersection,
-  exclusion (restricted as above), arrows (`Any`, `All`); every generated schema must pass
-  validation (filter or construct-valid).
+  exclusion, arrows (`Any`, `All`); every generated schema must pass validation (filter or
+  construct-valid) and be stratifiable (§2.1). Recursion is allowed on the base side of an
+  exclusion (OQ-020) but kept out of the `sub` side: nothing a `sub` side reaches lies on a
+  cycle of the dependency graph, because the engine refuses every cycle beneath a `sub`
+  side until T1.4b. Implemented in `warden-testkit::generate`, construct-valid.
 - Data: 0–40 tuples valid for the schema, ids from a small alphabet (`a`..`f`) to force
   sharing and cycles.
 - Queries: random `(object, member, subject)` from the universe, including fresh ids and

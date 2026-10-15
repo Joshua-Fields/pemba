@@ -5,4 +5,6 @@
 
 #![forbid(unsafe_code)]
 
+pub mod generate;
+pub mod reference;
 pub mod store_conformance;
