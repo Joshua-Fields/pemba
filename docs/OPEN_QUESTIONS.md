@@ -211,8 +211,9 @@ it is resolved.
 ## OQ-018 — Which cycles count as "through negation"
 - Raised in: T1.3 (`docs/04-evaluation.md` §3.6)
 - Blocking: no
-- Current choice: §3.6 as written, plus one fix. Frames pushed while evaluating an
-  exclusion's `sub` side are `negated` and so is everything beneath; a cycle is
+- Current choice (T1.3, superseded by the resolution): §3.6 as written, plus one fix. Frames
+  pushed while evaluating an exclusion's `sub` side are `negated` and so is everything
+  beneath; a cycle is
   `NonMonotonicCycle` if any frame from the repeated node to the top is negated **or the
   edge closing the cycle is evaluated under negation**. Without that last clause the
   self-loop `view = viewer - parent->view` with `doc:a#parent@doc:a` finds no negated
@@ -224,12 +225,17 @@ it is resolved.
   `self_loop_through_exclusion_is_non_monotonic_cycle`,
   `any_cycle_beneath_subtracted_side_is_refused`
 - Resolve by: T1.4b
-- Resolution: decided by the human in T1.3 review. Keep the conservative rule above for now
-  (it fails closed). Planned rule, recorded in `04` §3.6: a cycle is `NonMonotonicCycle` only
-  if the path from the in-progress node (including its own expression) to the closing edge
-  crosses a subtracted side; a monotone cycle wholly inside a subtracted side is evaluated as
-  a least fixed point and then negated (stratified negation). Implemented in T1.4b, after the
-  reference evaluator, with lowlink-style taint (lowest in-progress stack index)
+- Resolution: decided by the human in T1.3 review; implemented in T1.4b. A cycle is
+  `NonMonotonicCycle` only if the path from the in-progress node (including its own
+  expression) to the closing edge crosses a subtracted side. Implemented with negation
+  depth, not the sticky flag: each frame records how many `sub` sides it sits inside; a
+  hit on an in-progress frame errors iff the current depth differs from the frame's; a
+  pass-memo hit compares against the frame of the entry's region head (at its lowlink). A
+  monotone cycle wholly inside a `sub` side settles by SCC iteration and is then negated.
+  `04` §3.6 rewritten. `any_cycle_beneath_subtracted_side_is_refused` became
+  `monotone_cycle_beneath_subtracted_side_is_negated_least_fixed_point`; new tests for a
+  cycle through a nested exclusion and for both pass-memo cases; property 1 also runs
+  (≥ 1 000 cases) on a generator variant with recursion beneath `sub` sides
 
 ## OQ-019 — `check` details the spec leaves open
 - Raised in: T1.3 (`docs/04-evaluation.md` §1, §3; `docs/06-api.md` §1)

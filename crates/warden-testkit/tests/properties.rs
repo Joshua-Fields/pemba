@@ -1,11 +1,10 @@
 //! Properties 1 and 6 of `docs/07-testing.md` §2.3, plus checks that the generators
 //! produce what §2.2 asks for.
 //!
-//! Property 1 runs on the memory store only; the SQLite store arrives in M2. Plain
-//! `cargo test` runs it for 64 cases; the `#[ignore]`d `prop1_check_matches_reference_full`
-//! (`cargo test -- --ignored`, ci.yml's `prop1` job, and the manual `proptest.yml`
-//! workflow) runs at least 1 000,
-//! or `PROPTEST_CASES` if higher.
+//! Property 1 runs on the memory store only; the SQLite store arrives in M2, and on both
+//! generator variants ([`SubSides`]). Plain `cargo test` runs each for 64 cases; the
+//! `#[ignore]`d `prop1_*_full` tests (`cargo test -- --ignored`, ci.yml's `prop1` job, and
+//! the manual `proptest.yml` workflow) run at least 1 000, or `PROPTEST_CASES` if higher.
 //! Property 6 always runs at least 1 000.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
@@ -17,7 +16,7 @@ use warden_core::model::{Consistency, ObjectRef, RelName, SubjectRef, WriteOp, W
 use warden_core::{CheckItem, CheckRequest, Engine, EngineConfig};
 use warden_schema::ir::CompiledSchema;
 use warden_store_memory::MemoryStore;
-use warden_testkit::generate::{self, Case, RawQuery};
+use warden_testkit::generate::{self, Case, RawQuery, SubSides};
 use warden_testkit::reference::{self, Reference};
 
 /// At least `min` cases, or `PROPTEST_CASES` if higher.
@@ -86,7 +85,9 @@ fn query(
     (resource, member, subject)
 }
 
-/// Property 1 for one case. Any engine error is a failure, not a skipped case.
+/// Property 1 for one case. Any engine error is a failure, not a skipped case: generated
+/// schemas are stratifiable, so no data cycle crosses a negation, and a
+/// `NonMonotonicCycle` would mean the engine refuses too much.
 fn engine_agrees_with_reference(case: &Case) -> Result<(), TestCaseError> {
     let src = case.schema.source();
     let schema = compile(&src);
@@ -185,6 +186,14 @@ proptest! {
     fn prop1_check_matches_reference(case in generate::case()) {
         engine_agrees_with_reference(&case)?;
     }
+
+    /// Property 1, quick, with monotone recursion beneath subtracted sides (T1.4b).
+    #[test]
+    fn prop1_recursive_sub_check_matches_reference(
+        case in generate::case_with(SubSides::Recursive)
+    ) {
+        engine_agrees_with_reference(&case)?;
+    }
 }
 
 proptest! {
@@ -194,6 +203,15 @@ proptest! {
     #[test]
     #[ignore = "slow: 1 000+ cases; run with --ignored"]
     fn prop1_check_matches_reference_full(case in generate::case()) {
+        engine_agrees_with_reference(&case)?;
+    }
+
+    /// Property 1 with monotone recursion beneath subtracted sides, ≥ 1 000 cases.
+    #[test]
+    #[ignore = "slow: 1 000+ cases; run with --ignored"]
+    fn prop1_recursive_sub_check_matches_reference_full(
+        case in generate::case_with(SubSides::Recursive)
+    ) {
         engine_agrees_with_reference(&case)?;
     }
 
@@ -223,13 +241,28 @@ fn sample<T: std::fmt::Debug>(strategy: impl Strategy<Value = T>, n: usize) -> V
 
 #[test]
 fn generated_schemas_compile_and_are_stratifiable() {
-    for model in sample(generate::schema(), 2000) {
-        let src = model.source();
-        let schema = compile(&src);
-        if let Err(e) = reference::strata(&schema) {
-            panic!("{e}\n{src}");
+    for mode in [SubSides::Acyclic, SubSides::Recursive] {
+        for model in sample(generate::schema_with(mode), 2000) {
+            let src = model.source();
+            let schema = compile(&src);
+            if let Err(e) = reference::strata(&schema) {
+                panic!("{mode:?}: {e}\n{src}");
+            }
         }
     }
+}
+
+#[test]
+fn only_the_recursive_variant_recurses_beneath_subtracted_sides() {
+    let count = |mode| {
+        sample(generate::schema_with(mode), 1000)
+            .iter()
+            .filter(|m| m.has_recursive_exclusion_sub())
+            .count()
+    };
+    assert_eq!(count(SubSides::Acyclic), 0);
+    let recursive = count(SubSides::Recursive);
+    assert!(recursive > 200, "recursive sub sides: {recursive}");
 }
 
 #[test]
@@ -260,7 +293,10 @@ fn generated_schemas_are_varied() {
 #[test]
 fn generated_cases_answer_both_ways() {
     let (mut yes, mut no) = (0, 0);
-    for case in sample(generate::case(), 300) {
+    let cases = [SubSides::Acyclic, SubSides::Recursive]
+        .into_iter()
+        .flat_map(|mode| sample(generate::case_with(mode), 150));
+    for case in cases {
         let src = case.schema.source();
         let schema = compile(&src);
         let oracle = Reference::new(&schema, &case.tuples).unwrap();

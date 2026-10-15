@@ -10,10 +10,11 @@
 //! - permission expressions of depth ≤ 3 over union, intersection, exclusion and arrows
 //!   (`->` and `.all`). A permission computes relations and *earlier* permissions only (no
 //!   `E_DIRECT_CYCLE`); recursion comes from arrows and subject sets, as in real schemas;
-//! - recursion anywhere except beneath an exclusion's subtracted side (OQ-020): nothing a
-//!   `sub` side reaches lies on a cycle of the member dependency graph. That keeps the
-//!   schema stratifiable for the oracle, and keeps the engine from refusing a cycle under
-//!   negation, which it does for any cycle there until T1.4b.
+//! - stratifiable recursion only (OQ-020): no cycle of the member dependency graph runs
+//!   through an exclusion's subtracted side, so no data cycle can cross a negation and the
+//!   engine never answers `NonMonotonicCycle`. Two variants ([`SubSides`]): the default
+//!   keeps recursion off `sub` sides entirely (nothing a `sub` side reaches lies on a
+//!   cycle); [`SubSides::Recursive`] allows monotone recursion beneath them (T1.4b).
 
 use std::collections::BTreeSet;
 use std::fmt::{self, Write as _};
@@ -23,6 +24,16 @@ use warden_core::model::Relationship;
 
 /// Object ids used in generated tuples: a small alphabet, to force sharing and cycles.
 pub const IDS: [&str; 6] = ["a", "b", "c", "d", "e", "f"];
+
+/// How much recursion generated schemas allow beneath an exclusion's subtracted side.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SubSides {
+    /// Nothing a `sub` side reaches lies on a cycle.
+    Acyclic,
+    /// A `sub` side may reach cycles, as long as none leads back to the permission that
+    /// subtracts it (the schema stays stratifiable).
+    Recursive,
+}
 
 /// A generated schema, before rendering to source.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -143,10 +154,30 @@ impl SchemaModel {
         found
     }
 
-    /// Replaces every subtracted side that reaches a cycle with a relation of the same type
-    /// that allows no subject sets (a node with no dependencies), or, if the type has
-    /// none, drops the subtraction. Only removes edges, so it never creates a cycle.
-    fn make_sub_sides_acyclic(&mut self) {
+    /// Whether some exclusion's subtracted side reaches a member on a cycle.
+    pub fn has_recursive_exclusion_sub(&self) -> bool {
+        let g = Graph::new(self);
+        let mut found = false;
+        for (ti, t) in self.types.iter().enumerate() {
+            for e in &t.permissions {
+                visit(e, &mut |x| {
+                    if let ExprModel::Exclusion(_, sub) = x {
+                        let mut targets = Vec::new();
+                        direct_targets(self, ti, sub, &mut targets);
+                        found |= g.reaches_cycle(&targets);
+                    }
+                });
+            }
+        }
+        found
+    }
+
+    /// Replaces every unsafe subtracted side with a relation of the same type that allows
+    /// no subject sets (a node with no dependencies), or, if the type has none, drops the
+    /// subtraction. With [`SubSides::Acyclic`] a side is unsafe if it reaches a cycle; with
+    /// [`SubSides::Recursive`], if it reaches the permission it is in (a negative edge on a
+    /// cycle). Only removes edges, so it never creates a cycle.
+    fn fix_sub_sides(&mut self, mode: SubSides) {
         loop {
             let g = Graph::new(self);
             let mut fixed = false;
@@ -156,8 +187,13 @@ impl SchemaModel {
                     .iter()
                     .position(|a| !a.iter().any(|x| matches!(x, Allowed::Set(..))));
                 let snapshot = self.clone();
-                for e in &mut self.types[ti].permissions {
-                    fixed |= fix_subs(&snapshot, ti, e, &g, plain);
+                let relations = self.types[ti].relations.len();
+                for (pi, e) in self.types[ti].permissions.iter_mut().enumerate() {
+                    let unsafe_targets = |targets: &[(usize, usize)]| match mode {
+                        SubSides::Acyclic => g.reaches_cycle(targets),
+                        SubSides::Recursive => g.reaches(targets, (ti, relations + pi)),
+                    };
+                    fixed |= fix_subs(&snapshot, ti, e, &unsafe_targets, plain);
                 }
             }
             if !fixed {
@@ -193,31 +229,36 @@ fn expr_source(t: &TypeModel, e: &ExprModel) -> String {
     }
 }
 
+/// A `(type, member)` node of the dependency graph, by indices.
+type Node = (usize, usize);
+
 /// Fixes the first unsafe subtracted side found in `e` (outermost first); returns whether
 /// it changed anything.
 fn fix_subs(
     schema: &SchemaModel,
     ty: usize,
     e: &mut ExprModel,
-    g: &Graph,
+    is_unsafe: &dyn Fn(&[Node]) -> bool,
     plain: Option<usize>,
 ) -> bool {
     match e {
         ExprModel::Member(_) | ExprModel::Arrow { .. } => false,
-        ExprModel::Union(xs) | ExprModel::Intersection(xs) => {
-            xs.iter_mut().any(|x| fix_subs(schema, ty, x, g, plain))
-        }
+        ExprModel::Union(xs) | ExprModel::Intersection(xs) => xs
+            .iter_mut()
+            .any(|x| fix_subs(schema, ty, x, is_unsafe, plain)),
         ExprModel::Exclusion(base, sub) => {
             let mut targets = Vec::new();
             direct_targets(schema, ty, sub, &mut targets);
-            if g.reaches_cycle(&targets) {
+            // A nested exclusion inside `sub` needs no separate fix: its targets are a
+            // subset of these.
+            if is_unsafe(&targets) {
                 match plain {
                     Some(r) => **sub = ExprModel::Member(r),
                     None => *e = (**base).clone(),
                 }
                 true
             } else {
-                fix_subs(schema, ty, base, g, plain)
+                fix_subs(schema, ty, base, is_unsafe, plain)
             }
         }
     }
@@ -319,6 +360,19 @@ impl Graph {
         self.reach[n].contains(&n)
     }
 
+    /// Whether any of `targets` is `node` or reaches it.
+    fn reaches(&self, targets: &[(usize, usize)], node: (usize, usize)) -> bool {
+        let Some(n) = self.nodes.iter().position(|&x| x == node) else {
+            return false;
+        };
+        targets.iter().any(|t| {
+            self.nodes
+                .iter()
+                .position(|x| x == t)
+                .is_some_and(|i| i == n || self.reach[i].contains(&n))
+        })
+    }
+
     /// Whether any of `targets`, or anything they reach, lies on a cycle.
     fn reaches_cycle(&self, targets: &[(usize, usize)]) -> bool {
         targets.iter().any(|t| {
@@ -378,7 +432,7 @@ fn raw_type() -> impl Strategy<Value = RawType> {
 }
 
 /// Resolves raw choices into a valid model.
-fn resolve(raw: &[RawType]) -> SchemaModel {
+fn resolve(raw: &[RawType], mode: SubSides) -> SchemaModel {
     let n = raw.len();
     let member_count = |t: usize| raw[t].relations.len() + raw[t].permissions.len();
     let mut types: Vec<TypeModel> = raw
@@ -427,7 +481,7 @@ fn resolve(raw: &[RawType]) -> SchemaModel {
         }
     }
     let mut model = SchemaModel { types };
-    model.make_sub_sides_acyclic();
+    model.fix_sub_sides(mode);
     model
 }
 
@@ -476,9 +530,15 @@ fn resolve_expr(
     }
 }
 
-/// Valid schemas as described in the module docs.
+/// Valid schemas as described in the module docs, with no recursion beneath subtracted
+/// sides.
 pub fn schema() -> impl Strategy<Value = SchemaModel> {
-    prop::collection::vec(raw_type(), 1..5).prop_map(|raw| resolve(&raw))
+    schema_with(SubSides::Acyclic)
+}
+
+/// Valid schemas as described in the module docs, in the given variant.
+pub fn schema_with(mode: SubSides) -> impl Strategy<Value = SchemaModel> {
+    prop::collection::vec(raw_type(), 1..5).prop_map(move |raw| resolve(&raw, mode))
 }
 
 /// A raw tuple choice: `(type, relation, allowed form, resource id, subject id)`.
@@ -551,8 +611,13 @@ impl fmt::Debug for Case {
     }
 }
 
-/// A [`Case`] with 0–40 tuples and 1–24 queries.
+/// A [`Case`] with 0–40 tuples and 1–24 queries, over [`schema`].
 pub fn case() -> impl Strategy<Value = Case> {
+    case_with(SubSides::Acyclic)
+}
+
+/// A [`Case`] with 0–40 tuples and 1–24 queries, over [`schema_with`]`(mode)`.
+pub fn case_with(mode: SubSides) -> impl Strategy<Value = Case> {
     let query = (
         any::<usize>(),
         any::<usize>(),
@@ -570,7 +635,7 @@ pub fn case() -> impl Strategy<Value = Case> {
             },
         );
     (
-        schema(),
+        schema_with(mode),
         prop::collection::vec(
             (
                 any::<usize>(),

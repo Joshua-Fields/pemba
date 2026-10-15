@@ -957,21 +957,115 @@ definition doc {
 }
 ";
 
-/// §3.6 marks every frame under the subtracted side as negated, so even a cycle that lies
-/// wholly inside it (and is itself monotone) is refused. Conservative; see OQ-018.
+/// A monotone cycle wholly inside a subtracted side (groups a and b contain each other) is
+/// settled as a least fixed point and then negated (§3.6, OQ-018). By hand:
+/// `S(a) = S(b)`, `S(b) = S(a) ∪ S(c)`, `S(c) = {anne}`, least solution
+/// `S(a) = S(b) = {anne}`. So anne is banned (through b, reached only via the cycle) and
+/// bob is not.
 #[test]
-fn any_cycle_beneath_subtracted_side_is_refused() {
+fn monotone_cycle_beneath_subtracted_side_is_negated_least_fixed_point() {
     let e = engine(
         BANNED_GROUPS_SCHEMA,
         &[
             "group:a#member@group:b#member",
             "group:b#member@group:a#member",
+            "group:b#member@group:c#member",
+            "group:c#member@user:anne",
             "doc:d#viewer@user:anne",
+            "doc:d#viewer@user:bob",
             "doc:d#banned@group:a#member",
         ],
     );
+    assert_denied(&e, "doc:d#view@user:anne");
+    assert_allowed(&e, "doc:d#view@user:bob");
+    assert_allowed(&e, "doc:d#banned@user:anne");
+    assert_denied(&e, "doc:d#banned@user:bob");
+}
+
+/// Inside the subtracted side, c's fan-out hits b after b finished as a member of a's
+/// region (the pass memo). The region's head a sits at the same negation depth, so the
+/// hit is part of a monotone cycle. By hand: `S(a) = S(b) ∪ S(c)`, `S(b) = S(a)`,
+/// `S(c) = S(b)`, least solution ∅: nobody is banned.
+#[test]
+fn pass_memo_hit_beneath_subtracted_side_at_same_depth_is_allowed() {
+    let e = engine(
+        BANNED_GROUPS_SCHEMA,
+        &[
+            "group:a#member@group:b#member",
+            "group:a#member@group:c#member",
+            "group:b#member@group:a#member",
+            "group:c#member@group:b#member",
+            "doc:d#viewer@user:bob",
+            "doc:d#banned@group:a#member",
+        ],
+    );
+    assert_allowed(&e, "doc:d#view@user:bob");
+}
+
+const NESTED_NEGATION_SCHEMA: &str = "\
+definition user {}
+
+definition node {
+    relation allowed: user
+    relation child: node
+    permission flagged = allowed - child->flagged
+}
+
+definition doc {
+    relation viewer: user
+    relation banned: node#flagged
+    permission view = viewer - banned
+}
+";
+
+/// The cycle n → m → n lies wholly inside `view`'s subtracted side, but each step crosses
+/// `flagged`'s own subtracted side too: negation depth 1 at `node:n#flagged`, 2 at
+/// `node:m#flagged`, 3 at the closing edge. Still non-monotone.
+#[test]
+fn cycle_inside_subtracted_side_through_nested_exclusion_is_non_monotonic_cycle() {
+    let e = engine(
+        NESTED_NEGATION_SCHEMA,
+        &[
+            "node:n#child@node:m",
+            "node:m#child@node:n",
+            "node:n#allowed@user:anne",
+            "node:m#allowed@user:anne",
+            "doc:d#viewer@user:anne",
+            "doc:d#banned@node:n#flagged",
+        ],
+    );
     let path = cycle_path(check(&e, "doc:d#view@user:anne"));
-    assert_eq!(path, ["group:a#member", "group:b#member", "group:a#member"]);
+    assert_eq!(path, ["node:n#flagged", "node:m#flagged", "node:n#flagged"]);
+}
+
+const PASS_MEMO_NEGATION_SCHEMA: &str = "\
+definition user {}
+
+definition node {
+    relation viewer: user
+    relation next: node
+    permission yyy = next->xxx
+    permission xxx = (next->xxx + viewer) - yyy
+}
+";
+
+/// `a#xxx = (b#xxx ∪ viewer) − a#yyy`, `a#yyy = b#xxx`, `b#xxx = a#xxx ∪ …`: so `a#xxx`
+/// subtracts itself. Evaluating `a#xxx`: `b#xxx` hits `a#xxx` (same depth, fine) and
+/// finishes as a member of a's region; then, inside the subtracted side, `a#yyy` hits
+/// `b#xxx` in the pass memo. Its region head `a#xxx` is at depth 0 and the hit at
+/// depth 1: non-monotone.
+#[test]
+fn pass_memo_hit_across_subtracted_side_is_non_monotonic_cycle() {
+    let e = engine(
+        PASS_MEMO_NEGATION_SCHEMA,
+        &[
+            "node:a#next@node:b",
+            "node:b#next@node:a",
+            "node:a#viewer@user:anne",
+        ],
+    );
+    let path = cycle_path(check(&e, "node:a#xxx@user:anne"));
+    assert_eq!(path, ["node:a#xxx", "node:a#yyy", "node:b#xxx"]);
 }
 
 // ---------------------------------------------------------------------------------------
