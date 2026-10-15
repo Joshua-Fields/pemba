@@ -1,0 +1,17 @@
+[package]
+name = "warden-testkit"
+description = "Test support for warden: reference evaluator, generators, fixture runner, conformance suite."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+warden-core.workspace = true
+warden-store-memory.workspace = true
+warden-store-sqlite.workspace = true

@@ -1,0 +1,20 @@
+[package]
+name = "warden-cli"
+description = "Command-line tool for warden."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "warden"
+path = "src/main.rs"
+# Rustdoc output for this bin would overwrite the `warden` lib docs (cargo#6313).
+doc = false
+
+[lints]
+workspace = true
+
+[dependencies]
+warden = { workspace = true, features = ["sqlite", "memory"] }
