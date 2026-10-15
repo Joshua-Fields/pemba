@@ -17,7 +17,7 @@ Every algorithm here must agree with the reference evaluator (`docs/07` §2) on 
 4. Evaluate. Return `{ result, revision, stats }`.
 
 `EvalStats` (returned, also emitted on the tracing span): `store_reads`, `tuples_read`,
-`memo_hits`, `max_depth_reached`, `elapsed`.
+`memo_hits`, `max_depth_reached`, `cycle_passes` (§3.6), `elapsed`.
 
 ---
 
@@ -71,18 +71,21 @@ shared memo per distinct subject. Item errors are per-item; a store error fails 
 Memo key: `NodeKey { ty: TypeId, id: ObjectId, rel: RelId }` (subject is constant per request).
 
 ```text
-eval(key, depth) -> Result<Outcome>          // Outcome { value: bool, tainted: bool }
+eval(key, depth) -> Result<Outcome>          // Outcome { value: bool, low: Option<usize> }
   if depth > max_depth:               return Err(MaxDepthExceeded{ path: stack })
-  if memo[key] exists:                return Outcome{ memo[key], tainted: false }
-  if key in stack:                    return on_cycle(key)            // §3.6
-  if subject == Set(key.obj, key.rel): return Outcome{ true, false }   // self membership
-  push key to stack
-  out = match schema.member(key.ty, key.rel):
-          Relation(r)   => eval_direct(key, r, depth)
-          Permission(p) => eval_expr(key.obj, p.expr, depth)
-  pop stack
-  if !out.tainted: memo[key] = out.value
-  return out
+  if memo[key] exists:                return Outcome{ memo[key], low: None }
+  if key on SCC stack:                return on_scc_hit(key)          // §3.6
+  if subject == Set(key.obj, key.rel): return Outcome{ true, None }    // self membership
+  push key to SCC stack at position p
+  loop:                                                               // passes, §3.6
+    push frame; out = match schema.member(key.ty, key.rel):
+                        Relation(r)   => eval_direct(key, r, depth)
+                        Permission(e) => eval_expr(key.obj, e.expr, depth)
+    pop frame
+    value = out.value | provisional[key]
+    if out.low < p:  finish as member (pass memo); return Outcome{ value, out.low }
+    head of SCC[p..]: settle into memo and return Outcome{ value, None },
+                      or record provisional values and re-run
 ```
 
 ### 3.3 `eval_direct(o#r)`
@@ -131,29 +134,91 @@ If one node reads more than `max_check_fanout` tuples (default 100 000), return
 Data-dependent recursion (`folder:a#parent@folder:b`, `folder:b#parent@folder:a`;
 nested groups that contain each other) is legal. Rules:
 
-- The stack holds frames `{ key, negated: bool }`. A frame is pushed with `negated = true`
-  while evaluating the `sub` side of an `Exclusion` (and stays true for everything beneath).
-- `on_cycle(key)`: find the frame index `i` of `key` in the stack.
-  - If any frame from `i` to the top has `negated = true` → `Err(NonMonotonicCycle{ path })`.
-    A cycle through negation has no well-defined least fixed point; we refuse rather than guess.
-  - Else → `Outcome{ value: false, tainted: true }`. Treating an in-progress node as `false`
-    computes the least fixed point for monotone operators (union, intersection, arrows).
-- **Tainted results are never memoised**, because they were computed under an assumption.
-  Example of why: `A = B + C`, `B = A`. Evaluating A: B sees A in progress → B=false (tainted).
-  C=true → A=true. If B=false had been memoised, a later lookup of B in the same request
-  would wrongly return false.
-- A tainted `true` is still a correct `true` for monotone expressions and is returned as such;
-  it simply is not cached (optimisation to cache it is allowed later only with property tests).
-- **Current rule (T1.3):** `negated` frames are sticky, and the edge closing the cycle counts
-  too: any cycle detected while evaluating beneath a `sub` side is `NonMonotonicCycle`, even
-  a monotone cycle that lies wholly inside it (fails closed).
+- The call stack holds frames `{ key, negated: bool }`. A frame is pushed with
+  `negated = true` while evaluating the `sub` side of an `Exclusion` (and stays true for
+  everything beneath).
+- **Current rule (T1.4c): SCC fixed-point iteration** (Tarjan-style). Plain "in-progress
+  node = `false`, never memoise what used that" is correct but exponential: on groups
+  `g1..gn` whose `member`s all contain each other, with the subject in none, it walks every
+  simple path (~(n−1)! of them; OQ-021). Instead each node of a strongly connected region
+  is evaluated at most once per pass:
+  - *SCC stack.* A node is pushed on the SCC stack on first visit and stays there until the
+    head of its region settles; the stack only ever loses a suffix, so a position names the
+    same node for as long as anything refers to it. Lowlinks are SCC-stack positions, not
+    call-stack indices: once a frame pops, a sibling reuses its call-stack index, and a
+    lowlink naming that index would make the sibling look like the head of its own region
+    and settle a `false` early (test `reused_call_stack_index_does_not_make_a_false_head`).
+  - *Lowlink.* An `Outcome` carries `low: Option<usize>`: the lowest SCC-stack position
+    whose unsettled value it used, `None` if it used none (the value is settled). Composite
+    `low` = min over the children actually evaluated.
+  - *Hit on a node in progress* (frame `i`, SCC position `p`). If any frame from `i` to
+    the top, or the closing edge, is negated → `Err(NonMonotonicCycle{ path })` (below).
+    Else return `provisional[key]` (`false` if absent) with `low = p`; if that was `false`,
+    mark the node *assumed false*.
+  - *Hit on a finished member* (the **pass memo**: SCC-stack entries finished this pass).
+    Return its value and its `low` without re-evaluating it. Beneath a negated frame →
+    `NonMonotonicCycle`: the value is unsettled and depends on a node in progress, which
+    re-evaluating it would reach under negation and refuse.
+  - *Finish value.* A node finishes with `computed | provisional[key]`, so a finished value
+    is never below what a hit assumed for it.
+  - *Member finish.* A node at position `p` finishing with `low = l < p` belongs to a region
+    headed further down. It stays on the SCC stack, finished, with value and `low = l`, and
+    `l` is propagated to every entry above it (`low = min(low, l)`): they are in its region,
+    so a later hit on any of them yields `low ≤ l`.
+  - *Head finish.* A node at position `p` finishing with `low` `None` or `≥ p` heads the
+    region `SCC[p..]`. If no entry of the region was assumed false and finished `true`, the
+    pass is consistent: every entry's value goes into the request memo (settled), and the
+    region is popped. If the head finished `true`, the region is popped too, memoising the
+    head and every member's `true` and dropping members' `false`s (shortcut: a `true` is
+    always sound). Otherwise set `provisional[x] |= value(x)` for every entry, pop the
+    members, and re-run the head (next pass).
+  - *Inner regions* settle inside an outer pass: a head at `p` depends on nothing below `p`,
+    so its values are final and go straight into the request memo; no outer pass re-runs
+    them.
+  - *Termination.* `provisional` only grows (`false → true`), a re-run happens only when an
+    assumed `false` finished `true` (so some provisional value flips), and an SCC of `|S|`
+    nodes has at most `|S|` flips: at most `|S| + 1` passes.
+  - *Soundness (every value `≤` the least fixed point `μ`).* Pass 1 assumes `false = ⊥ ≤ μ`;
+    each node is a monotone function of its children, so values computed from inputs `≤ μ`
+    are `≤ f(μ) = μ`; `|=` keeps `provisional ≤ μ`. Hence any `true`, provisional or not,
+    is a correct `true`.
+  - *Leastness (final values `= μ`).* In the final pass every in-progress hit returned the
+    value its node finished with, so the values `V` of the nodes `E` evaluated in that pass
+    are mutually consistent. A `true` in `V` is `≤ μ` by soundness. A `false` in `V` was
+    computed (not taken from `provisional`), and short-circuiting means it is determined by
+    the children evaluated, all in `E` or settled. Kleene iteration from `⊥` then stays
+    `≤ V` on `E` at every step (induction, by monotonicity), so `μ ≤ V` on `E`, and with
+    soundness `V = μ` on `E`. Only nodes in `E` are memoised as settled; members evaluated
+    only in earlier passes are dropped, except their `true`s.
+  - *Example.* `A = B + C`, `B = A`, C true. Evaluating A: B hits A (assumed false) → B
+    false, a member. C true → A true: the head is `true`, so A and C are memoised and B's
+    `false` is dropped; a later lookup of B in the same request evaluates it again (true).
+  - *Cost.* Each pass evaluates each SCC node at most once, so one `check` makes at most
+    `(|S| + 1) · Σ r(x)` store reads per SCC, where `r(x)` is the reads one evaluation of
+    `x` makes (2–3 for a relation, one per arrow): quadratic in the reachable nodes in the
+    worst case, usually one or two passes (the complete group graph above: one pass, ~2n
+    reads). `EvalStats::cycle_passes` counts the passes of heads that had to re-run
+    (including their first); a region settled in its first pass adds nothing.
+  - *State per check.* The SCC stack, pass memo and provisional values are cleared at the
+    start and end of every `check` and every `check_bulk` item (after an error too); only
+    the request memo, holding settled values, is shared between `check_bulk` items.
+  - *Backstop.* `EngineConfig::max_check_reads` (default **200 000**) caps store reads per
+    `check` (per item for `check_bulk`); exceeding it returns `CheckReadsExceeded{ max }`
+    (`06` §1), failing closed. It bounds cost against bugs in this rule and against large
+    but legitimate graphs, independently of any proof. 200 000 is twice
+    `max_check_fanout`, so one node at full fan-out (each child ≥ 1 read) still fits; at an
+    estimated 5–20 µs per indexed SQLite point read (not yet measured) it caps a
+    pathological check at roughly 1–4 s.
+- **Negation (T1.3 rule, unchanged by T1.4c):** `negated` frames are sticky, and the edge
+  closing the cycle counts too: any cycle detected while evaluating beneath a `sub` side is
+  `NonMonotonicCycle`, even a monotone cycle that lies wholly inside it (fails closed). A
+  cycle through negation has no well-defined least fixed point; we refuse rather than guess.
+  So every region that is iterated is monotone.
 - **Planned rule (T1.4b, decided, not yet implemented):** a cycle is `NonMonotonicCycle` only
   if the path from the in-progress node (including its own expression) to the closing edge
   crosses a `sub` side. A monotone cycle wholly inside a `sub` side is evaluated as a least
-  fixed point and then negated (stratified negation). See OQ-018. It builds on T1.4c
-  (OQ-021), which makes taint lowlink-style: a result carries the lowest stack index of an
-  in-progress node it assumed `false`; a node whose lowlink is not below its own index has a
-  settled value and is memoised.
+  fixed point and then negated (stratified negation). See OQ-018. It builds on the SCC
+  stack and lowlinks above.
 
 ### 3.7 Depth
 
@@ -288,7 +353,8 @@ Unit-test every cell, and property-test the algebra against a finite universe mo
 - `Computed`, `Union`, `Intersection`, `Exclusion`, `Arrow Any/All` via the algebra
   (`All` over zero objects → `Ids(∅)`).
 - Memo per `(o, m)`; cycles: in-progress → `Ids(∅)` tainted; through negation →
-  `Err(NonMonotonicCycle)`; tainted results not memoised. Same rules as §3.6.
+  `Err(NonMonotonicCycle)`; tainted results not memoised. Same rules as §3.6 (whose SCC
+  iteration, added for `check` in T1.4c, should be reused here when this is built).
 
 ### 6.3 Invariant (property test)
 

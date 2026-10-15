@@ -100,14 +100,15 @@ AC:
 Refs: `04` §3.6, `06` §1, OQ-021. After T1.4, before T1.4b.
 AC:
 - Taint is lowlink-style: each result carries the lowest stack index of an in-progress node
-  it assumed `false`.
-- A node that finishes as its own cycle head (lowlink not below its own stack index) is
-  memoised.
-- Tainted `true` results are memoised (`04` §3.6 allows this with property tests).
-- New per-request cap on total store reads, `EngineConfig::max_check_reads`; exceeding it
-  returns a new error (fail closed), documented in `06`.
-- The OQ-021 test (`check_on_dense_cyclic_data_reads_a_bounded_number_of_tuples`) passes
-  with its `#[ignore]` removed.
+  whose value it used.
+- SCC fixed-point iteration per `04` §3.6 (planned rule, T1.4c): cycle hits return the
+  previous pass's provisional value; each SCC member is evaluated at most once per pass
+  (pass memo); the head re-runs until no provisional value changes; then every member
+  evaluated in the final pass is memoised. `NonMonotonicCycle` behaviour is unchanged.
+- New per-request cap on total store reads, `EngineConfig::max_check_reads` (default per
+  `04` §3.6); exceeding it returns a new error (fail closed), documented in `06`.
+- Every adversarial test in `crates/warden-testkit/tests/check_cost.rs` passes with its
+  `#[ignore]` removed.
 - Property 1 at ≥ 1 000 cases passes in under 60 s optimised, on several seeds.
 
 ### T1.4b Stratified negation for cycles

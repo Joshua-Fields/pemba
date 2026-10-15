@@ -93,6 +93,13 @@ pub enum Error {
         /// The configured maximum.
         max: usize,
     },
+    /// One `check` (or one `check_bulk` item) made more than
+    /// `EngineConfig::max_check_reads` store reads (`docs/04-evaluation.md` §3.6).
+    #[error("check made more than {max} store reads")]
+    CheckReadsExceeded {
+        /// The configured maximum.
+        max: u64,
+    },
     /// A stored relationship no longer fits the current schema (a schema change left it
     /// behind), so `check` cannot tell what it means and refuses to guess.
     #[error("stored relationship {tuple} no longer fits {relation} in the current schema")]
@@ -124,6 +131,7 @@ impl Error {
             Self::MaxDepthExceeded { .. } => "MAX_DEPTH_EXCEEDED",
             Self::NonMonotonicCycle { .. } => "NON_MONOTONIC_CYCLE",
             Self::FanoutExceeded { .. } => "FANOUT_EXCEEDED",
+            Self::CheckReadsExceeded { .. } => "CHECK_READS_EXCEEDED",
             Self::StaleRelationship { .. } => "STALE_RELATIONSHIP",
             Self::Store(_) => "STORE_ERROR",
         }

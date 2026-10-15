@@ -687,6 +687,45 @@ fn fan_out_above_limit_is_an_error() {
     }
 }
 
+/// `04` §3.6 backstop: total store reads per check, failing closed.
+#[test]
+fn store_reads_above_limit_is_an_error() {
+    let rels = [
+        "document:d#viewer@group:a#member",
+        "group:a#member@group:b#member",
+        "group:b#member@user:anne",
+    ];
+    let config = |max_check_reads| EngineConfig {
+        max_check_reads,
+        ..EngineConfig::default()
+    };
+    // viewer: exact, wildcard, subject sets; a: exact, subject sets; b: exact (hit) = 6.
+    let e = engine_cfg(SCHEMA, config(5), &rels);
+    match check(&e, "document:d#viewer@user:anne") {
+        Err(err @ Error::CheckReadsExceeded { max: 5 }) => {
+            assert_eq!(err.code(), "CHECK_READS_EXCEEDED");
+        }
+        other => panic!("expected CheckReadsExceeded, got {other:?}"),
+    }
+    let e = engine_cfg(SCHEMA, config(6), &rels);
+    assert_allowed(&e, "document:d#viewer@user:anne");
+
+    // Per item in check_bulk: 6 reads for anne, then 7 for bob (b's subject sets too), 13
+    // in all, each within the budget of 7.
+    let e = engine_cfg(SCHEMA, config(7), &rels);
+    let results = e
+        .check_bulk(
+            vec![
+                item("document:d#viewer@user:anne"),
+                item("document:d#viewer@user:bob"),
+            ],
+            Consistency::Latest,
+        )
+        .unwrap();
+    assert!(results[0].as_ref().unwrap());
+    assert!(!results[1].as_ref().unwrap());
+}
+
 #[test]
 fn fan_out_at_limit_is_allowed() {
     let e = engine_cfg(

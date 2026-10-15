@@ -1,8 +1,8 @@
 name: Property tests (full)
 
-# Manual only until T1.4c bounds check cost on cyclic data (OQ-021): some seeds make
-# property 1 run for many minutes. Plain `cargo test` in ci.yml runs 64 cases plus the
-# saved regression seeds.
+# Manual runs at a larger case count. ci.yml already runs property 1 at 1 000 cases on
+# every push to main and every pull request (its `prop1` job); use this to soak it at
+# PROPTEST_CASES well above that.
 on:
   workflow_dispatch:
     inputs:
@@ -25,8 +25,8 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: Swatinem/rust-cache@v2
-      # Only the properties binary: check_cost's ignored OQ-021 test fails until T1.4c, and
-      # warden-difftest's ignored tests need SpiceDB (difftest.yml).
+      # Only the properties binary: warden-difftest's ignored tests need SpiceDB
+      # (difftest.yml).
       - run: cargo test -p warden-testkit --test properties -- --ignored
         env:
           PROPTEST_CASES: ${{ inputs.cases }}

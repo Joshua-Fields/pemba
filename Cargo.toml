@@ -47,3 +47,9 @@ opt-level = 3
 
 [profile.test.package.warden-core]
 opt-level = 3
+
+[profile.test.package.warden-store-memory]
+opt-level = 3
+
+[profile.test.package.warden-schema]
+opt-level = 3
