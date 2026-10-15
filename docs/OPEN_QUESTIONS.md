@@ -314,26 +314,25 @@ it is resolved.
   `oq020_banned_one_hop_deeper` in `crates/warden-testkit/tests/reference.rs`), checking
   the oracle and the engine; generators put recursion on exclusion base sides
 
-## OQ-021 — Property 1 at 1 000 cases sometimes runs for minutes (engine re-evaluation)
+## OQ-021 — Exponential `check` cost on cyclic data (denial-of-service risk)
 - Raised in: T1.4 (`docs/07-testing.md` §2.3, `docs/04-evaluation.md` §3.6)
-- Blocking: no for correctness; yes for the CI step `cargo test -p warden-testkit -- --ignored`,
-  which can run far past any reasonable job time on an unlucky seed
+- Blocking: yes, for the 0.1 gate (T3.7)
+- Problem: §3.6 never memoises tainted results, so inside a cyclic region the evaluator
+  re-walks every path: cost is exponential on dense cyclic data. Answers stay correct (every
+  slow case examined agreed with the reference evaluator), but cyclic group data is
+  ordinary data that users can write, so a user can make one `check` arbitrarily expensive:
+  a denial-of-service risk. `max_depth` and `max_check_fanout` do not bound total work.
 - Observed (property tests built with `opt-level = 3` for `warden-core`/`warden-testkit`):
   one 1 000-case run of `prop1_check_matches_reference_full` took 3.0 s; the next, with a
-  different random seed, was still running after 573 s and was stopped. The slow side is
-  the engine, not the oracle. Example found earlier (release build, deterministic seed): 2
-  types, 30 tuples, every relation allowing subject sets of the other type's permissions
-  (dense mutual recursion over ids `a`..`f`); the oracle took 21 ms for the whole case,
-  one engine `check` took 170 ms with 32 726 store reads at depth 29, and that case
-  accounted for ~0.95 s of a 1.1 s 1 000-case total. Time is dominated by a few such cases.
-  The 64-case `prop1_check_matches_reference` in plain `cargo test` takes ~2 s.
-- Cause (believed, not profiled): §3.6 never memoises tainted results, so inside a cyclic
-  region the evaluator re-walks every simple path; that is exponential on dense cyclic data.
-  This is a performance property of the specified algorithm, not a wrong answer: no
-  disagreement with the oracle has been found
-- Current choice: nothing changed in the engine, generator ranges or case counts; no
-  per-case timeout. The CI step was added as instructed and will hang on such seeds
-- Resolve by: human decision. Options: T1.4b's lowlink taint (memoise results whose lowlink
-  is not below their own stack index) likely removes most of the blow-up; or a CI job
-  timeout; or a fixed proptest seed in CI
+  different random seed, was still running after 573 s and was stopped (its slow case was
+  never printed). Pinned case (case 96 of the deterministic runner, not shrunk): 2 types,
+  30 tuples, relations allowing subject sets of the other type's permissions (dense mutual
+  recursion over ids `a`..`f`). One `check` makes 32 726 store reads at depth 29 (~170 ms in
+  release); the oracle takes 21 ms for the whole case. Time is dominated by a few such cases.
+- Current choice: no engine change in T1.4. The case is
+  `check_on_dense_cyclic_data_reads_a_bounded_number_of_tuples`
+  (`crates/warden-testkit/tests/check_cost.rs`, ≤ 1 000 store reads), `#[ignore]`d and
+  failing today. Plain `cargo test` runs property 1 at 64 cases plus saved seeds; the
+  1 000-case run is the manual `proptest.yml` workflow
+- Resolve by: T1.4c (bound check cost on cyclic data)
 - Resolution: (fill in)

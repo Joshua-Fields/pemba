@@ -81,7 +81,11 @@ at a non-least fixed point or never stops (OQ-020).
 - Queries: random `(object, member, subject)` from the universe, including fresh ids and
   subject sets.
 
-### 2.3 Properties (each 1 000+ cases in CI, `PROPTEST_CASES` env to raise locally)
+### 2.3 Properties (each 1 000+ cases, `PROPTEST_CASES` env to raise locally)
+
+Property 1 runs 64 cases (plus saved regression seeds) in plain `cargo test`; its 1 000+
+case variant is `#[ignore]`d and runs in the manual `proptest.yml` workflow until T1.4c
+bounds check cost on cyclic data (OQ-021).
 
 1. `engine.check == reference.check` for memory store and SQLite store.
 2. `engine.lookup_resources` (all pages concatenated) == `{ o : reference.check(o, m, s) }`.
