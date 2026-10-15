@@ -183,6 +183,8 @@ AC:
   after `write_schema`.
 - Multi-process schema reload test (two engines on one SQLite file).
 - `delete_relationships` with limit; `gc` in batches; `RevisionExpired` after GC.
+- Property 4 extended to include GC (reads at `Exact(r)` below the horizon fail with
+  `RevisionExpired`).
 
 ---
 

@@ -12,6 +12,7 @@ use crate::error::Error;
 use crate::eval::{
     self, CheckItem, CheckRequest, CheckResponse, EvalStats, Evaluator, Limits, Memo,
 };
+use crate::lookup::{self, Candidates, LookupResourcesRequest, LookupResourcesResponse};
 use crate::model::{
     Consistency, Precondition, Relationship, RelationshipFilter, Revision, SubjectRef, WriteRequest,
 };
@@ -453,6 +454,104 @@ impl<S: WritableStore> Engine<S> {
             allowed,
             revision,
             stats,
+        })
+    }
+
+    /// One page of the objects of `req.resource_type` on which `req.subject` has
+    /// `req.permission` (`docs/04-evaluation.md` §5), ascending by id.
+    ///
+    /// Every page is its own request on its own read snapshot. To page through one
+    /// consistent answer, pass `Consistency::Exact(first_response.revision)` with the
+    /// cursor for every later page; otherwise a later page may read a newer revision than
+    /// the one its cursor came from.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::NoSchema`]; [`Error::InvalidRequest`] for a limit of 0 or above
+    /// [`EngineConfig::max_lookup_results`], an undefined resource type, permission,
+    /// subject type or subject relation, or a wildcard subject;
+    /// [`Error::RevisionNotYetAvailable`] / [`Error::RevisionExpired`] if the consistency
+    /// cannot be met; [`Error::LookupTooLarge`] past [`EngineConfig::max_lookup_nodes`]
+    /// candidate nodes; any error [`check`](Self::check) can return for a candidate;
+    /// [`Error::Store`] if the store fails.
+    #[allow(
+        clippy::needless_pass_by_value,
+        reason = "signature fixed by docs/06-api.md §1"
+    )]
+    pub fn lookup_resources(
+        &self,
+        req: LookupResourcesRequest,
+    ) -> Result<LookupResourcesResponse, Error> {
+        let span = tracing::info_span!(
+            "lookup_resources",
+            resource_type = %req.resource_type,
+            permission = %req.permission,
+            subject = %req.subject,
+            revision = tracing::field::Empty,
+            nodes_visited = tracing::field::Empty,
+            candidates = tracing::field::Empty,
+            results = tracing::field::Empty,
+            phase1_reads = tracing::field::Empty,
+            store_reads = tracing::field::Empty,
+            tuples_read = tracing::field::Empty,
+            memo_hits = tracing::field::Empty,
+            max_depth_reached = tracing::field::Empty,
+            cycle_passes = tracing::field::Empty,
+            elapsed_us = tracing::field::Empty,
+        );
+        let _entered = span.enter();
+        let start = Instant::now();
+        let max = self.config.max_lookup_results;
+        let limit = req.limit.unwrap_or(max);
+        if limit == 0 || limit > max {
+            return Err(Error::InvalidRequest {
+                message: format!("limit must be between 1 and {max}, got {limit}"),
+            });
+        }
+        let schema = self.current_schema()?;
+        let target = lookup::resolve_target(&schema, &req.resource_type, &req.permission)?;
+        let subject = eval::resolve_subject(&schema, &req.subject)?;
+        // One snapshot for both phases; dropped on every return below.
+        let snapshot = self.store.snapshot()?;
+        let revision = resolve(&*snapshot, req.consistency)?;
+        span.record("revision", revision.0);
+
+        let (candidates, nodes_visited, phase1_reads) = Candidates::new(
+            &schema,
+            &*snapshot,
+            revision,
+            self.config.max_lookup_nodes,
+            target,
+        )
+        .run(&subject)?;
+        span.record("nodes_visited", nodes_visited);
+        span.record("candidates", candidates.len());
+        span.record("phase1_reads", phase1_reads);
+
+        let (result, mut stats) = lookup::filter(
+            &schema,
+            &*snapshot,
+            revision,
+            self.limits(),
+            &subject,
+            target,
+            &candidates,
+            req.cursor.as_ref(),
+            limit as usize,
+        );
+        stats.elapsed = start.elapsed();
+        record_stats(&span, &stats);
+        let (resource_ids, more) = result?;
+        span.record("results", resource_ids.len());
+        let next_cursor = if more {
+            resource_ids.last().cloned()
+        } else {
+            None
+        };
+        Ok(LookupResourcesResponse {
+            resource_ids,
+            next_cursor,
+            revision,
         })
     }
 

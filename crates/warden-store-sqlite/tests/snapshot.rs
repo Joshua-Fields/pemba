@@ -19,7 +19,10 @@ use warden_core::model::{
 use warden_core::store::{
     GcStats, ReadStore, RelationCount, ReverseFilter, StoreError, StoredSchema, WritableStore,
 };
-use warden_core::{CheckItem, CheckRequest, Engine, EngineConfig, Error, ReadRelationshipsRequest};
+use warden_core::{
+    CheckItem, CheckRequest, Engine, EngineConfig, Error, LookupResourcesRequest,
+    ReadRelationshipsRequest,
+};
 use warden_store_sqlite::{SqliteConfig, SqliteStore};
 
 const SCHEMA: &str = "\
@@ -397,6 +400,26 @@ fn every_read_api_takes_exactly_one_snapshot() {
     )))
     .unwrap();
     assert_eq!(snapshots.load(Ordering::SeqCst), n0 + 2);
+    // Both phases of a lookup page share one snapshot.
+    let page = e
+        .lookup_resources(lookup("document#view@user:bob", Consistency::Latest))
+        .unwrap();
+    assert_eq!(page.resource_ids, vec!["readme".parse().unwrap()]);
+    assert_eq!(snapshots.load(Ordering::SeqCst), n0 + 3);
+}
+
+/// `"document#view@user:anne"` → a lookup request.
+fn lookup(query: &str, consistency: Consistency) -> LookupResourcesRequest {
+    let (resource_type, rest) = query.split_once('#').unwrap();
+    let (permission, subject) = rest.split_once('@').unwrap();
+    LookupResourcesRequest {
+        consistency,
+        ..LookupResourcesRequest::new(
+            resource_type.parse().unwrap(),
+            permission.parse().unwrap(),
+            subject.parse().unwrap(),
+        )
+    }
 }
 
 #[test]
@@ -406,6 +429,7 @@ fn snapshot_is_released_on_every_exit_path() {
     let dir = TempDir::new();
     let config = EngineConfig {
         max_depth: 1,
+        max_lookup_nodes: 2,
         ..EngineConfig::default()
     };
     let e = Engine::builder()
@@ -438,6 +462,30 @@ fn snapshot_is_released_on_every_exit_path() {
             consistency: Consistency::Exact(Revision(7)),
             ..ReadRelationshipsRequest::new(RelationshipFilter::new("group".parse().unwrap()))
         })
+        .unwrap_err();
+    assert!(
+        matches!(err, Error::RevisionNotYetAvailable { .. }),
+        "{err:?}"
+    );
+
+    // Lookup errors: in phase 1 (bob reaches eng#member, readme#viewer, readme#view), in
+    // phase 2 (view → viewer is depth 2), and while resolving the revision.
+    let err = e
+        .lookup_resources(lookup("document#view@user:bob", Consistency::Latest))
+        .unwrap_err();
+    assert!(matches!(err, Error::LookupTooLarge { max: 2 }), "{err:?}");
+    let err = e
+        .lookup_resources(lookup(
+            "document#view@document:readme#viewer",
+            Consistency::Latest,
+        ))
+        .unwrap_err();
+    assert!(matches!(err, Error::MaxDepthExceeded { .. }), "{err:?}");
+    let err = e
+        .lookup_resources(lookup(
+            "document#view@user:bob",
+            Consistency::Exact(Revision(7)),
+        ))
         .unwrap_err();
     assert!(
         matches!(err, Error::RevisionNotYetAvailable { .. }),

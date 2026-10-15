@@ -2,14 +2,16 @@
 //!
 //! A fixture is a YAML file using SpiceDB validation-file keys (`schema`, `schemaFile`,
 //! `relationships`, `assertions`) plus warden extensions (`expectErrors`,
-//! `expectCheckErrors`, `steps`). [`run`] executes one file against one store kind and
+//! `expectCheckErrors`, `steps`, `expectedLookups`). [`run`] executes one file against one store kind and
 //! reports every failing assertion; it never stops at the first.
 //!
 //! Every `assertTrue` / `assertFalse` is answered three ways: the expected value written
 //! in the file, the engine, and the reference evaluator ([`crate::reference`]) over the
 //! tuples the runner believes are live. Any disagreement is a failure naming who
 //! disagreed, so a wrong hand-computed answer, an engine bug and an oracle bug are told
-//! apart. Expected errors (`expectCheckErrors`) are checked against the engine only: the
+//! apart. `expectedLookups.resources` is checked the same way: the file's ids, the engine's
+//! pages (at the default page size and at size 1), and the oracle's answer over its
+//! universe. Expected errors (`expectCheckErrors`) are checked against the engine only: the
 //! oracle has no evaluation limits and refuses non-stratifiable schemas outright.
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -20,11 +22,11 @@ use serde::Deserialize;
 use serde::de::IgnoredAny;
 use warden_core::model::{Consistency, ObjectRef, Relationship, SubjectRef, WriteOp, WriteRequest};
 use warden_core::store::WritableStore;
-use warden_core::{CheckRequest, Engine, EngineConfig, Error};
+use warden_core::{CheckRequest, Engine, EngineConfig, Error, LookupResourcesRequest};
 use warden_schema::ir::CompiledSchema;
 use warden_store_memory::MemoryStore;
 
-use crate::reference::{Reference, ReferenceError};
+use crate::reference::{FRESH_ID, Reference, ReferenceError};
 
 /// Which store a fixture runs against.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
@@ -189,8 +191,9 @@ struct FixtureFile {
     assertions: Option<Assertions>,
     /// SpiceDB's expected-relations block: recognised, not checked.
     validation: Option<IgnoredAny>,
-    /// `lookup_*` expectations: recognised, not checked until T2.4 / T2.5.
-    expected_lookups: Option<IgnoredAny>,
+    /// `lookup_*` expectations, checked after step 0.
+    #[serde(default)]
+    expected_lookups: Option<ExpectedLookups>,
     #[serde(default)]
     expect_errors: Vec<String>,
     #[serde(default)]
@@ -209,6 +212,23 @@ struct Assertions {
     assert_false: Vec<String>,
     /// Caveats are out of scope: recognised, not checked.
     assert_caveated: Option<IgnoredAny>,
+}
+
+#[derive(Default, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct ExpectedLookups {
+    #[serde(default)]
+    resources: Vec<ResourceLookup>,
+    /// `lookup_subjects` expectations: recognised, not checked until T2.5.
+    subjects: Option<IgnoredAny>,
+}
+
+/// `query` is `type#permission@subject`; `expect` the ids, in any order.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ResourceLookup {
+    query: String,
+    expect: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -271,16 +291,7 @@ impl<S: WritableStore> Runner<S> {
     }
 
     fn run(mut self, f: &FixtureFile, schema_source: &str, report: &mut Report) {
-        if f.validation.is_some() {
-            report
-                .warnings
-                .push("`validation:` is not supported; skipped".to_owned());
-        }
-        if f.expected_lookups.is_some() {
-            report
-                .warnings
-                .push("`expectedLookups:` is not supported until T2.4/T2.5; skipped".to_owned());
-        }
+        warn_unsupported(f, report);
 
         // Step 0: schema, then `relationships` as one batch of touches.
         let mut setup_error = None;
@@ -344,11 +355,15 @@ impl<S: WritableStore> Runner<S> {
                     format!("expected {want:?}, but the schema and relationships were accepted"),
                 ),
             }
-            if f.assertions.is_some() || !f.expect_check_errors.is_empty() || !f.steps.is_empty() {
+            if f.assertions.is_some()
+                || !f.expect_check_errors.is_empty()
+                || !f.steps.is_empty()
+                || f.expected_lookups.is_some()
+            {
                 report.fail(
                     "fixture",
                     "",
-                    "a fixture with `expectErrors` cannot also have assertions or steps",
+                    "a fixture with `expectErrors` cannot also have assertions, lookups or steps",
                 );
             }
             return;
@@ -371,6 +386,9 @@ impl<S: WritableStore> Runner<S> {
             &f.expect_check_errors,
             report,
         );
+        if let Some(lookups) = &f.expected_lookups {
+            self.lookup_resources(&schema, &lookups.resources, report);
+        }
         for (i, step) in f.steps.iter().enumerate() {
             let at = format!("steps[{i}].");
             self.step(&schema, &at, step, report);
@@ -587,6 +605,92 @@ impl<S: WritableStore> Runner<S> {
         }
     }
 
+    /// Each `expectedLookups.resources` entry, answered by the engine (all pages, at the
+    /// default page size and at 1) and by the oracle over its universe.
+    fn lookup_resources(
+        &self,
+        schema: &CompiledSchema,
+        lookups: &[ResourceLookup],
+        report: &mut Report,
+    ) {
+        let location = "expectedLookups.resources";
+        let live: Vec<Relationship> = self.live.iter().cloned().collect();
+        for l in lookups {
+            report.checked += 1;
+            let req = match parse_lookup(&l.query) {
+                Ok(r) => r,
+                Err(e) => {
+                    report.fail(location, &l.query, e);
+                    continue;
+                }
+            };
+            let mut want = l.expect.clone();
+            want.sort();
+            if want.windows(2).any(|w| w[0] == w[1]) {
+                report.fail(location, &l.query, "`expect` lists an id twice");
+                continue;
+            }
+            let mut problems = Vec::new();
+            for limit in [None, Some(1)] {
+                match self.lookup_pages(&req, limit) {
+                    Ok(got) if got == want => {}
+                    Ok(got) => problems.push(format!("engine (limit {limit:?}) says {got:?}")),
+                    Err(e) => problems.push(format!(
+                        "engine (limit {limit:?}) failed with {}: {e}",
+                        e.code()
+                    )),
+                }
+            }
+            let objects: Vec<ObjectRef> = match &req.subject {
+                SubjectRef::Object(o) | SubjectRef::Set { object: o, .. } => vec![o.clone()],
+                SubjectRef::Wildcard { .. } => Vec::new(),
+            };
+            match Reference::with_objects(schema, &live, &objects) {
+                Ok(oracle) => match oracle_lookup(&oracle, &req) {
+                    Ok(got) if got == want => {}
+                    Ok(got) => problems.push(format!("reference evaluator says {got:?}")),
+                    Err(e) => problems.push(format!("reference evaluator failed: {e}")),
+                },
+                Err(e @ ReferenceError::NotStratifiable { .. }) => report.warnings.push(format!(
+                    "`{location}`: reference evaluator declined ({e}); engine and expected \
+                     answers only"
+                )),
+                Err(e) => problems.push(format!("reference evaluator failed: {e}")),
+            }
+            if !problems.is_empty() {
+                report.fail(
+                    location,
+                    &l.query,
+                    format!("expected {want:?}, but {}", problems.join("; ")),
+                );
+            }
+        }
+    }
+
+    /// Every page concatenated, later pages at the first page's revision.
+    fn lookup_pages(
+        &self,
+        req: &LookupResourcesRequest,
+        limit: Option<u32>,
+    ) -> Result<Vec<String>, Error> {
+        let mut req = LookupResourcesRequest {
+            limit,
+            ..req.clone()
+        };
+        let mut ids = Vec::new();
+        loop {
+            let resp = self.engine.lookup_resources(req.clone())?;
+            ids.extend(resp.resource_ids.iter().map(ToString::to_string));
+            match resp.next_cursor {
+                Some(c) => {
+                    req.cursor = Some(c);
+                    req.consistency = Consistency::Exact(resp.revision);
+                }
+                None => return Ok(ids),
+            }
+        }
+    }
+
     fn check(&self, query: &Relationship) -> Result<bool, Error> {
         self.engine
             .check(CheckRequest {
@@ -597,6 +701,59 @@ impl<S: WritableStore> Runner<S> {
             })
             .map(|r| r.allowed)
     }
+}
+
+/// Warns about recognised keys the runner does not check yet.
+fn warn_unsupported(f: &FixtureFile, report: &mut Report) {
+    if f.validation.is_some() {
+        report
+            .warnings
+            .push("`validation:` is not supported; skipped".to_owned());
+    }
+    if f.expected_lookups
+        .as_ref()
+        .is_some_and(|l| l.subjects.is_some())
+    {
+        report
+            .warnings
+            .push("`expectedLookups.subjects:` is not supported until T2.5; skipped".to_owned());
+    }
+}
+
+/// `type#permission@subject` → a first-page lookup at `Latest`.
+fn parse_lookup(query: &str) -> Result<LookupResourcesRequest, String> {
+    let query = query.trim();
+    let bad = |why: String| format!("not a lookup (`type#permission@subject`): {why}");
+    let (ty, rest) = query
+        .split_once('#')
+        .ok_or_else(|| bad("no `#`".to_owned()))?;
+    let (permission, subject) = rest
+        .split_once('@')
+        .ok_or_else(|| bad("no `@`".to_owned()))?;
+    Ok(LookupResourcesRequest::new(
+        ty.parse().map_err(|e| bad(format!("{e}")))?,
+        permission.parse().map_err(|e| bad(format!("{e}")))?,
+        subject.parse().map_err(|e| bad(format!("{e}")))?,
+    ))
+}
+
+/// `{ o : oracle.check(o, m, s) }` over the oracle's universe, without its stand-in fresh
+/// object (which the engine cannot name), ids ascending.
+fn oracle_lookup(
+    oracle: &Reference,
+    req: &LookupResourcesRequest,
+) -> Result<Vec<String>, ReferenceError> {
+    let mut ids = Vec::new();
+    for o in oracle.universe() {
+        if o.object_type == req.resource_type
+            && o.object_id.as_str() != FRESH_ID
+            && oracle.check(&o, &req.permission, &req.subject)?
+        {
+            ids.push(o.object_id.to_string());
+        }
+    }
+    ids.sort();
+    Ok(ids)
 }
 
 /// One tuple per line; blank lines and `//` comment lines are skipped.

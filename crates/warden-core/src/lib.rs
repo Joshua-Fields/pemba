@@ -8,6 +8,7 @@
 mod engine;
 mod error;
 mod eval;
+mod lookup;
 pub mod model;
 pub mod store;
 mod validate;
@@ -19,4 +20,5 @@ pub use engine::{
 };
 pub use error::Error;
 pub use eval::{CheckItem, CheckRequest, CheckResponse, EvalStats};
+pub use lookup::{LookupResourcesRequest, LookupResourcesResponse};
 pub use warden_schema::{ErrorCode, SchemaError, SchemaErrors};
