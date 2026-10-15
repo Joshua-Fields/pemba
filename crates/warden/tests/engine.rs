@@ -122,6 +122,7 @@ fn default_config_matches_spec() {
     assert_eq!(c.max_lookup_results, 1000);
     assert_eq!(c.max_lookup_nodes, 200_000);
     assert_eq!(c.max_check_fanout, 100_000);
+    assert_eq!(c.max_check_reads, 200_000);
     assert!(c.auto_migrate);
 }
 

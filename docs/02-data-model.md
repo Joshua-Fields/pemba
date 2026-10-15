@@ -219,4 +219,5 @@ code namespace (`expectErrors` in fixtures, `docs/07-testing.md` §3). OQ-017.
 | `max_lookup_results` (per page) | 1000 |
 | `max_lookup_nodes` (lookup_resources phase 1) | 200 000 |
 | `max_check_fanout` (tuples read per node before erroring) | 100 000 |
+| `max_check_reads` (store reads per `check` / `check_bulk` item before erroring) | 200 000 |
 | `gc_window` | none (manual GC only in MVP) |

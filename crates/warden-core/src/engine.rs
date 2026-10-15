@@ -33,6 +33,9 @@ pub struct EngineConfig {
     pub max_lookup_nodes: usize,
     /// Maximum tuples read per node during `check` before erroring.
     pub max_check_fanout: usize,
+    /// Maximum store reads one `check` (or `check_bulk` item) may make before erroring:
+    /// a fail-closed backstop on total work (`docs/04-evaluation.md` §3.6).
+    pub max_check_reads: u64,
     /// Run storage migrations when the engine is built.
     pub auto_migrate: bool,
 }
@@ -46,6 +49,7 @@ impl Default for EngineConfig {
             max_lookup_results: 1000,
             max_lookup_nodes: 200_000,
             max_check_fanout: 100_000,
+            max_check_reads: 200_000,
             auto_migrate: true,
         }
     }
@@ -348,7 +352,8 @@ impl<S: WritableStore> Engine<S> {
     /// subject type or subject relation is not defined, or the subject is a wildcard;
     /// [`Error::RevisionNotYetAvailable`] / [`Error::RevisionExpired`] if the consistency
     /// cannot be met; [`Error::MaxDepthExceeded`], [`Error::NonMonotonicCycle`] or
-    /// [`Error::FanoutExceeded`] if evaluation hits a limit or an undefined cycle;
+    /// [`Error::FanoutExceeded`] / [`Error::CheckReadsExceeded`] if evaluation hits a limit
+    /// or an undefined cycle;
     /// [`Error::StaleRelationship`] if it meets a stored subject set the schema no longer
     /// allows; [`Error::Store`] if the store fails.
     #[allow(
@@ -367,6 +372,7 @@ impl<S: WritableStore> Engine<S> {
             tuples_read = tracing::field::Empty,
             memo_hits = tracing::field::Empty,
             max_depth_reached = tracing::field::Empty,
+            cycle_passes = tracing::field::Empty,
             elapsed_us = tracing::field::Empty,
         );
         let _entered = span.enter();
@@ -384,7 +390,7 @@ impl<S: WritableStore> Engine<S> {
             &subject,
             &mut memo,
         );
-        let result = evaluator.check(root);
+        let result = evaluator.check(&root);
         let mut stats = evaluator.stats();
         stats.elapsed = start.elapsed();
         record_stats(&span, &stats);
@@ -422,6 +428,7 @@ impl<S: WritableStore> Engine<S> {
             tuples_read = tracing::field::Empty,
             memo_hits = tracing::field::Empty,
             max_depth_reached = tracing::field::Empty,
+            cycle_passes = tracing::field::Empty,
             elapsed_us = tracing::field::Empty,
         );
         let _entered = span.enter();
@@ -430,7 +437,7 @@ impl<S: WritableStore> Engine<S> {
         let revision = self.resolve(c)?;
         span.record("revision", revision.0);
         let limits = self.limits();
-        // Memoised values are untainted, so they hold for any check with the same subject
+        // Memoised values are settled, so they hold for any check with the same subject
         // at the same revision.
         let mut memos: HashMap<SubjectRef, Memo> = HashMap::new();
         let mut stats = EvalStats::default();
@@ -443,7 +450,7 @@ impl<S: WritableStore> Engine<S> {
                         let memo = memos.entry(item.subject).or_default();
                         let mut evaluator =
                             Evaluator::new(&schema, &self.store, revision, limits, &subject, memo);
-                        let result = evaluator.check(root);
+                        let result = evaluator.check(&root);
                         stats.absorb(&evaluator.stats());
                         result
                     }
@@ -469,6 +476,7 @@ impl<S: WritableStore> Engine<S> {
         Limits {
             max_depth: self.config.max_depth,
             max_fanout: self.config.max_check_fanout,
+            max_reads: self.config.max_check_reads,
         }
     }
 
@@ -514,6 +522,7 @@ fn record_stats(span: &tracing::Span, stats: &EvalStats) {
     span.record("tuples_read", stats.tuples_read);
     span.record("memo_hits", stats.memo_hits);
     span.record("max_depth_reached", stats.max_depth_reached);
+    span.record("cycle_passes", stats.cycle_passes);
     span.record(
         "elapsed_us",
         u64::try_from(stats.elapsed.as_micros()).unwrap_or(u64::MAX),

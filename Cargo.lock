@@ -744,6 +744,7 @@ name = "warden-testkit"
 version = "0.0.0"
 dependencies = [
  "proptest",
+ "tracing",
  "warden-core",
  "warden-schema",
  "warden-store-memory",

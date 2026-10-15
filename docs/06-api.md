@@ -44,6 +44,7 @@ pub struct EngineConfig {
     pub max_lookup_results: u32,        // 1000
     pub max_lookup_nodes: usize,        // 200_000
     pub max_check_fanout: usize,        // 100_000
+    pub max_check_reads: u64,           // 200_000 (04 §3.6)
     pub auto_migrate: bool,             // true
 }
 ```
@@ -91,13 +92,15 @@ pub struct CheckItem { pub resource: ObjectRef, pub permission: RelName,
 pub struct EvalStats {
     pub store_reads: u64, pub tuples_read: u64, pub memo_hits: u64,
     pub max_depth_reached: u32,          // root node = depth 1
+    pub cycle_passes: u64,               // passes of SCC heads that re-ran (04 §3.6)
     pub elapsed: Duration,               // on the span as `elapsed_us`
 }
 ```
 
 `check_bulk` returns `Err` for the whole call on `NoSchema`, consistency errors, `Store`,
 and `RevisionExpired` raised mid-call by GC; every other error (`InvalidRequest`,
-`MaxDepthExceeded`, `NonMonotonicCycle`, `FanoutExceeded`, `StaleRelationship`) belongs to
+`MaxDepthExceeded`, `NonMonotonicCycle`, `FanoutExceeded`, `CheckReadsExceeded`,
+`StaleRelationship`) belongs to
 its item (OQ-019).
 
 `write` checks, in order: batch size, schema present, op validation (`02` §6), precondition
@@ -144,6 +147,7 @@ pub enum Error {
     MaxDepthExceeded { path: Vec<String> },
     NonMonotonicCycle { path: Vec<String> },
     FanoutExceeded { node: String, max: usize },
+    CheckReadsExceeded { max: u64 },               // more than max_check_reads store reads (04 §3.6)
     StaleRelationship { tuple: String, relation: String }, // stored tuple the schema no longer allows (04 §3.3)
     LookupTooLarge { max: usize },
     NotMigrated,
@@ -159,7 +163,7 @@ Every variant has a stable machine code (`Error::code() -> &'static str`, e.g.
 `NO_SCHEMA`, `INVALID_RELATIONSHIP`, `INVALID_REQUEST`, `DUPLICATE_IN_BATCH`,
 `ALREADY_EXISTS`, `PRECONDITION_FAILED`, `BATCH_TOO_LARGE`, `REVISION_NOT_YET_AVAILABLE`,
 `REVISION_EXPIRED`, `STORE_ERROR`, `MAX_DEPTH_EXCEEDED`, `NON_MONOTONIC_CYCLE`,
-`FANOUT_EXCEEDED`, `STALE_RELATIONSHIP`; variants added later use their name in SCREAMING_SNAKE
+`FANOUT_EXCEEDED`, `CHECK_READS_EXCEEDED`, `STALE_RELATIONSHIP`; variants added later use their name in SCREAMING_SNAKE
 case.
 
 ---
@@ -257,7 +261,7 @@ WardenError(Exception)               .code: str  (Rust Error::code())
 ├── InvalidRelationshipError
 ├── InvalidRequestError
 ├── ConsistencyError                 (RevisionNotYetAvailable, RevisionExpired)
-├── EvaluationLimitError             (MaxDepthExceeded, FanoutExceeded, LookupTooLarge, NonMonotonicCycle)
+├── EvaluationLimitError             (MaxDepthExceeded, FanoutExceeded, CheckReadsExceeded, LookupTooLarge, NonMonotonicCycle)
 ├── WriteConflictError               (AlreadyExists, PreconditionFailed, DuplicateInBatch)
 ├── StorageError                     (Store, NotMigrated, StorageVersionTooNew, ForeignConnectionMismatch)
 ```

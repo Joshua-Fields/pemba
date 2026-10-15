@@ -73,7 +73,6 @@ const TUPLES: &[&str] = &[
 const MAX_STORE_READS: u64 = 1_000;
 
 #[test]
-#[ignore = "OQ-021, fixed by T1.4c"]
 fn check_on_dense_cyclic_data_reads_a_bounded_number_of_tuples() {
     let tuples: Vec<Relationship> = TUPLES.iter().map(|t| t.parse().unwrap()).collect();
     let engine = Engine::builder()
@@ -315,14 +314,12 @@ const N: usize = 12;
 const COMPLETE_MAX_READS: u64 = (N * N * N) as u64;
 
 #[test]
-#[ignore = "OQ-021, fixed by T1.4c"]
 fn complete_group_graph_without_the_user_reads_polynomially() {
     let groups = Groups::new(&complete_graph(N), COMPLETE_MAX_READS + 1);
     assert_bounded(&groups, "g1", false, COMPLETE_MAX_READS);
 }
 
 #[test]
-#[ignore = "OQ-021, fixed by T1.4c"]
 fn complete_group_graph_with_the_user_in_one_group_reads_polynomially() {
     let mut tuples = complete_graph(N);
     // The last group in store order (`g9` sorts after `g12`), so the walk reaches it late.
@@ -348,7 +345,6 @@ fn ring() -> Vec<String> {
 }
 
 #[test]
-#[ignore = "OQ-021, fixed by T1.4c"]
 fn chain_of_groups_closing_into_one_cycle_reads_linearly() {
     let groups = Groups::new(&ring(), RING_MAX_READS + 1);
     for i in 1..=RING {

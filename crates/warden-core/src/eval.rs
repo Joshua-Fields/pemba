@@ -5,11 +5,15 @@
 //! ([`Evaluator::eval_direct`]); permissions evaluate their expression left to right with
 //! short-circuiting ([`Evaluator::eval_expr`]).
 //!
-//! Data-dependent cycles (§3.6) are cut by treating a node already on the stack as `false`.
-//! That is the least fixed point for the monotone operators, but every result computed
-//! under such an assumption is *tainted* and never memoised: it may be wrong out of
-//! context. A cycle through the subtracted side of an exclusion has no least fixed point,
-//! so it is an error.
+//! Data-dependent cycles (§3.6) are evaluated by fixed-point iteration over strongly
+//! connected regions, Tarjan-style. A node stays on the SCC stack from its first visit
+//! until the head of its region settles; a result's `low` is the lowest SCC-stack position
+//! whose not-yet-settled value it used. A hit on a node in progress returns its provisional
+//! value (`false` on the first pass); a hit on a finished member returns its value from
+//! this pass. When the head finishes, the region is settled into the memo if every
+//! assumption held (or the head is `true`), else the head re-runs with the values found.
+//! Values only grow, so this ends, at the least fixed point. A cycle through the
+//! subtracted side of an exclusion has no least fixed point, so it is an error.
 
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
@@ -72,6 +76,10 @@ pub struct EvalStats {
     pub memo_hits: u64,
     /// The deepest nested evaluation reached; the root node is depth 1.
     pub max_depth_reached: u32,
+    /// Passes made over cyclic regions whose head had to re-run because a provisional value
+    /// changed (`docs/04-evaluation.md` §3.6), counting each such head's first pass. A cycle
+    /// settled in its first pass adds nothing.
+    pub cycle_passes: u64,
     /// Wall-clock time spent in the request.
     pub elapsed: Duration,
 }
@@ -82,6 +90,7 @@ impl EvalStats {
         self.store_reads += other.store_reads;
         self.tuples_read += other.tuples_read;
         self.memo_hits += other.memo_hits;
+        self.cycle_passes += other.cycle_passes;
         self.max_depth_reached = self.max_depth_reached.max(other.max_depth_reached);
     }
 }
@@ -95,15 +104,18 @@ pub(crate) struct NodeKey {
     rel: RelId,
 }
 
-/// Settled, untainted node values for one subject at one revision. Safe to share between
+/// Settled node values (least fixed point) for one subject at one revision. Safe to share between
 /// checks with the same subject and revision (`check_bulk`, lookups).
 pub(crate) type Memo = HashMap<NodeKey, bool>;
 
+#[allow(clippy::struct_field_names, reason = "each field is a `max_*` limit")]
 /// Limits the evaluator enforces (`docs/04-evaluation.md` §3.5, §3.7).
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Limits {
     pub(crate) max_depth: u32,
     pub(crate) max_fanout: usize,
+    /// Store reads per `check` (per `check_bulk` item).
+    pub(crate) max_reads: u64,
 }
 
 /// A request's subject, resolved against the schema once.
@@ -190,22 +202,47 @@ fn invalid(message: String) -> Error {
     Error::InvalidRequest { message }
 }
 
-/// A node's value and whether it depends on an in-progress node assumed `false`.
+/// A node's value and the lowest SCC-stack position whose unsettled value it used (`None`
+/// if it used none, so the value is settled).
 #[derive(Clone, Copy, Debug)]
 struct Outcome {
     value: bool,
-    tainted: bool,
+    low: Option<usize>,
 }
 
 impl Outcome {
     const TRUE: Self = Self {
         value: true,
-        tainted: false,
+        low: None,
     };
     const FALSE: Self = Self {
         value: false,
-        tainted: false,
+        low: None,
     };
+}
+
+fn min_low(a: Option<usize>, b: Option<usize>) -> Option<usize> {
+    match (a, b) {
+        (Some(a), Some(b)) => Some(a.min(b)),
+        (a, None) => a,
+        (None, b) => b,
+    }
+}
+
+/// A node on the SCC stack: pushed on first visit, removed when its region's head settles.
+/// Positions are stable while it is there (the stack only loses suffixes), unlike call-stack
+/// indices, which a later sibling reuses once a frame pops.
+#[derive(Debug)]
+struct SccEntry {
+    key: NodeKey,
+    /// Call-stack index while in progress; `None` once finished in this pass.
+    frame: Option<usize>,
+    /// The finished value (meaningful once `frame` is `None`, and for the head).
+    value: bool,
+    /// Lowest SCC-stack position this node's value depends on.
+    low: usize,
+    /// A cycle hit returned `false` for this node while it was in progress.
+    assumed_false: bool,
 }
 
 /// A node in progress. `negated` is set when the frame was pushed while evaluating the
@@ -225,8 +262,15 @@ pub(crate) struct Evaluator<'a> {
     subject: &'a Subject,
     memo: &'a mut Memo,
     stack: Vec<Frame>,
+    /// Nodes of regions not yet settled (§3.6); finished entries here form the pass memo.
+    scc: Vec<SccEntry>,
+    scc_pos: HashMap<NodeKey, usize>,
+    /// Values found by earlier passes of a head still iterating; only ever `false → true`.
+    provisional: HashMap<NodeKey, bool>,
     /// Whether evaluation is currently inside the subtracted side of an exclusion.
     negated: bool,
+    /// Store reads by the current `check`, against `limits.max_reads`.
+    check_reads: u64,
     stats: EvalStats,
 }
 
@@ -247,16 +291,32 @@ impl<'a> Evaluator<'a> {
             subject,
             memo,
             stack: Vec::new(),
+            scc: Vec::new(),
+            scc_pos: HashMap::new(),
+            provisional: HashMap::new(),
             negated: false,
+            check_reads: 0,
             stats: EvalStats::default(),
         }
     }
 
-    /// `subject ∈ S(root)`. The memo may be shared with earlier calls; the stack is not.
-    pub(crate) fn check(&mut self, root: NodeKey) -> Result<bool, Error> {
+    /// `subject ∈ S(root)`. The memo may be shared with earlier calls; nothing else is.
+    pub(crate) fn check(&mut self, root: &NodeKey) -> Result<bool, Error> {
+        self.reset();
+        self.check_reads = 0;
+        let result = self.eval(root, 1).map(|o| o.value);
+        // Empty after success already; after an error, unsettled values must not leak
+        // into the next check.
+        self.reset();
+        result
+    }
+
+    fn reset(&mut self) {
         self.stack.clear();
+        self.scc.clear();
+        self.scc_pos.clear();
+        self.provisional.clear();
         self.negated = false;
-        self.eval(root, 1).map(|o| o.value)
     }
 
     /// Counters accumulated over every [`check`](Self::check) so far; `elapsed` is left to
@@ -266,24 +326,21 @@ impl<'a> Evaluator<'a> {
     }
 
     /// §3.2.
-    fn eval(&mut self, key: NodeKey, depth: u32) -> Result<Outcome, Error> {
+    fn eval(&mut self, key: &NodeKey, depth: u32) -> Result<Outcome, Error> {
         self.stats.max_depth_reached = self.stats.max_depth_reached.max(depth);
         if depth > self.limits.max_depth {
             let mut path: Vec<String> = self.stack.iter().map(|f| self.name(&f.key)).collect();
-            path.push(self.name(&key));
+            path.push(self.name(key));
             return Err(Error::MaxDepthExceeded { path });
         }
-        if let Some(&value) = self.memo.get(&key) {
+        if let Some(&value) = self.memo.get(key) {
             self.stats.memo_hits += 1;
-            return Ok(Outcome {
-                value,
-                tainted: false,
-            });
+            return Ok(Outcome { value, low: None });
         }
-        if let Some(i) = self.stack.iter().position(|f| f.key == key) {
-            return self.on_cycle(i, &key);
+        if let Some(&p) = self.scc_pos.get(key) {
+            return self.on_scc_hit(p, key);
         }
-        if self.subject.set.as_ref() == Some(&key) {
+        if self.subject.set.as_ref() == Some(key) {
             return Ok(Outcome::TRUE);
         }
 
@@ -295,40 +352,132 @@ impl<'a> Evaluator<'a> {
                 // Unreachable: every key is built from ids of this same schema.
                 invalid(format!("internal: node {key:?} is not in the schema"))
             })?;
-        self.stack.push(Frame {
+        let p = self.scc.len();
+        self.scc.push(SccEntry {
             key: key.clone(),
-            negated: self.negated,
+            frame: Some(self.stack.len()),
+            value: false,
+            low: p,
+            assumed_false: false,
         });
-        let out = match member {
-            Member::Relation(r) => self.eval_direct(&key, &r.allowed, depth),
-            Member::Permission(p) => {
-                let mut fanout = 0;
-                self.eval_expr(&key, &p.expr, depth, &mut fanout)
+        self.scc_pos.insert(key.clone(), p);
+        let mut passes = 0;
+        loop {
+            passes += 1;
+            self.stack.push(Frame {
+                key: key.clone(),
+                negated: self.negated,
+            });
+            let out = match member {
+                Member::Relation(r) => self.eval_direct(key, &r.allowed, depth),
+                Member::Permission(perm) => {
+                    let mut fanout = 0;
+                    self.eval_expr(key, &perm.expr, depth, &mut fanout)
+                }
+            };
+            self.stack.pop();
+            let out = out?;
+            // Never below what a cycle hit assumed, so a re-run is only ever caused by an
+            // assumed `false` turning `true`.
+            let value = out.value || self.provisional.get(key).copied().unwrap_or(false);
+
+            if let Some(l) = out.low.filter(|&l| l < p) {
+                // A member of a region headed further down: finish for this pass. Nodes
+                // above it on the SCC stack are in that region too.
+                let entry = &mut self.scc[p];
+                entry.frame = None;
+                entry.value = value;
+                entry.low = l;
+                for e in &mut self.scc[p + 1..] {
+                    e.low = e.low.min(l);
+                }
+                return Ok(Outcome {
+                    value,
+                    low: Some(l),
+                });
             }
-        };
-        self.stack.pop();
-        let out = out?;
-        if !out.tainted {
-            self.memo.insert(key, out.value);
+
+            // `key` heads the region `scc[p..]`.
+            self.scc[p].value = value;
+            let changed = self.scc[p..].iter().any(|e| e.assumed_false && e.value);
+            if value || !changed {
+                // Consistent: every value is the least fixed point. Or the head is `true`,
+                // which is sound whatever was assumed, as is every member's `true`.
+                for e in self.scc.drain(p..) {
+                    self.scc_pos.remove(&e.key);
+                    self.provisional.remove(&e.key);
+                    if e.value || !changed {
+                        self.memo.insert(e.key, e.value);
+                    }
+                }
+                if passes > 1 {
+                    self.stats.cycle_passes += passes;
+                }
+                return Ok(Outcome { value, low: None });
+            }
+
+            for e in self.scc.drain(p..) {
+                if e.key != *key {
+                    self.scc_pos.remove(&e.key);
+                }
+                let v = self.provisional.entry(e.key.clone()).or_insert(false);
+                *v |= e.value;
+            }
+            self.scc.push(SccEntry {
+                key: key.clone(),
+                frame: Some(self.stack.len()),
+                value: false,
+                low: p,
+                assumed_false: false,
+            });
         }
-        Ok(out)
     }
 
-    /// §3.6: `key` is already in progress at stack index `i`.
-    fn on_cycle(&self, i: usize, key: &NodeKey) -> Result<Outcome, Error> {
-        // The closing edge (from the top frame back to `key`) is part of the cycle too: in
-        // `view = viewer - parent->view` with `doc:a#parent@doc:a` no frame above `key`
-        // exists, but the edge back to it runs through the subtracted side.
-        let through_negation = self.negated || self.stack[i..].iter().any(|f| f.negated);
-        if through_negation {
-            let mut path: Vec<String> = self.stack[i..].iter().map(|f| self.name(&f.key)).collect();
-            path.push(self.name(key));
-            return Err(Error::NonMonotonicCycle { path });
+    /// §3.6: `key` is on the SCC stack at position `p`, in progress or finished this pass.
+    fn on_scc_hit(&mut self, p: usize, key: &NodeKey) -> Result<Outcome, Error> {
+        let Some(entry) = self.scc.get(p) else {
+            return Err(invalid(format!("internal: SCC position {p} out of range")));
+        };
+        let (frame, value, low) = (entry.frame, entry.value, entry.low);
+        if let Some(i) = frame {
+            // The closing edge (from the top frame back to `key`) is part of the cycle
+            // too: in `view = viewer - parent->view` with `doc:a#parent@doc:a` no frame
+            // above `key` exists, but the edge back to it runs through the subtracted
+            // side.
+            if self.negated || self.stack[i..].iter().any(|f| f.negated) {
+                return Err(self.non_monotonic(i, key));
+            }
+            let value = self.provisional.get(key).copied().unwrap_or(false);
+            if !value {
+                self.scc[p].assumed_false = true;
+            }
+            return Ok(Outcome {
+                value,
+                low: Some(p),
+            });
+        }
+        // A finished member: an unsettled value depending on a node in progress;
+        // re-evaluating it here would reach that node under negation.
+        if self.negated {
+            let i = self.scc[low..].iter().find_map(|e| e.frame).unwrap_or(0);
+            return Err(self.non_monotonic(i, key));
         }
         Ok(Outcome {
-            value: false,
-            tainted: true,
+            value,
+            low: Some(low),
         })
+    }
+
+    fn non_monotonic(&self, i: usize, key: &NodeKey) -> Error {
+        let mut path: Vec<String> = self
+            .stack
+            .get(i..)
+            .unwrap_or_default()
+            .iter()
+            .map(|f| self.name(&f.key))
+            .collect();
+        path.push(self.name(key));
+        Error::NonMonotonicCycle { path }
     }
 
     /// §3.3: a relation's stored subjects.
@@ -373,24 +522,18 @@ impl<'a> Evaluator<'a> {
         let sets = self.read(|s, rev| s.read_subject_sets(rev, &resource, &relation))?;
         self.count_tuples(sets.len());
         self.check_fanout(key, sets.len())?;
-        let mut tainted = false;
+        let mut low = None;
         for (object, rel) in sets {
             // A stale set seen after an earlier `true` is never reached: it could only add
             // members, so the `true` stands whatever it meant.
             let child = self.resolve_set(key, &resource, &relation, object, rel, allowed)?;
-            let out = self.eval(child, depth + 1)?;
-            tainted |= out.tainted;
+            let out = self.eval(&child, depth + 1)?;
+            low = min_low(low, out.low);
             if out.value {
-                return Ok(Outcome {
-                    value: true,
-                    tainted,
-                });
+                return Ok(Outcome { value: true, low });
             }
         }
-        Ok(Outcome {
-            value: false,
-            tainted,
-        })
+        Ok(Outcome { value: false, low })
     }
 
     /// §3.4: a permission expression on `key`'s object. `fanout` counts tuples read for
@@ -404,7 +547,7 @@ impl<'a> Evaluator<'a> {
     ) -> Result<Outcome, Error> {
         match expr {
             Expr::Computed(rel) => self.eval(
-                NodeKey {
+                &NodeKey {
                     ty: key.ty,
                     id: key.id.clone(),
                     rel: *rel,
@@ -412,38 +555,26 @@ impl<'a> Evaluator<'a> {
                 depth + 1,
             ),
             Expr::Union(operands) => {
-                let mut tainted = false;
+                let mut low = None;
                 for e in operands {
                     let out = self.eval_expr(key, e, depth, fanout)?;
-                    tainted |= out.tainted;
+                    low = min_low(low, out.low);
                     if out.value {
-                        return Ok(Outcome {
-                            value: true,
-                            tainted,
-                        });
+                        return Ok(Outcome { value: true, low });
                     }
                 }
-                Ok(Outcome {
-                    value: false,
-                    tainted,
-                })
+                Ok(Outcome { value: false, low })
             }
             Expr::Intersection(operands) => {
-                let mut tainted = false;
+                let mut low = None;
                 for e in operands {
                     let out = self.eval_expr(key, e, depth, fanout)?;
-                    tainted |= out.tainted;
+                    low = min_low(low, out.low);
                     if !out.value {
-                        return Ok(Outcome {
-                            value: false,
-                            tainted,
-                        });
+                        return Ok(Outcome { value: false, low });
                     }
                 }
-                Ok(Outcome {
-                    value: true,
-                    tainted,
-                })
+                Ok(Outcome { value: true, low })
             }
             Expr::Exclusion { base, sub } => {
                 let b = self.eval_expr(key, base, depth, fanout)?;
@@ -457,7 +588,7 @@ impl<'a> Evaluator<'a> {
                 let s = s?;
                 Ok(Outcome {
                     value: !s.value,
-                    tainted: b.tainted || s.tainted,
+                    low: min_low(b.low, s.low),
                 })
             }
             Expr::Arrow {
@@ -489,24 +620,18 @@ impl<'a> Evaluator<'a> {
         targets: &BTreeMap<TypeId, RelId>,
         depth: u32,
     ) -> Result<Outcome, Error> {
-        let mut tainted = false;
+        let mut low = None;
         for x in objects {
             let Some(child) = self.arrow_target(x, targets) else {
                 continue;
             };
-            let out = self.eval(child, depth + 1)?;
-            tainted |= out.tainted;
+            let out = self.eval(&child, depth + 1)?;
+            low = min_low(low, out.low);
             if out.value {
-                return Ok(Outcome {
-                    value: true,
-                    tainted,
-                });
+                return Ok(Outcome { value: true, low });
             }
         }
-        Ok(Outcome {
-            value: false,
-            tainted,
-        })
+        Ok(Outcome { value: false, low })
     }
 
     /// Intersection over related objects: `false` over none, and `false` as soon as one
@@ -520,27 +645,18 @@ impl<'a> Evaluator<'a> {
         if objects.is_empty() {
             return Ok(Outcome::FALSE);
         }
-        let mut tainted = false;
+        let mut low = None;
         for x in objects {
             let Some(child) = self.arrow_target(x, targets) else {
-                return Ok(Outcome {
-                    value: false,
-                    tainted,
-                });
+                return Ok(Outcome { value: false, low });
             };
-            let out = self.eval(child, depth + 1)?;
-            tainted |= out.tainted;
+            let out = self.eval(&child, depth + 1)?;
+            low = min_low(low, out.low);
             if !out.value {
-                return Ok(Outcome {
-                    value: false,
-                    tainted,
-                });
+                return Ok(Outcome { value: false, low });
             }
         }
-        Ok(Outcome {
-            value: true,
-            tainted,
-        })
+        Ok(Outcome { value: true, low })
     }
 
     fn arrow_target(&self, x: &ObjectRef, targets: &BTreeMap<TypeId, RelId>) -> Option<NodeKey> {
@@ -613,6 +729,12 @@ impl<'a> Evaluator<'a> {
         &mut self,
         f: impl FnOnce(&dyn ReadStore, Revision) -> Result<T, StoreError>,
     ) -> Result<T, Error> {
+        self.check_reads += 1;
+        if self.check_reads > self.limits.max_reads {
+            return Err(Error::CheckReadsExceeded {
+                max: self.limits.max_reads,
+            });
+        }
         self.stats.store_reads += 1;
         f(self.store, self.rev).map_err(read_error)
     }
@@ -742,8 +864,9 @@ mod tests {
     const GROUPS: &str = "definition user {}\n\
         definition group { relation member: user | group#member }\n";
 
-    /// §3.6's `A = B + C`, `B = A`: after evaluating A, the memo holds C (settled) but
-    /// neither A nor B, both of which were computed assuming A was `false`.
+    /// §3.6's `A = B + C`, `B = A`: after evaluating A, the memo holds C (settled) and A
+    /// (a head finishing `true` is sound whatever it assumed), but not B, whose `false` was
+    /// computed assuming A was `false`.
     #[test]
     fn tainted_nodes_never_enter_the_memo() {
         let schema = warden_schema::compile(GROUPS).unwrap().schema;
@@ -775,17 +898,72 @@ mod tests {
         let limits = Limits {
             max_depth: 50,
             max_fanout: 100,
+            max_reads: 1_000,
         };
         let mut memo = Memo::new();
         let mut ev = Evaluator::new(&schema, &store, Revision(1), limits, &subject, &mut memo);
 
-        assert!(ev.check(key("a")).unwrap());
+        assert!(ev.check(&key("a")).unwrap());
         assert_eq!(memo.get(&key("c")), Some(&true));
-        assert_eq!(memo.get(&key("a")), None, "A is tainted by its own cycle");
+        assert_eq!(memo.get(&key("a")), Some(&true), "head-true shortcut");
         assert_eq!(memo.get(&key("b")), None, "B=false must not be memoised");
 
         // B asked next, with the same memo: correct despite the earlier tainted `false`.
         let mut ev = Evaluator::new(&schema, &store, Revision(1), limits, &subject, &mut memo);
-        assert!(ev.check(key("b")).unwrap());
+        assert!(ev.check(&key("b")).unwrap());
+    }
+
+    /// An error mid-region leaves nothing behind: no SCC entries, pass memo or provisional
+    /// values, and no unsettled value in the memo, so the next check on the same evaluator
+    /// (as for the next `check_bulk` item) starts clean.
+    #[test]
+    fn unsettled_state_is_cleared_after_an_error() {
+        let schema = warden_schema::compile(GROUPS).unwrap().schema;
+        let store = Tuples(
+            [
+                "group:a#member@group:b#member",
+                "group:b#member@group:a#member",
+                "group:b#member@group:c#member",
+                "group:c#member@group:z#member",
+                "group:z#member@user:anne",
+            ]
+            .iter()
+            .map(|s| s.parse().unwrap())
+            .collect(),
+        );
+        let subject_ref: SubjectRef = "user:anne".parse().unwrap();
+        let key = |g: &str| {
+            let object: ObjectRef = format!("group:{g}").parse().unwrap();
+            resolve(&schema, &object, &"member".parse().unwrap(), &subject_ref)
+                .unwrap()
+                .0
+        };
+        let (_, subject) = resolve(
+            &schema,
+            &"group:a".parse().unwrap(),
+            &"member".parse().unwrap(),
+            &subject_ref,
+        )
+        .unwrap();
+        let limits = Limits {
+            max_depth: 50,
+            max_fanout: 100,
+            max_reads: 5,
+        };
+        let mut memo = Memo::new();
+        let mut ev = Evaluator::new(&schema, &store, Revision(1), limits, &subject, &mut memo);
+
+        // a, b (cycle back to a), then c's subject-set read is the sixth.
+        assert!(matches!(
+            ev.check(&key("a")),
+            Err(Error::CheckReadsExceeded { max: 5 })
+        ));
+        assert!(ev.scc.is_empty() && ev.scc_pos.is_empty() && ev.provisional.is_empty());
+        assert!(ev.stack.is_empty());
+        // The read budget is per check.
+        assert!(ev.check(&key("z")).unwrap());
+        for g in ["a", "b", "c"] {
+            assert_eq!(memo.get(&key(g)), None, "{g} never settled");
+        }
     }
 }

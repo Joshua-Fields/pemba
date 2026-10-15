@@ -340,4 +340,9 @@ it is resolved.
   added to `check_cost.rs`, `#[ignore]`d; the complete-graph one fails today (store reads
   for n = 5..9: 130, 652, 3 914, 27 400, 219 202)
 - Resolve by: T1.4c (bound check cost on cyclic data)
-- Resolution: (fill in)
+- Resolution: resolved in T1.4c. SCC fixed-point iteration (`04` §3.6, current rule) with
+  lowlinks on a Tarjan-style SCC stack (positions, not call-stack indices, at the human's
+  direction in review) bounds a `check` to `(|S| + 1) · Σ r(x)` store reads per region;
+  `EngineConfig::max_check_reads` (default 200 000, `CheckReadsExceeded`) is the fail-closed
+  backstop. Every `check_cost.rs` test passes un-ignored (the pinned case now makes well
+  under its 1 000-read bound); property 1 at 1 000 cases runs in ~1 s optimised
