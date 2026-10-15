@@ -1,0 +1,9 @@
+---
+source: crates/warden-schema/tests/parse_errors.rs
+description: "definition doc {\n    relation viewer:\n}"
+---
+error[E_UNEXPECTED_TOKEN]: expected a subject type, found `}`
+ --> 3:1
+  |
+3 | }
+  | ^

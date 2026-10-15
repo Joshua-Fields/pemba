@@ -1,0 +1,11 @@
+---
+source: crates/warden-schema/tests/parse_errors.rs
+description: "definition user {\n    relation Viewer: user\n}"
+---
+error[E_UNEXPECTED_CHAR]: unexpected character `V`
+ --> 2:14
+  |
+2 |     relation Viewer: user
+  |              ^
+  |
+  = help: identifiers are lowercase: `[a-z_][a-z0-9_]*`

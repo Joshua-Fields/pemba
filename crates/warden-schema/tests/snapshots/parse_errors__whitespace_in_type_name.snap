@@ -1,0 +1,11 @@
+---
+source: crates/warden-schema/tests/parse_errors.rs
+description: "definition docs / document {}"
+---
+error[E_UNEXPECTED_TOKEN]: whitespace is not allowed inside a type name
+ --> 1:12
+  |
+1 | definition docs / document {}
+  |            ^^^^^^^^^^^^^^^
+  |
+  = help: write `docs/document`

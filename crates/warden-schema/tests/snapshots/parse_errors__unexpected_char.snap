@@ -1,0 +1,9 @@
+---
+source: crates/warden-schema/tests/parse_errors.rs
+description: "definition user {}\n$"
+---
+error[E_UNEXPECTED_CHAR]: unexpected character `$`
+ --> 2:1
+  |
+2 | $
+  | ^

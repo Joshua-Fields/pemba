@@ -1,0 +1,11 @@
+---
+source: crates/warden-schema/tests/parse_errors.rs
+description: "definition user {}\n/* never closed\ndefinition team {}\n"
+---
+error[E_UNTERMINATED_COMMENT]: unterminated block comment
+ --> 2:1
+  |
+2 | /* never closed
+  | ^^
+  |
+  = help: add `*/` to close the comment (comments do not nest)

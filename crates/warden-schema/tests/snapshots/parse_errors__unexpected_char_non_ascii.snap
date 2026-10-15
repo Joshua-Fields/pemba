@@ -1,0 +1,9 @@
+---
+source: crates/warden-schema/tests/parse_errors.rs
+description: "definition café {}"
+---
+error[E_UNEXPECTED_CHAR]: unexpected character `é`
+ --> 1:15
+  |
+1 | definition café {}
+  |               ^
