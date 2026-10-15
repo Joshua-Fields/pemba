@@ -23,6 +23,7 @@ proptest = "1.12.0"
 insta = "1.49.0"
 sha2 = { version = "0.11.1", default-features = false }
 clap = { version = "4.6.7", features = ["derive"] }
+tracing = { version = "0.1.44", default-features = false, features = ["std"] }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"          # overridden to "allow" only in warden-py if PyO3 requires

@@ -5,8 +5,15 @@
 
 #![forbid(unsafe_code)]
 
+mod engine;
 mod error;
 pub mod model;
 pub mod store;
+mod validate;
 
+pub use engine::{
+    Engine, EngineBuilder, EngineConfig, ReadRelationshipsRequest, ReadRelationshipsResponse,
+    SchemaWriteResult,
+};
 pub use error::Error;
+pub use warden_schema::{ErrorCode, SchemaError, SchemaErrors};
