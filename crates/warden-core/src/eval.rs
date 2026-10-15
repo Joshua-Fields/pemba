@@ -12,8 +12,14 @@
 //! value (`false` on the first pass); a hit on a finished member returns its value from
 //! this pass. When the head finishes, the region is settled into the memo if every
 //! assumption held (or the head is `true`), else the head re-runs with the values found.
-//! Values only grow, so this ends, at the least fixed point. A cycle through the
-//! subtracted side of an exclusion has no least fixed point, so it is an error.
+//! Values only grow, so this ends, at the least fixed point.
+//!
+//! Negation is stratified: every frame records its negation depth, the number of
+//! subtracted sides it sits inside. A cycle whose path from the repeated node to the
+//! closing edge crosses a subtracted side has no least fixed point, so it is an error; it
+//! is exactly the cycle whose ends differ in depth, since depth never falls along the
+//! stack. A monotone cycle wholly inside a subtracted side settles like any other region,
+//! before the exclusion negates its value.
 
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
@@ -245,12 +251,12 @@ struct SccEntry {
     assumed_false: bool,
 }
 
-/// A node in progress. `negated` is set when the frame was pushed while evaluating the
-/// subtracted side of an exclusion, and so for everything beneath it (§3.6).
+/// A node in progress, with its negation depth: how many subtracted sides of exclusions
+/// it was pushed inside (§3.6).
 #[derive(Debug)]
 struct Frame {
     key: NodeKey,
-    negated: bool,
+    neg_depth: u32,
 }
 
 /// Evaluates checks for one subject at one revision.
@@ -267,8 +273,8 @@ pub(crate) struct Evaluator<'a> {
     scc_pos: HashMap<NodeKey, usize>,
     /// Values found by earlier passes of a head still iterating; only ever `false → true`.
     provisional: HashMap<NodeKey, bool>,
-    /// Whether evaluation is currently inside the subtracted side of an exclusion.
-    negated: bool,
+    /// How many subtracted sides of exclusions evaluation is currently inside.
+    neg_depth: u32,
     /// Store reads by the current `check`, against `limits.max_reads`.
     check_reads: u64,
     stats: EvalStats,
@@ -294,7 +300,7 @@ impl<'a> Evaluator<'a> {
             scc: Vec::new(),
             scc_pos: HashMap::new(),
             provisional: HashMap::new(),
-            negated: false,
+            neg_depth: 0,
             check_reads: 0,
             stats: EvalStats::default(),
         }
@@ -316,7 +322,7 @@ impl<'a> Evaluator<'a> {
         self.scc.clear();
         self.scc_pos.clear();
         self.provisional.clear();
-        self.negated = false;
+        self.neg_depth = 0;
     }
 
     /// Counters accumulated over every [`check`](Self::check) so far; `elapsed` is left to
@@ -366,7 +372,7 @@ impl<'a> Evaluator<'a> {
             passes += 1;
             self.stack.push(Frame {
                 key: key.clone(),
-                negated: self.negated,
+                neg_depth: self.neg_depth,
             });
             let out = match member {
                 Member::Relation(r) => self.eval_direct(key, &r.allowed, depth),
@@ -440,11 +446,12 @@ impl<'a> Evaluator<'a> {
         };
         let (frame, value, low) = (entry.frame, entry.value, entry.low);
         if let Some(i) = frame {
-            // The closing edge (from the top frame back to `key`) is part of the cycle
-            // too: in `view = viewer - parent->view` with `doc:a#parent@doc:a` no frame
-            // above `key` exists, but the edge back to it runs through the subtracted
-            // side.
-            if self.negated || self.stack[i..].iter().any(|f| f.negated) {
+            // Depth never falls along the stack, so the path from `key` (its own
+            // expression included) to this closing edge crosses a subtracted side exactly
+            // when the depths differ. In `view = viewer - parent->view` with
+            // `doc:a#parent@doc:a` the only frame is `doc:a#view`, at depth 0; the edge
+            // back to it is evaluated at depth 1.
+            if self.crosses_negation(i) {
                 return Err(self.non_monotonic(i, key));
             }
             let value = self.provisional.get(key).copied().unwrap_or(false);
@@ -456,16 +463,34 @@ impl<'a> Evaluator<'a> {
                 low: Some(p),
             });
         }
-        // A finished member: an unsettled value depending on a node in progress;
-        // re-evaluating it here would reach that node under negation.
-        if self.negated {
-            let i = self.scc[low..].iter().find_map(|e| e.frame).unwrap_or(0);
+        // A finished member: its value depends on its region's head, still in progress
+        // (`low` names it; every member shares its head's depth). So this hit closes a
+        // cycle through the head, and is non-monotone if the path from the head to here
+        // crosses a subtracted side.
+        let Some(i) = self
+            .scc
+            .get(low..)
+            .and_then(|r| r.iter().find_map(|e| e.frame))
+        else {
+            return Err(invalid(format!(
+                "internal: no node in progress at or above SCC position {low}"
+            )));
+        };
+        if self.crosses_negation(i) {
             return Err(self.non_monotonic(i, key));
         }
         Ok(Outcome {
             value,
             low: Some(low),
         })
+    }
+
+    /// Whether the path from call-stack frame `i` to the current point of evaluation
+    /// crosses the subtracted side of an exclusion.
+    fn crosses_negation(&self, i: usize) -> bool {
+        self.stack
+            .get(i)
+            .is_none_or(|f| f.neg_depth != self.neg_depth)
     }
 
     fn non_monotonic(&self, i: usize, key: &NodeKey) -> Error {
@@ -581,14 +606,23 @@ impl<'a> Evaluator<'a> {
                 if !b.value {
                     return Ok(b);
                 }
-                let outer = self.negated;
-                self.negated = true;
+                self.neg_depth += 1;
                 let s = self.eval_expr(key, sub, depth, fanout);
-                self.negated = outer;
+                self.neg_depth -= 1;
                 let s = s?;
+                // Everything the subtracted side used is settled: a value depending on a
+                // node in progress could only come from a hit at that node's depth, and
+                // every node in progress at this depth or deeper finished inside `sub`.
+                // Negating an unsettled value would be unsound, so fail closed.
+                if s.low.is_some() {
+                    return Err(invalid(format!(
+                        "internal: unsettled value negated at {}",
+                        self.name(key)
+                    )));
+                }
                 Ok(Outcome {
                     value: !s.value,
-                    low: min_low(b.low, s.low),
+                    low: b.low,
                 })
             }
             Expr::Arrow {

@@ -118,7 +118,7 @@ an `Err` in a branch evaluated before a short-circuit propagates (deterministic)
 | `Computed(m)` | `eval(NodeKey{o, m}, depth+1)` |
 | `Union[..]` | first `true` wins; else `false` |
 | `Intersection[..]` | first `false` wins; else `true` |
-| `Exclusion{a,b}` | `a` false → `false`; else evaluate `b` **inside a negation frame** (§3.6); result `!b` |
+| `Exclusion{a,b}` | `a` false → `false`; else evaluate `b` **one negation level deeper** (§3.6); result `!b` |
 | `Arrow{t,p,Any}` | read visible tuples on `o#t`; distinct related objects `x` (skip wildcards, drop subject relation); for each `x` whose type has `p` → `eval(NodeKey{x, p})`; first `true` wins |
 | `Arrow{t,p,All}` | same objects; none → `false`; any `x` whose type lacks `p` → `false`; first `false` wins; else `true` |
 
@@ -134,9 +134,12 @@ If one node reads more than `max_check_fanout` tuples (default 100 000), return
 Data-dependent recursion (`folder:a#parent@folder:b`, `folder:b#parent@folder:a`;
 nested groups that contain each other) is legal. Rules:
 
-- The call stack holds frames `{ key, negated: bool }`. A frame is pushed with
-  `negated = true` while evaluating the `sub` side of an `Exclusion` (and stays true for
-  everything beneath).
+- *Negation depth.* The evaluator tracks `neg_depth`: how many `sub` sides of exclusions
+  evaluation is currently inside (`+1` on entering a `sub` side, `−1` on leaving it). The
+  call stack holds frames `{ key, neg_depth }`, recording the depth at which each node was
+  pushed. Depth never falls along the stack, so the path from frame `i` (its own
+  expression included) to the current point crosses a `sub` side **iff** the current depth
+  differs from frame `i`'s.
 - **Current rule (T1.4c): SCC fixed-point iteration** (Tarjan-style). Plain "in-progress
   node = `false`, never memoise what used that" is correct but exponential: on groups
   `g1..gn` whose `member`s all contain each other, with the subject in none, it walks every
@@ -151,14 +154,14 @@ nested groups that contain each other) is legal. Rules:
   - *Lowlink.* An `Outcome` carries `low: Option<usize>`: the lowest SCC-stack position
     whose unsettled value it used, `None` if it used none (the value is settled). Composite
     `low` = min over the children actually evaluated.
-  - *Hit on a node in progress* (frame `i`, SCC position `p`). If any frame from `i` to
-    the top, or the closing edge, is negated → `Err(NonMonotonicCycle{ path })` (below).
-    Else return `provisional[key]` (`false` if absent) with `low = p`; if that was `false`,
+  - *Hit on a node in progress* (frame `i`, SCC position `p`). If the current depth
+    differs from frame `i`'s → `Err(NonMonotonicCycle{ path })` (below). Else return `provisional[key]` (`false` if absent) with `low = p`; if that was `false`,
     mark the node *assumed false*.
   - *Hit on a finished member* (the **pass memo**: SCC-stack entries finished this pass).
-    Return its value and its `low` without re-evaluating it. Beneath a negated frame →
-    `NonMonotonicCycle`: the value is unsettled and depends on a node in progress, which
-    re-evaluating it would reach under negation and refuse.
+    Return its value and its `low` without re-evaluating it. The entry's value depends
+    on the head of its region (the first node in progress at or above its `low`; every
+    member has its head's depth), so the hit closes a cycle through that head: if the
+    current depth differs from the head frame's → `NonMonotonicCycle`.
   - *Finish value.* A node finishes with `computed | provisional[key]`, so a finished value
     is never below what a hit assumed for it.
   - *Member finish.* A node at position `p` finishing with `low = l < p` belongs to a region
@@ -209,16 +212,25 @@ nested groups that contain each other) is legal. Rules:
     `max_check_fanout`, so one node at full fan-out (each child ≥ 1 read) still fits; at an
     estimated 5–20 µs per indexed SQLite point read (not yet measured) it caps a
     pathological check at roughly 1–4 s.
-- **Negation (T1.3 rule, unchanged by T1.4c):** `negated` frames are sticky, and the edge
-  closing the cycle counts too: any cycle detected while evaluating beneath a `sub` side is
-  `NonMonotonicCycle`, even a monotone cycle that lies wholly inside it (fails closed). A
-  cycle through negation has no well-defined least fixed point; we refuse rather than guess.
-  So every region that is iterated is monotone.
-- **Planned rule (T1.4b, decided, not yet implemented):** a cycle is `NonMonotonicCycle` only
-  if the path from the in-progress node (including its own expression) to the closing edge
-  crosses a `sub` side. A monotone cycle wholly inside a `sub` side is evaluated as a least
-  fixed point and then negated (stratified negation). See OQ-018. It builds on the SCC
-  stack and lowlinks above.
+- **Negation (T1.4b): stratified.** A cycle is `NonMonotonicCycle` only if the path from the
+  in-progress node (including its own expression) to the closing edge crosses a `sub` side,
+  i.e. its ends differ in negation depth (the two hit rules above). Such a cycle has no
+  well-defined least fixed point; we refuse rather than guess. Examples: the self-loop
+  `view = viewer - parent->view` with `doc:a#parent@doc:a` (the only frame, `doc:a#view`,
+  is at depth 0; the closing edge at depth 1), and a cycle inside a `sub` side whose every
+  step crosses a nested exclusion's `sub` side (depths 1, 2, 3, …).
+  - *Monotone cycles beneath a `sub` side* (nested banned groups that contain each other)
+    have every node at the same depth, so they form an ordinary region: it settles by the
+    SCC iteration above, at its least fixed point, before the exclusion negates it.
+  - *Why the negated value is settled.* A `low` can only come from a hit at the hit node's
+    own depth, and every node in progress at the `sub` side's depth or deeper finished
+    inside it, so the `sub` result always has `low = None`. The evaluator checks this and
+    fails closed (internal error) if it ever does not; the exclusion's `low` is the base's.
+  - So every region that is iterated is monotone, and the iteration's soundness and
+    leastness arguments apply to it unchanged. This is stratified negation: on a
+    stratifiable schema (`07` §2.1) no data cycle can cross a negation, so the engine never
+    returns `NonMonotonicCycle` there (property 1 runs a generator variant with monotone
+    recursion beneath `sub` sides to check exactly this). See OQ-018.
 
 ### 3.7 Depth
 

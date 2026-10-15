@@ -73,9 +73,11 @@ at a non-least fixed point or never stops (OQ-020).
   object / subject-set / wildcard; expressions of depth ≤ 3 over union, intersection,
   exclusion, arrows (`Any`, `All`); every generated schema must pass validation (filter or
   construct-valid) and be stratifiable (§2.1). Recursion is allowed on the base side of an
-  exclusion (OQ-020) but kept out of the `sub` side: nothing a `sub` side reaches lies on a
-  cycle of the dependency graph, because the engine refuses every cycle beneath a `sub`
-  side until T1.4b. Implemented in `warden-testkit::generate`, construct-valid.
+  exclusion (OQ-020). Two variants for the `sub` side: the default keeps recursion off it
+  (nothing a `sub` side reaches lies on a cycle of the dependency graph); the
+  `SubSides::Recursive` variant (T1.4b) allows monotone recursion beneath it, dropping only
+  a `sub` side that reaches back to its own permission. Property 1 runs on both.
+  Implemented in `warden-testkit::generate`, construct-valid.
 - Data: 0–40 tuples valid for the schema, ids from a small alphabet (`a`..`f`) to force
   sharing and cycles.
 - Queries: random `(object, member, subject)` from the universe, including fresh ids and

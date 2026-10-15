@@ -112,7 +112,7 @@ AC:
 - Property 1 at ≥ 1 000 cases passes in under 60 s optimised, on several seeds.
 
 ### T1.4b Stratified negation for cycles
-Refs: `04` §3.6 (planned rule), OQ-018. After T1.4c (needs lowlink-style taint).
+Refs: `04` §3.6, OQ-018. After T1.4c (needs lowlink-style taint).
 AC:
 - A cycle is `NonMonotonicCycle` only if the path from the in-progress node (including its own
   expression) to the closing edge crosses the subtracted side of an exclusion.
