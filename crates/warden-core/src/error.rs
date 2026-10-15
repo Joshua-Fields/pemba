@@ -93,6 +93,15 @@ pub enum Error {
         /// The configured maximum.
         max: usize,
     },
+    /// A stored relationship no longer fits the current schema (a schema change left it
+    /// behind), so `check` cannot tell what it means and refuses to guess.
+    #[error("stored relationship {tuple} no longer fits {relation} in the current schema")]
+    StaleRelationship {
+        /// The stored tuple, e.g. `doc:d#banned@group:x#member`.
+        tuple: String,
+        /// The relation it was found on, e.g. `doc#banned`.
+        relation: String,
+    },
     /// The store failed.
     #[error(transparent)]
     Store(#[from] StoreError),
@@ -115,6 +124,7 @@ impl Error {
             Self::MaxDepthExceeded { .. } => "MAX_DEPTH_EXCEEDED",
             Self::NonMonotonicCycle { .. } => "NON_MONOTONIC_CYCLE",
             Self::FanoutExceeded { .. } => "FANOUT_EXCEEDED",
+            Self::StaleRelationship { .. } => "STALE_RELATIONSHIP",
             Self::Store(_) => "STORE_ERROR",
         }
     }

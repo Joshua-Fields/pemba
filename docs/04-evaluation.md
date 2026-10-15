@@ -93,12 +93,17 @@ Order matters for performance, not correctness:
    (same type, id, and subject relation or lack of it)? → `true`.
 2. **Wildcard hit** — only if subject is `Object(t:id)` and `t:*` is an allowed type on `r`:
    does `o#r@t:*` exist? → `true`. (Wildcards never match subject *sets*.)
-3. **Subject-set fan-out** — only for allowed types of the form `x#y`: read visible tuples
-   `o#r@x:*#y` (i.e. subject_relation non-empty), and for each stored subject set `x:id#y`
-   evaluate `eval(NodeKey{x, id, y}, depth+1)`; return `true` on the first `true`.
+3. **Subject-set fan-out** — read visible tuples `o#r@x:*#y` (i.e. subject_relation
+   non-empty), and for each stored subject set `x:id#y` in store order: if `x#y` is not an
+   allowed type of `r` (left behind by a schema change, or `x`/`y` no longer defined) →
+   `Err(StaleRelationship{ tuple, relation })`; else evaluate `eval(NodeKey{x, id, y},
+   depth+1)`; return `true` on the first `true`.
 4. Else `false`. Taint = OR of taints of fan-out children evaluated.
 
-Skip step 3's query entirely if the relation has no subject-set allowed types.
+Step 3's query runs even when the relation allows no subject sets, so stale ones are
+always seen. Skipping them would silently shrink `S(o, r)`, which on the subtracted side
+of an exclusion grants access (OQ-019). Once T2.6 refuses schema changes that orphan
+tuples, the query may again be skipped for relations without subject-set types.
 
 ### 3.4 `eval_expr(o, expr)`
 
@@ -139,6 +144,15 @@ nested groups that contain each other) is legal. Rules:
   would wrongly return false.
 - A tainted `true` is still a correct `true` for monotone expressions and is returned as such;
   it simply is not cached (optimisation to cache it is allowed later only with property tests).
+- **Current rule (T1.3):** `negated` frames are sticky, and the edge closing the cycle counts
+  too: any cycle detected while evaluating beneath a `sub` side is `NonMonotonicCycle`, even
+  a monotone cycle that lies wholly inside it (fails closed).
+- **Planned rule (T1.4b, decided, not yet implemented):** a cycle is `NonMonotonicCycle` only
+  if the path from the in-progress node (including its own expression) to the closing edge
+  crosses a `sub` side. A monotone cycle wholly inside a `sub` side is evaluated as a least
+  fixed point and then negated (stratified negation). Taint becomes lowlink-style: a result
+  carries the lowest stack index of an in-progress node it assumed `false`; a node whose
+  lowlink is not below its own index has a settled value. See OQ-018.
 
 ### 3.7 Depth
 

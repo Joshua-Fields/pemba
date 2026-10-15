@@ -367,19 +367,17 @@ impl<'a> Evaluator<'a> {
             }
         }
 
-        if !allowed.iter().any(|a| matches!(a, AllowedSubject::Set(..))) {
-            return Ok(Outcome::FALSE);
-        }
+        // Read even when the relation allows no subject sets: a schema change can leave
+        // stale ones behind, and skipping them would silently shrink the relation, which
+        // on the subtracted side of an exclusion grants access (OQ-019).
         let sets = self.read(|s, rev| s.read_subject_sets(rev, &resource, &relation))?;
         self.count_tuples(sets.len());
         self.check_fanout(key, sets.len())?;
         let mut tainted = false;
         for (object, rel) in sets {
-            // Only subject sets the relation allows are part of it (§3.3 step 3 reads
-            // `o#r@x:*#y` per allowed `x#y`).
-            let Some(child) = self.resolve_set(&object, &rel, allowed) else {
-                continue;
-            };
+            // A stale set seen after an earlier `true` is never reached: it could only add
+            // members, so the `true` stands whatever it meant.
+            let child = self.resolve_set(key, &resource, &relation, object, rel, allowed)?;
             let out = self.eval(child, depth + 1)?;
             tainted |= out.tainted;
             if out.value {
@@ -555,22 +553,44 @@ impl<'a> Evaluator<'a> {
         })
     }
 
-    /// The node for a stored subject set `object#rel`, if the relation allows that form.
+    /// The node for a stored subject set `object#rel` on `resource#relation`.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::StaleRelationship`] if the relation does not allow that form, including
+    /// when its type or relation is no longer defined.
     fn resolve_set(
         &self,
-        object: &ObjectRef,
-        rel: &RelName,
+        key: &NodeKey,
+        resource: &ObjectRef,
+        relation: &RelName,
+        object: ObjectRef,
+        rel: RelName,
         allowed: &[AllowedSubject],
-    ) -> Option<NodeKey> {
-        let ty = self.schema.type_id(object.object_type.as_str())?;
-        let rel = self.schema.type_def(ty)?.member_id(rel.as_str())?;
-        allowed
-            .contains(&AllowedSubject::Set(ty, rel))
-            .then(|| NodeKey {
+    ) -> Result<NodeKey, Error> {
+        let resolved = self
+            .schema
+            .type_id(object.object_type.as_str())
+            .and_then(|ty| Some((ty, self.schema.type_def(ty)?.member_id(rel.as_str())?)));
+        match resolved {
+            Some((ty, r)) if allowed.contains(&AllowedSubject::Set(ty, r)) => Ok(NodeKey {
                 ty,
-                id: object.object_id.clone(),
-                rel,
-            })
+                id: object.object_id,
+                rel: r,
+            }),
+            _ => Err(Error::StaleRelationship {
+                tuple: Relationship {
+                    resource: resource.clone(),
+                    relation: relation.clone(),
+                    subject: SubjectRef::Set {
+                        object,
+                        relation: rel,
+                    },
+                }
+                .to_string(),
+                relation: format!("{}#{relation}", self.type_name(key.ty)),
+            }),
+        }
     }
 
     fn check_fanout(&self, key: &NodeKey, read: usize) -> Result<(), Error> {

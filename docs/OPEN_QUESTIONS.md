@@ -223,11 +223,13 @@ it is resolved.
   other) is also refused, although its value is well defined. Tests:
   `self_loop_through_exclusion_is_non_monotonic_cycle`,
   `any_cycle_beneath_subtracted_side_is_refused`
-- Proposed relaxation (needs human sign-off and property tests): give each frame the
-  number of `sub` sides entered on its path and refuse only when the current count is
-  greater than the repeated frame's, i.e. when an edge *of the cycle* crosses a `sub` side
-- Resolve by: human review; differential test against SpiceDB in T3.4
-- Resolution: (fill in)
+- Resolve by: T1.4b
+- Resolution: decided by the human in T1.3 review. Keep the conservative rule above for now
+  (it fails closed). Planned rule, recorded in `04` §3.6: a cycle is `NonMonotonicCycle` only
+  if the path from the in-progress node (including its own expression) to the closing edge
+  crosses a subtracted side; a monotone cycle wholly inside a subtracted side is evaluated as
+  a least fixed point and then negated (stratified negation). Implemented in T1.4b, after the
+  reference evaluator, with lowlink-style taint (lowest in-progress stack index)
 
 ## OQ-019 — `check` details the spec leaves open
 - Raised in: T1.3 (`docs/04-evaluation.md` §1, §3; `docs/06-api.md` §1)
@@ -244,9 +246,19 @@ it is resolved.
   exist. Whether the subject type can reach the permission at all is not checked; such a
   check is simply `false`.
   (e) Stored subject sets whose form is not an allowed type of the relation (only possible
-  after a schema change, until T2.6 refuses orphaning changes) are skipped in fan-out, as
-  if step 3 queried each allowed `x#y` separately. The exact-hit step still matches any
-  stored tuple exactly as §3.3 says.
+  after a schema change, until T2.6 refuses orphaning changes) fail the check with
+  `StaleRelationship { tuple, relation }`. Originally (a5f9dc5) they were skipped, which
+  fails open on the subtracted side of an exclusion: drop `group#member` from `banned` and
+  every member of a banned group gains access. Changed in T1.3 review; the fan-out query now
+  runs even for relations that allow no subject sets (`04` §3.3). Tests:
+  `stale_subject_set_on_subtracted_side_is_an_error_not_true`,
+  `stale_subject_set_on_granting_side_is_an_error_not_false`,
+  `stale_subject_set_of_removed_type_is_an_error`,
+  `stale_subject_set_fails_only_its_check_bulk_item`.
+  Still open, same class: a stale *object* tuple is matched by the exact-hit step (grants on
+  the granting side), and a stale arrow-related object whose type the tupleset no longer
+  allows is treated like a type lacking the target (∅, which fails open under exclusion,
+  e.g. `view = viewer - parent->banned`). Both need a decision; T2.6 removes all three cases
   (f) `check_bulk`: `Store` and mid-call `RevisionExpired` fail the call; all other errors
   are per item (documented in `06` §1)
 - Resolve by: human review

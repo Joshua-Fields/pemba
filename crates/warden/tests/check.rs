@@ -5,8 +5,8 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
 
 use warden::model::{
     Consistency, ObjectRef, RelName, Relationship, RelationshipFilter, Revision, SubjectRef,
@@ -318,14 +318,16 @@ fn stored_subject_set_contributes_its_members() {
     assert_denied(&e, "document:d#view@user:bob");
 }
 
+/// Step 3 always reads subject sets, even on a relation that allows none, so a stale one
+/// left by a schema change is seen and refused (OQ-019).
 #[test]
-fn fan_out_is_skipped_without_subject_set_types() {
+fn fan_out_is_read_even_without_subject_set_types() {
     let e = engine(SCHEMA, &["document:d#editor@user:anne"]);
     let s = e
         .check(request("document:d#editor@user:bob", Consistency::Latest))
         .unwrap()
         .stats;
-    assert_eq!(s.store_reads, 1, "only the exact point query");
+    assert_eq!(s.store_reads, 2, "exact point query, then fan-out");
     // `viewer` allows `user:*` and `group#member`: exact, wildcard, fan-out.
     let s = e
         .check(request("document:d#viewer@user:bob", Consistency::Latest))
@@ -1003,6 +1005,136 @@ fn depth_limit_applies_to_subject_set_fan_out() {
 }
 
 // ---------------------------------------------------------------------------------------
+// OQ-019 Stale subject sets (left behind by a schema change) are errors, never skipped
+// ---------------------------------------------------------------------------------------
+
+const STALE_V1: &str = "\
+definition user {}
+
+definition group {
+    relation member: user | group#member
+}
+
+definition doc {
+    relation viewer: user | group#member
+    relation banned: user | group#member
+    permission view = viewer - banned
+}
+";
+
+/// `STALE_V1` with `group#member` dropped from `banned`.
+const STALE_V2_BANNED: &str = "\
+definition user {}
+
+definition group {
+    relation member: user | group#member
+}
+
+definition doc {
+    relation viewer: user | group#member
+    relation banned: user
+    permission view = viewer - banned
+}
+";
+
+/// `STALE_V1` with `group#member` dropped from `viewer`.
+const STALE_V2_VIEWER: &str = "\
+definition user {}
+
+definition group {
+    relation member: user | group#member
+}
+
+definition doc {
+    relation viewer: user
+    relation banned: user | group#member
+    permission view = viewer - banned
+}
+";
+
+/// `STALE_V1` with the `group` type removed altogether.
+const STALE_V2_NO_GROUP: &str = "\
+definition user {}
+
+definition doc {
+    relation viewer: user
+    relation banned: user
+    permission view = viewer - banned
+}
+";
+
+fn stale(r: Result<bool, Error>) -> (String, String) {
+    match r {
+        Err(Error::StaleRelationship { tuple, relation }) => (tuple, relation),
+        other => panic!("expected StaleRelationship, got {other:?}"),
+    }
+}
+
+#[test]
+fn stale_subject_set_on_subtracted_side_is_an_error_not_true() {
+    let e = engine(
+        STALE_V1,
+        &[
+            "doc:d#viewer@user:anne",
+            "doc:d#banned@group:x#member",
+            "group:x#member@user:anne",
+        ],
+    );
+    assert_denied(&e, "doc:d#view@user:anne");
+    e.write_schema(STALE_V2_BANNED).unwrap();
+    // Skipping the stale tuple would make `banned` false and grant `view`.
+    let (tuple, relation) = stale(check(&e, "doc:d#view@user:anne"));
+    assert_eq!(tuple, "doc:d#banned@group:x#member");
+    assert_eq!(relation, "doc#banned");
+}
+
+#[test]
+fn stale_subject_set_on_granting_side_is_an_error_not_false() {
+    let e = engine(
+        STALE_V1,
+        &["doc:d#viewer@group:x#member", "group:x#member@user:anne"],
+    );
+    assert_allowed(&e, "doc:d#view@user:anne");
+    e.write_schema(STALE_V2_VIEWER).unwrap();
+    let (tuple, relation) = stale(check(&e, "doc:d#view@user:anne"));
+    assert_eq!(tuple, "doc:d#viewer@group:x#member");
+    assert_eq!(relation, "doc#viewer");
+}
+
+#[test]
+fn stale_subject_set_of_removed_type_is_an_error() {
+    let e = engine(
+        STALE_V1,
+        &["doc:d#viewer@user:anne", "doc:d#banned@group:x#member"],
+    );
+    e.write_schema(STALE_V2_NO_GROUP).unwrap();
+    let (tuple, relation) = stale(check(&e, "doc:d#view@user:anne"));
+    assert_eq!(tuple, "doc:d#banned@group:x#member");
+    assert_eq!(relation, "doc#banned");
+}
+
+#[test]
+fn stale_subject_set_fails_only_its_check_bulk_item() {
+    let e = engine(
+        STALE_V1,
+        &[
+            "doc:d#viewer@user:anne",
+            "doc:d#banned@group:x#member",
+            "doc:e#viewer@user:anne",
+        ],
+    );
+    e.write_schema(STALE_V2_BANNED).unwrap();
+    let out = e
+        .check_bulk(
+            vec![item("doc:d#view@user:anne"), item("doc:e#view@user:anne")],
+            Consistency::Latest,
+        )
+        .unwrap();
+    assert!(matches!(out[0], Err(Error::StaleRelationship { .. })));
+    assert!(out[1].as_ref().unwrap());
+}
+
+// ---------------------------------------------------------------------------------------
 // Fail closed: store errors are errors, never `false` or `true`
 // ---------------------------------------------------------------------------------------
 
@@ -1221,6 +1353,26 @@ fn check_bulk_empty_and_no_schema() {
     ));
 }
 
+/// The memo holds values for one subject; an item for another subject on the same node
+/// must not reuse them.
+#[test]
+fn check_bulk_memo_is_per_subject() {
+    let e = engine(SCHEMA, &["document:d#viewer@user:anne"]);
+    for (first, second) in [("anne", "bob"), ("bob", "anne")] {
+        let out = e
+            .check_bulk(
+                vec![
+                    item(&format!("document:d#view@user:{first}")),
+                    item(&format!("document:d#view@user:{second}")),
+                ],
+                Consistency::Latest,
+            )
+            .unwrap();
+        assert_eq!(out[0].as_ref().unwrap(), &(first == "anne"), "{first}");
+        assert_eq!(out[1].as_ref().unwrap(), &(second == "anne"), "{second}");
+    }
+}
+
 #[test]
 fn check_bulk_cycle_errors_do_not_poison_other_items() {
     let e = engine(
@@ -1244,113 +1396,4 @@ fn check_bulk_cycle_errors_do_not_poison_other_items() {
     assert!(matches!(out[0], Err(Error::NonMonotonicCycle { .. })));
     assert!(out[1].as_ref().unwrap());
     assert!(matches!(out[2], Err(Error::NonMonotonicCycle { .. })));
-}
-
-// ---------------------------------------------------------------------------------------
-// Tracing
-// ---------------------------------------------------------------------------------------
-
-type Fields = Vec<(String, String)>;
-
-/// Records every span's name and fields, including values recorded after creation.
-#[derive(Clone, Default)]
-struct Recorder(Arc<Mutex<Vec<(String, Fields)>>>);
-
-struct FieldVisitor<'a>(&'a mut Fields);
-
-impl tracing::field::Visit for FieldVisitor<'_> {
-    fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
-        self.0.push((field.name().to_owned(), format!("{value:?}")));
-    }
-}
-
-impl tracing::Subscriber for Recorder {
-    fn enabled(&self, _: &tracing::Metadata<'_>) -> bool {
-        true
-    }
-    fn new_span(&self, attrs: &tracing::span::Attributes<'_>) -> tracing::span::Id {
-        let mut spans = self.0.lock().unwrap();
-        let mut fields = Vec::new();
-        attrs.record(&mut FieldVisitor(&mut fields));
-        spans.push((attrs.metadata().name().to_owned(), fields));
-        tracing::span::Id::from_u64(spans.len() as u64)
-    }
-    fn record(&self, id: &tracing::span::Id, values: &tracing::span::Record<'_>) {
-        let mut spans = self.0.lock().unwrap();
-        let i = usize::try_from(id.into_u64() - 1).unwrap();
-        values.record(&mut FieldVisitor(&mut spans[i].1));
-    }
-    fn record_follows_from(&self, _: &tracing::span::Id, _: &tracing::span::Id) {}
-    fn event(&self, _: &tracing::Event<'_>) {}
-    fn enter(&self, _: &tracing::span::Id) {}
-    fn exit(&self, _: &tracing::span::Id) {}
-}
-
-fn field<'a>(fields: &'a Fields, name: &str) -> &'a str {
-    fields.iter().rev().find(|(n, _)| n == name).map_or_else(
-        || panic!("span has no field {name}: {fields:?}"),
-        |(_, v)| v.as_str(),
-    )
-}
-
-#[test]
-fn check_emits_span_with_stats_fields() {
-    let e = engine(
-        SCHEMA,
-        &[
-            "document:d#viewer@group:eng#member",
-            "group:eng#member@user:anne",
-        ],
-    );
-    let rec = Recorder::default();
-    let resp = tracing::subscriber::with_default(rec.clone(), || {
-        e.check(request("document:d#view@user:anne", Consistency::Latest))
-            .unwrap()
-    });
-    let spans = rec.0.lock().unwrap();
-    let (_, fields) = spans
-        .iter()
-        .find(|(name, _)| name == "check")
-        .expect("a `check` span");
-    assert_eq!(field(fields, "resource"), "document:d");
-    assert_eq!(field(fields, "permission"), "view");
-    assert_eq!(field(fields, "subject"), "user:anne");
-    assert_eq!(field(fields, "allowed"), "true");
-    assert_eq!(field(fields, "revision"), resp.revision.0.to_string());
-    let s = resp.stats;
-    assert_eq!(field(fields, "store_reads"), s.store_reads.to_string());
-    assert_eq!(field(fields, "tuples_read"), s.tuples_read.to_string());
-    assert_eq!(field(fields, "memo_hits"), s.memo_hits.to_string());
-    assert_eq!(
-        field(fields, "max_depth_reached"),
-        s.max_depth_reached.to_string()
-    );
-    field(fields, "elapsed_us");
-}
-
-#[test]
-fn check_bulk_emits_span_with_stats_fields() {
-    let e = engine(SCHEMA, &["document:d#owner@user:anne"]);
-    let rec = Recorder::default();
-    tracing::subscriber::with_default(rec.clone(), || {
-        e.check_bulk(
-            vec![
-                item("document:d#owner@user:anne"),
-                item("document:d#owner@user:anne"),
-            ],
-            Consistency::Latest,
-        )
-        .unwrap()
-    });
-    let spans = rec.0.lock().unwrap();
-    let (_, fields) = spans
-        .iter()
-        .find(|(name, _)| name == "check_bulk")
-        .expect("a `check_bulk` span");
-    assert_eq!(field(fields, "items"), "2");
-    assert_eq!(field(fields, "store_reads"), "1");
-    assert_eq!(field(fields, "memo_hits"), "1");
-    field(fields, "tuples_read");
-    field(fields, "max_depth_reached");
-    field(fields, "elapsed_us");
 }

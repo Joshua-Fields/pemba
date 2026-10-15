@@ -97,7 +97,8 @@ pub struct EvalStats {
 
 `check_bulk` returns `Err` for the whole call on `NoSchema`, consistency errors, `Store`,
 and `RevisionExpired` raised mid-call by GC; every other error (`InvalidRequest`,
-`MaxDepthExceeded`, `NonMonotonicCycle`, `FanoutExceeded`) belongs to its item (OQ-019).
+`MaxDepthExceeded`, `NonMonotonicCycle`, `FanoutExceeded`, `StaleRelationship`) belongs to
+its item (OQ-019).
 
 `write` checks, in order: batch size, schema present, op validation (`02` §6), precondition
 filters, then the store's duplicates, preconditions and `Create` conflicts (`02` §5).
@@ -143,6 +144,7 @@ pub enum Error {
     MaxDepthExceeded { path: Vec<String> },
     NonMonotonicCycle { path: Vec<String> },
     FanoutExceeded { node: String, max: usize },
+    StaleRelationship { tuple: String, relation: String }, // stored tuple the schema no longer allows (04 §3.3)
     LookupTooLarge { max: usize },
     NotMigrated,
     StorageVersionTooNew { found: u32, supported: u32 },
@@ -157,7 +159,7 @@ Every variant has a stable machine code (`Error::code() -> &'static str`, e.g.
 `NO_SCHEMA`, `INVALID_RELATIONSHIP`, `INVALID_REQUEST`, `DUPLICATE_IN_BATCH`,
 `ALREADY_EXISTS`, `PRECONDITION_FAILED`, `BATCH_TOO_LARGE`, `REVISION_NOT_YET_AVAILABLE`,
 `REVISION_EXPIRED`, `STORE_ERROR`, `MAX_DEPTH_EXCEEDED`, `NON_MONOTONIC_CYCLE`,
-`FANOUT_EXCEEDED`; variants added later use their name in SCREAMING_SNAKE
+`FANOUT_EXCEEDED`, `STALE_RELATIONSHIP`; variants added later use their name in SCREAMING_SNAKE
 case.
 
 ---

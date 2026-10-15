@@ -349,7 +349,8 @@ impl<S: WritableStore> Engine<S> {
     /// [`Error::RevisionNotYetAvailable`] / [`Error::RevisionExpired`] if the consistency
     /// cannot be met; [`Error::MaxDepthExceeded`], [`Error::NonMonotonicCycle`] or
     /// [`Error::FanoutExceeded`] if evaluation hits a limit or an undefined cycle;
-    /// [`Error::Store`] if the store fails.
+    /// [`Error::StaleRelationship`] if it meets a stored subject set the schema no longer
+    /// allows; [`Error::Store`] if the store fails.
     #[allow(
         clippy::needless_pass_by_value,
         reason = "signature fixed by docs/06-api.md §1"
