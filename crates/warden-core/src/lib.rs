@@ -11,6 +11,7 @@ mod eval;
 pub mod model;
 pub mod store;
 mod validate;
+pub mod write;
 
 pub use engine::{
     Engine, EngineBuilder, EngineConfig, ReadRelationshipsRequest, ReadRelationshipsResponse,

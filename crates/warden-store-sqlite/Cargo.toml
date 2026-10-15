@@ -15,3 +15,6 @@ warden-core.workspace = true
 # `bundled`: one SQLite version on every platform, no system library on Windows/macOS CI.
 # `cache`: `prepare_cached` for the write path (docs/05-storage.md §5).
 rusqlite = { version = "0.40.2", default-features = false, features = ["bundled", "cache"] }
+
+[dev-dependencies]
+warden-testkit.workspace = true

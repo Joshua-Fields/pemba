@@ -36,7 +36,6 @@ impl ReaderPool {
     }
 
     /// Runs `f` on an idle connection, waiting for one if all are leased.
-    #[cfg_attr(not(test), expect(dead_code, reason = "used by the read path in T2.3"))]
     pub(crate) fn with<T>(
         &self,
         f: impl FnOnce(&Connection) -> Result<T, StoreError>,

@@ -1,8 +1,9 @@
 //! SQLite relationship store for warden.
 //!
-//! Implements `docs/05-storage.md` §4 (tables, migrations, connections). The read queries
-//! of §6 live in `sql`; the store's `ReadStore` / `WritableStore` implementations arrive
-//! with the shared write algorithm (T2.2) and consistency handling (T2.3).
+//! Implements `docs/05-storage.md` §4 (tables, migrations, connections) and §6 (reads).
+//! Every write — [`WritableStore`] on the store's own connection, or `Engine::write_in`
+//! on a caller's transaction through [`SqliteTxn`] — runs the shared algorithm in
+//! [`warden_core::write`]; this crate supplies only connections and SQL text.
 //!
 //! # Connections
 //!
@@ -18,19 +19,34 @@
 
 mod migrate;
 mod pool;
+mod read;
 mod sql;
 #[cfg(test)]
 mod tests;
+mod txn;
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, PoisonError};
 use std::time::Duration;
 
-use rusqlite::{Connection, OpenFlags};
+use rusqlite::{Connection, ErrorCode, OpenFlags, TransactionBehavior};
 use warden_core::Error;
-use warden_core::store::StoreError;
+use warden_core::model::{Revision, WriteRequest};
+use warden_core::store::{
+    GcStats, ReadStore, SqlDialect, SqlStore, SqlValue, StoreError, StoredSchema, WritableStore,
+    WriteTxn,
+};
 
 pub use migrate::STORAGE_VERSION;
+/// The `rusqlite` this crate is built against: [`SqliteTxn`] takes its `Transaction`, so
+/// open caller connections through this re-export to be sure the versions match.
+pub use rusqlite;
+pub use txn::SqliteTxn;
+
+/// Prepared statements kept per connection: the fixed reads and writes, the twelve
+/// `read_reverse` shapes and the common `read_relationships` / precondition shapes.
+const STATEMENT_CACHE: usize = 128;
 
 /// `PRAGMA synchronous` level (`docs/05-storage.md` §4).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
@@ -83,14 +99,38 @@ impl Default for SqliteConfig {
 /// A relationship store in a SQLite database file.
 #[derive(Debug)]
 pub struct SqliteStore {
-    // Read and written from T2.2 on; holding it now keeps the one-writer invariant in place.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "used by the write path in T2.2")
-    )]
     writer: Mutex<Connection>,
-    #[cfg_attr(not(test), expect(dead_code, reason = "used by the read path in T2.3"))]
     readers: pool::ReaderPool,
+    /// The database file, canonicalised, for [`SqlStore::check_same_database`].
+    file: PathBuf,
+    cache: Cache,
+}
+
+/// Head and GC horizon as last observed (`docs/05-storage.md` §2 "Revision checks"):
+/// refreshed by `head_revision()` / `gc_horizon()` and by this store's own commits, never
+/// by a caller's uncommitted `write_in`. Both only move up.
+#[derive(Debug, Default)]
+struct Cache {
+    head: AtomicU64,
+    horizon: AtomicU64,
+}
+
+impl Cache {
+    fn observe(&self, head: Revision, horizon: Revision) {
+        self.head.fetch_max(head.0, Ordering::AcqRel);
+        self.horizon.fetch_max(horizon.0, Ordering::AcqRel);
+    }
+
+    fn observe_head(&self, head: Revision) {
+        self.head.fetch_max(head.0, Ordering::AcqRel);
+    }
+
+    fn get(&self) -> (Revision, Revision) {
+        (
+            Revision(self.head.load(Ordering::Acquire)),
+            Revision(self.horizon.load(Ordering::Acquire)),
+        )
+    }
 }
 
 impl SqliteStore {
@@ -124,6 +164,11 @@ impl SqliteStore {
         } else {
             migrate::check(&writer)?;
         }
+        let file = canonical_main_file(&mut txn::Autocommit(&writer))?.ok_or_else(|| {
+            Error::InvalidRequest {
+                message: "the database has no file; in-memory SQLite is not supported".to_owned(),
+            }
+        })?;
         // Readers are opened only now so that they find WAL mode and the tables in place.
         let readers = (0..config.reader_pool)
             .map(|_| {
@@ -138,10 +183,15 @@ impl SqliteStore {
                 Ok(conn)
             })
             .collect::<Result<Vec<_>, Error>>()?;
-        Ok(Self {
+        let store = Self {
             writer: Mutex::new(writer),
             readers: pool::ReaderPool::new(readers),
-        })
+            file,
+            cache: Cache::default(),
+        };
+        // Seed the backstop's cache so reads work before anyone asks for head.
+        store.head_revision()?;
+        Ok(store)
     }
 
     /// Creates or upgrades the engine's tables in the database at `path` to
@@ -160,8 +210,81 @@ impl SqliteStore {
     }
 }
 
+impl WritableStore for SqliteStore {
+    fn write(&self, req: &WriteRequest) -> Result<Revision, Error> {
+        let rev = self
+            .with_write_txn(&mut |txn| warden_core::write::write(txn, &txn::SqliteDialect, req))?;
+        self.cache.observe_head(rev);
+        Ok(rev)
+    }
+
+    fn write_schema(&self, source: &str, hash: &str) -> Result<StoredSchema, Error> {
+        let stored = self.with_write_txn(&mut |txn| {
+            warden_core::write::write_schema(txn, &txn::SqliteDialect, source, hash)
+        })?;
+        self.cache.observe_head(stored.created_rev);
+        Ok(stored)
+    }
+
+    fn gc(&self, keep_from: Revision) -> Result<GcStats, Error> {
+        let stats = self.with_write_txn(&mut |txn| {
+            warden_core::write::gc(txn, &txn::SqliteDialect, keep_from)
+        })?;
+        self.cache
+            .horizon
+            .fetch_max(stats.horizon.0, Ordering::AcqRel);
+        Ok(stats)
+    }
+}
+
+impl SqlStore for SqliteStore {
+    /// `BEGIN IMMEDIATE` on the writer connection: the write lock is taken before the
+    /// first read, so preconditions and revision allocation see the latest commit and
+    /// revision order is commit order (`docs/05-storage.md` §5.1).
+    fn with_write_txn<T>(
+        &self,
+        f: &mut dyn FnMut(&mut dyn WriteTxn) -> Result<T, Error>,
+    ) -> Result<T, Error> {
+        let mut conn = self.writer.lock().map_err(poisoned)?;
+        let tx = conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(db)?;
+        // On error (or unwind) dropping `tx` rolls it back.
+        let out = f(&mut SqliteTxn::new(&tx))?;
+        tx.commit().map_err(db)?;
+        Ok(out)
+    }
+
+    fn dialect(&self) -> &dyn SqlDialect {
+        &txn::SqliteDialect
+    }
+
+    /// Compares the transaction's `main` database file with this store's, both
+    /// canonicalised (`docs/05-storage.md` §10).
+    fn check_same_database(&self, txn: &mut dyn WriteTxn) -> Result<(), Error> {
+        match canonical_main_file(txn)? {
+            Some(file) if file == self.file => Ok(()),
+            _ => Err(Error::ForeignConnectionMismatch),
+        }
+    }
+}
+
+/// The canonical path of the connection's `main` database file; `None` for a database
+/// without one (in-memory or temporary) or a path that cannot be resolved.
+fn canonical_main_file(txn: &mut dyn WriteTxn) -> Result<Option<PathBuf>, Error> {
+    let rows = txn.query("PRAGMA database_list", &[])?;
+    let file = rows.iter().find_map(|row| match row.as_slice() {
+        [_, SqlValue::Text(name), SqlValue::Text(file)] if name == "main" => Some(file.clone()),
+        _ => None,
+    });
+    Ok(file
+        .filter(|f| !f.is_empty())
+        .and_then(|f| std::fs::canonicalize(f).ok()))
+}
+
 /// Applies the per-connection pragmas of `docs/05-storage.md` §4.
 fn configure(conn: &Connection, config: &SqliteConfig) -> Result<(), Error> {
+    conn.set_prepared_statement_cache_capacity(STATEMENT_CACHE);
     // First, so that switching to WAL waits for a lock instead of failing at once.
     conn.busy_timeout(config.busy_timeout).map_err(db)?;
     let mode: String = conn
@@ -189,9 +312,27 @@ fn db(e: rusqlite::Error) -> Error {
     Error::Store(store_err(&e))
 }
 
+/// Classifies a driver error: unique-index violations and lock conflicts get their own
+/// variants because the write algorithm and callers act on them.
 fn store_err(e: &rusqlite::Error) -> StoreError {
-    StoreError::Backend {
-        message: e.to_string(),
+    let message = e.to_string();
+    match e.sqlite_error() {
+        Some(f) if f.extended_code == rusqlite::ffi::SQLITE_CONSTRAINT_UNIQUE => {
+            StoreError::UniqueViolation { message }
+        }
+        // A deferred transaction whose snapshot predates another commit cannot upgrade to
+        // a write lock, and waiting would not help; the driver's text ("database is
+        // locked") does not say which, so name it.
+        Some(f) if f.extended_code == rusqlite::ffi::SQLITE_BUSY_SNAPSHOT => StoreError::Conflict {
+            message: format!(
+                "SQLITE_BUSY_SNAPSHOT: the transaction read before another connection \
+                 committed, so it cannot take the write lock ({message})"
+            ),
+        },
+        Some(f) if matches!(f.code, ErrorCode::DatabaseBusy | ErrorCode::DatabaseLocked) => {
+            StoreError::Conflict { message }
+        }
+        _ => StoreError::Backend { message },
     }
 }
 

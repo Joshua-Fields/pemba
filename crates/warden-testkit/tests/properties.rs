@@ -1,11 +1,12 @@
-//! Properties 1 and 6 of `docs/07-testing.md` §2.3, plus checks that the generators
+//! Properties 1, 5 and 6 of `docs/07-testing.md` §2.3, plus checks that the generators
 //! produce what §2.2 asks for.
 //!
 //! Property 1 runs on the memory store only; the SQLite store arrives in M2, and on both
 //! generator variants ([`SubSides`]). Plain `cargo test` runs each for 64 cases; the
 //! `#[ignore]`d `prop1_*_full` tests (`cargo test -- --ignored`, ci.yml's `prop1` job, and
 //! the manual `proptest.yml` workflow) run at least 1 000, or `PROPTEST_CASES` if higher.
-//! Property 6 always runs at least 1 000.
+//! Property 5 (memory store ≡ SQLite store) runs 64 cases plainly and at least 1 000 in
+//! `prop5_*_full`, likewise ignored. Property 6 always runs at least 1 000.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
@@ -316,4 +317,224 @@ fn generated_cases_answer_both_ways() {
         }
     }
     assert!(yes > 300 && no > 300, "true {yes}, false {no}");
+}
+
+// ---- property 5: memory store ≡ SQLite store ----
+
+mod prop5 {
+    use std::path::PathBuf;
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    use proptest::prelude::*;
+    use warden_core::model::Revision;
+    use warden_core::store::{ReadStore, ReverseFilter, SubjectRelMatch, WritableStore};
+    use warden_store_memory::MemoryStore;
+    use warden_store_sqlite::{SqliteConfig, SqliteStore};
+    use warden_testkit::generate::{self, StoreOp};
+
+    use super::config;
+
+    /// A SQLite store in a fresh directory, removed on drop (store first).
+    struct TempSqlite {
+        store: Option<SqliteStore>,
+        dir: PathBuf,
+    }
+
+    impl TempSqlite {
+        fn new() -> Self {
+            static NEXT: AtomicU32 = AtomicU32::new(0);
+            let dir = std::env::temp_dir().join(format!(
+                "warden-prop5-{}-{}",
+                std::process::id(),
+                NEXT.fetch_add(1, Ordering::Relaxed)
+            ));
+            std::fs::create_dir_all(&dir).unwrap();
+            let mut config = SqliteConfig::default();
+            config.reader_pool = 1;
+            let store = SqliteStore::open(dir.join("p5.db"), config).unwrap();
+            Self {
+                store: Some(store),
+                dir,
+            }
+        }
+    }
+
+    impl Drop for TempSqlite {
+        fn drop(&mut self) {
+            drop(self.store.take());
+            let _ = std::fs::remove_dir_all(&self.dir);
+        }
+    }
+
+    /// A store call's outcome, comparable across stores: errors by their message, which
+    /// names the offending tuple or precondition.
+    fn outcome<T: std::fmt::Debug, E: std::fmt::Display>(r: Result<T, E>) -> String {
+        match r {
+            Ok(v) => format!("ok {v:?}"),
+            Err(e) => format!("err {e}"),
+        }
+    }
+
+    /// Everything a store can be asked at `rev`, as one comparable transcript.
+    fn reads(s: &dyn WritableStore, rev: Revision) -> Vec<String> {
+        let tuples = generate::store_tuples();
+        let mut out = Vec::new();
+        for t in ["doc", "folder"] {
+            let f = warden_core::model::RelationshipFilter::new(t.parse().unwrap());
+            out.push(outcome(s.read_relationships(rev, &f, u32::MAX, None)));
+            // Pages of 2 through the keyset cursor.
+            let mut after = None;
+            loop {
+                let page = s.read_relationships(rev, &f, 2, after.as_ref());
+                out.push(outcome(page.as_ref().map(Vec::len)));
+                match page {
+                    Ok(p) if p.len() == 2 => after = p.last().cloned(),
+                    _ => break,
+                }
+            }
+        }
+        let mut forward: Vec<_> = tuples
+            .iter()
+            .map(|r| (r.resource.clone(), r.relation.clone()))
+            .collect();
+        forward.dedup();
+        for (resource, relation) in &forward {
+            out.push(outcome(s.read_tuples(rev, resource, relation)));
+            out.push(outcome(s.read_subject_sets(rev, resource, relation)));
+            out.push(outcome(s.read_related_objects(rev, resource, relation)));
+        }
+        for r in &tuples {
+            out.push(outcome(s.exists(rev, r)));
+        }
+        let mut subjects: Vec<_> = tuples.iter().map(|r| r.subject.clone()).collect();
+        subjects.sort();
+        subjects.dedup();
+        for subject in &subjects {
+            let (subject_type, subject_id, _) = warden_core::store::subject_columns(subject);
+            for m in [
+                SubjectRelMatch::None,
+                SubjectRelMatch::Any,
+                SubjectRelMatch::Exact("member".parse().unwrap()),
+            ] {
+                for (resource_type, relation) in [
+                    (None, None),
+                    (Some("doc".parse().unwrap()), None),
+                    (None, Some("viewer".parse().unwrap())),
+                ] {
+                    out.push(outcome(s.read_reverse(
+                        rev,
+                        &ReverseFilter {
+                            subject_type: subject_type.parse().unwrap(),
+                            subject_id: subject_id.to_owned(),
+                            subject_relation: m.clone(),
+                            resource_type,
+                            relation,
+                        },
+                    )));
+                }
+            }
+        }
+        out.push(outcome(s.count_by_relation(rev)));
+        out
+    }
+
+    fn equivalent(ops: &[StoreOp]) -> Result<(), TestCaseError> {
+        let memory = MemoryStore::new();
+        let sqlite = TempSqlite::new();
+        let stores: [&dyn WritableStore; 2] = [&memory, sqlite.store.as_ref().unwrap()];
+        for (step, op) in ops.iter().enumerate() {
+            let results: Vec<String> = stores
+                .iter()
+                .map(|s| match op {
+                    StoreOp::Write(req) => outcome(s.write(req)),
+                    StoreOp::Schema(n) => {
+                        outcome(s.write_schema(&format!("schema {n}"), &format!("{n:064x}")))
+                    }
+                    StoreOp::Gc(fraction) => {
+                        let head = s.head_revision().unwrap();
+                        outcome(s.gc(StoreOp::gc_revision(*fraction, head)))
+                    }
+                })
+                .collect();
+            prop_assert_eq!(&results[0], &results[1], "step {}: {:?}", step, op);
+        }
+        let ends: Vec<_> = stores
+            .iter()
+            .map(|s| {
+                (
+                    s.head_revision().unwrap(),
+                    s.gc_horizon().unwrap(),
+                    outcome(s.current_schema()),
+                )
+            })
+            .collect();
+        prop_assert_eq!(&ends[0], &ends[1]);
+        let (head, horizon, _) = ends[0].clone();
+        // One revision either side of the readable range must fail the same way.
+        let low = Revision(horizon.0.saturating_sub(1));
+        for rev in (low.0..=head.0 + 1).map(Revision) {
+            let a = reads(stores[0], rev);
+            let b = reads(stores[1], rev);
+            prop_assert_eq!(a, b, "reads at {}", rev);
+        }
+        Ok(())
+    }
+
+    /// Guards against the generator collapsing: sequences must reach every write outcome
+    /// and GCs that remove rows.
+    #[test]
+    fn store_ops_are_varied() {
+        let mut seen = std::collections::BTreeMap::<String, u32>::new();
+        for ops in super::sample(generate::store_ops(), 300) {
+            let s = MemoryStore::new();
+            for op in &ops {
+                let key = match op {
+                    StoreOp::Write(req) => match s.write(req) {
+                        Ok(_) => "ok".to_owned(),
+                        Err(e) => e.code().to_owned(),
+                    },
+                    StoreOp::Schema(_) => continue,
+                    StoreOp::Gc(f) => {
+                        let head = s.head_revision().unwrap();
+                        match s.gc(StoreOp::gc_revision(*f, head)) {
+                            Ok(g) if g.rows_removed > 0 => "gc removed rows".to_owned(),
+                            _ => continue,
+                        }
+                    }
+                };
+                *seen.entry(key).or_default() += 1;
+            }
+        }
+        for key in [
+            "ok",
+            "DUPLICATE_IN_BATCH",
+            "PRECONDITION_FAILED",
+            "ALREADY_EXISTS",
+            "gc removed rows",
+        ] {
+            assert!(seen.get(key).copied().unwrap_or(0) > 20, "{seen:?}");
+        }
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig { cases: 64, ..config(0) })]
+
+        /// Property 5, quick: 64 cases.
+        #[test]
+        fn prop5_memory_and_sqlite_agree(ops in generate::store_ops()) {
+            equivalent(&ops)?;
+        }
+    }
+
+    proptest! {
+        #![proptest_config(config(1000))]
+
+        /// Property 5: the memory and SQLite stores give identical results for identical op
+        /// sequences, ≥ 1 000 cases.
+        #[test]
+        #[ignore = "slow: 1 000+ cases; run with --ignored"]
+        fn prop5_memory_and_sqlite_agree_full(ops in generate::store_ops()) {
+            equivalent(&ops)?;
+        }
+    }
 }

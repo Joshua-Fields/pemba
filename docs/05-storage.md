@@ -102,8 +102,17 @@ pub trait SqlStore: WritableStore {
     fn with_write_txn<T>(&self, f: &mut dyn FnMut(&mut dyn WriteTxn) -> Result<T, Error>)
         -> Result<T, Error>;
     fn dialect(&self) -> &dyn SqlDialect;
+    /// Foreign writes (§10): is this caller transaction on the store's database?
+    /// Mismatch -> Err(ForeignConnectionMismatch). Added in T2.2 (OQ-026).
+    fn check_same_database(&self, txn: &mut dyn WriteTxn) -> Result<(), Error>;
 }
 ```
+
+`StoreError::Conflict { message }` (T2.2, OQ-026): the transaction lost a lock race — on
+SQLite, `SQLITE_BUSY_SNAPSHOT` (a deferred transaction read before another connection
+committed and cannot upgrade to a write lock) or `SQLITE_BUSY`/`SQLITE_LOCKED` past the busy
+timeout. `StoreError::is_retryable()` is true for it: roll back and rerun the whole
+transaction.
 
 Result order (T2.1): every read that returns a list has a fixed order, compared byte-wise on
 the storage columns (SQLite `BINARY` collation; wildcard id `*`, absent subject relation
@@ -172,7 +181,7 @@ CREATE TABLE IF NOT EXISTS warden_meta (
 -- rows: ('storage_version','1'), ('gc_horizon','0'), ('created_at', ISO-8601)
 
 CREATE TABLE IF NOT EXISTS warden_revisions (
-    rev          INTEGER PRIMARY KEY AUTOINCREMENT,   -- AUTOINCREMENT: never reuse ids
+    rev          INTEGER PRIMARY KEY AUTOINCREMENT,   -- AUTOINCREMENT: never reuse committed ids
     committed_at TEXT NOT NULL,                       -- ISO-8601 UTC, informational
     kind         TEXT NOT NULL                        -- 'write' | 'schema' | 'delete_filter'
 );
@@ -231,10 +240,12 @@ should use WAL for concurrency.
 ### 4.1 Migrations
 
 - `warden_meta.storage_version` tracks the engine's table layout. MVP ships version `1`.
-- `Engine::migrate()` (explicit) creates/upgrades tables inside one transaction.
-- `Engine::open()` checks the version: missing tables → `Err(NotMigrated)` unless
-  `EngineConfig::auto_migrate = true` (default `true` for SQLite file convenience, `false`
-  documented as recommended for production).
+- `SqliteStore::migrate(path, &config)` (explicit) creates/upgrades tables inside one
+  transaction.
+- `SqliteStore::open()` checks the version: missing tables → `Err(NotMigrated)` unless
+  `SqliteConfig::auto_migrate = true` (default `true` for SQLite file convenience, `false`
+  documented as recommended for production). Migration is a store concern; the engine has
+  no `migrate` and no `auto_migrate` (OQ-025 (d)).
 - Newer `storage_version` than the library knows → `Err(StorageVersionTooNew)`.
 - Migrations are a static ordered list of SQL scripts in `warden-store-sqlite/migrations/`.
 
@@ -255,7 +266,11 @@ should use WAL for concurrency.
 
 ## 5. Write algorithm (shared, in `warden-core::write`)
 
-Inside one transaction (`WriteTxn`), in this order:
+Inside one transaction (`WriteTxn`), in this order. Implemented once as
+`warden_core::write::write`; steps 3–6 run inside `SAVEPOINT warden_write`, rolled back to on
+any error, so a failed write leaves a caller-owned transaction as it found it (OQ-026).
+`write_schema` (§7) and `gc` (§8) are in the same module. The function never begins, commits
+or rolls back the transaction itself.
 
 ```text
 1. validate all ops against the current schema (docs/02 §6)        -- no SQL
@@ -281,6 +296,12 @@ Inside one transaction (`WriteTxn`), in this order:
 Use **prepared, cached statements** (`prepare_cached`) on the native path. Statement text is
 produced by `SqlDialect` so Postgres can reuse the algorithm.
 
+SQLite (T2.2): `SqliteStore`'s `WritableStore` methods call these functions through
+`with_write_txn`, which runs `BEGIN IMMEDIATE` on the writer connection; `SqliteTxn` (a
+`WriteTxn` over a `&rusqlite::Transaction`, statements via `prepare_cached`) serves both that
+path and a caller's transaction for `Engine::write_in`. `committed_at` is computed in Rust
+(UTC, millisecond ISO-8601) so the statement stays portable.
+
 ### 5.1 Why revision order equals commit order on SQLite
 
 SQLite allows one write transaction at a time. Step 4 runs while the transaction holds the
@@ -289,6 +310,12 @@ revision allocations and commits. **Requirement for foreign transactions:** the 
 statement of the write must acquire the write lock (true for any INSERT), and the app must
 not hold a read snapshot older than another writer's commit. Document this; `BEGIN IMMEDIATE`
 is recommended for app transactions that call `engine.write(..., conn=...)`.
+
+If a deferred caller transaction has read (e.g. the precondition `SELECT` of step 3) and
+another connection commits before its first write, SQLite refuses the lock upgrade with
+`SQLITE_BUSY_SNAPSHOT`: the write fails with the retryable `StoreError::Conflict` and never
+commits on a stale precondition (tested in T2.2,
+`precondition_race_in_a_deferred_transaction_is_a_retryable_conflict`).
 
 ### 5.2 Head revision
 
@@ -383,7 +410,8 @@ and without `ANALYZE` statistics.
   DELETE FROM warden_relationships WHERE deleted_rev IS NOT NULL AND deleted_rev <= ?keep_from;
   UPDATE warden_meta SET value = ?keep_from WHERE key = 'gc_horizon';
   ```
-  in batches of 10 000 rows per transaction to avoid long write locks.
+  in batches of 10 000 rows per transaction to avoid long write locks (T2.6; until then
+  `warden_core::write::gc` deletes in one statement).
 - After GC, `Exact(r)` with `r < keep_from` → `Err(RevisionExpired)`.
 - Optionally prune `warden_revisions` rows below the horizon except the newest (keep head).
 - No automatic GC in the MVP. Document a recommended cron (e.g. keep 24h of history).

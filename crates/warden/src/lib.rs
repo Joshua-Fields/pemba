@@ -8,3 +8,5 @@
 pub use warden_core::*;
 #[cfg(feature = "memory")]
 pub use warden_store_memory::MemoryStore;
+#[cfg(feature = "sqlite")]
+pub use warden_store_sqlite::{SqliteConfig, SqliteStore, SqliteTxn, Synchronous};
