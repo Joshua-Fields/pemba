@@ -4,3 +4,7 @@
 //! features. See `docs/00-overview.md`.
 
 #![forbid(unsafe_code)]
+
+pub use warden_core::*;
+#[cfg(feature = "memory")]
+pub use warden_store_memory::MemoryStore;

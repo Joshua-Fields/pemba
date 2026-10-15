@@ -169,7 +169,12 @@ it is resolved.
   this costs the SQLite store a head/horizon check per read (or per request, if reads are
   later batched in one read transaction)
 - Resolve by: human review; revisit (d) if it shows up in T3.5 benchmarks
-- Resolution: (fill in)
+- Resolution: resolved in T1.2 by the human. (a)–(c) stand as pinned by the conformance
+  suite. (d): the engine resolves `Consistency` to one revision and validates it against
+  `gc_horizon`/head once per request (authoritative reads, never a cache); the store keeps
+  its per-read range check as a backstop but compares against a horizon cached in memory,
+  never an extra query. Documented in `05` §2 ("Revision checks"), including the
+  cross-process GC caveat T2.3 must close (run the check and the reads in one snapshot)
 
 ## OQ-016 — Order of write errors: duplicates before preconditions
 - Raised in: T1.1 (`docs/02-data-model.md` §5 lists preconditions before duplicates;
@@ -179,4 +184,26 @@ it is resolved.
   then `Create` conflicts. Only affects which error a batch with several problems reports.
   Tested in the conformance suite
 - Resolve by: human review
+- Resolution: resolved in T1.2 by the human. Duplicates are checked before preconditions.
+  `02` §5 now lists the full order (batch size, schema present, validation, duplicates,
+  preconditions, revision, ops/`AlreadyExists`), matching `05` §5. Tested at the engine
+  level in `crates/warden/tests/engine.rs` as well as in the conformance suite
+
+## OQ-017 — Codes for relationship validation; validating filters
+- Raised in: T1.2 (`docs/02-data-model.md` §6 named only `E_WRITE_TO_PERMISSION`;
+  `docs/06-api.md` §1.1 types `InvalidRelationship.code` as `ErrorCode`)
+- Blocking: no
+- Current choice: (a) codes are new variants of `warden_schema::ErrorCode`, one namespace
+  with schema diagnostics as fixtures' `expectErrors` expects: undefined resource type reuses
+  `E_UNKNOWN_TYPE`; undefined relation is `E_UNKNOWN_RELATION`; a permission is
+  `E_WRITE_TO_PERMISSION`; any subject not in the allowed list, including an undefined
+  subject type or subject relation, is `E_SUBJECT_TYPE_NOT_ALLOWED`. `Delete` ops are
+  validated too. (b) `read_relationships` filters and precondition filters must name only
+  defined types, relations (not permissions) and subject relations, else `InvalidRequest`:
+  such a filter can never match, and a typo in `MustNotExist` would otherwise pass silently.
+  (c) Batch size is checked before anything else, so an oversized batch never pays for
+  validation. Preconditions are not counted against `max_write_batch`. Spec `02` §5–6 and
+  `06` §1 updated
+- Resolve by: human review; revisit validating `Delete` ops of tuples left behind by a schema
+  change once T2.6 lands (it should then be impossible)
 - Resolution: (fill in)

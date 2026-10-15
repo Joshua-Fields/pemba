@@ -48,6 +48,45 @@ pub struct EngineConfig {
 }
 ```
 
+Supporting types (defined in T1.2):
+
+```rust
+pub struct EngineBuilder<S> { /* store: Option<S>, config */ }
+impl<S: WritableStore> EngineBuilder<S> {
+    pub fn store(self, store: S) -> Self;               // required
+    pub fn config(self, config: EngineConfig) -> Self;  // default EngineConfig::default()
+    /// InvalidRequest if no store, or max_write_batch / max_lookup_results is 0;
+    /// Schema if the store's current schema no longer compiles. Loads that schema.
+    pub fn build(self) -> Result<Engine<S>, Error>;
+}
+
+pub struct SchemaWriteResult {
+    pub version: u64,                   // current schema version (1, 2, ...)
+    pub revision: Revision,             // revision that version was written at
+    pub changed: bool,                  // false: same hash as current, nothing written
+    pub warnings: Vec<SchemaError>,     // W_... diagnostics
+}
+
+pub struct ReadRelationshipsRequest {
+    pub filter: RelationshipFilter,
+    pub consistency: Consistency,       // ::new(filter) gives Latest
+    pub limit: Option<u32>,             // None = max_lookup_results; 0 or > max -> InvalidRequest
+    pub cursor: Option<Relationship>,   // exclusive keyset cursor (previous next_cursor)
+}
+pub struct ReadRelationshipsResponse {
+    pub relationships: Vec<Relationship>, // storage-column order (05 §2)
+    pub revision: Revision,               // pass Consistency::Exact(revision) for later pages
+    pub next_cursor: Option<Relationship>,// None on the last page
+}
+```
+
+`write` checks, in order: batch size, schema present, op validation (`02` §6), precondition
+filters, then the store's duplicates, preconditions and `Create` conflicts (`02` §5).
+`read_relationships` and precondition filters must name only types, relations (not
+permissions) and subject relations the schema defines, else `InvalidRequest` (OQ-017).
+`write_schema` with the same hash as the current schema is a no-op (`05` §7); the orphan
+check arrives in T2.6.
+
 Ergonomic helpers (thin wrappers, all tested):
 
 ```rust
@@ -92,8 +131,14 @@ pub enum Error {
     Store(StoreError),
 }
 ```
+`InvalidRelationship.code` is a `warden_schema::ErrorCode` (`E_UNKNOWN_TYPE`,
+`E_UNKNOWN_RELATION`, `E_WRITE_TO_PERMISSION`, `E_SUBJECT_TYPE_NOT_ALLOWED`; `02` §6).
 Every variant has a stable machine code (`Error::code() -> &'static str`, e.g.
-`"MAX_DEPTH_EXCEEDED"`) used by the Python exception mapping.
+`"MAX_DEPTH_EXCEEDED"`) used by the Python exception mapping. Codes so far: `SCHEMA_ERROR`,
+`NO_SCHEMA`, `INVALID_RELATIONSHIP`, `INVALID_REQUEST`, `DUPLICATE_IN_BATCH`,
+`ALREADY_EXISTS`, `PRECONDITION_FAILED`, `BATCH_TOO_LARGE`, `REVISION_NOT_YET_AVAILABLE`,
+`REVISION_EXPIRED`, `STORE_ERROR`; variants added later use their name in SCREAMING_SNAKE
+case.
 
 ---
 

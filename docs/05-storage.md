@@ -109,6 +109,25 @@ return a revision, schema version or GC stats without boxing, and nothing needs 
 `dyn SqlStore` (`Engine<S>` is generic; foreign writes use a `WriteTxn` directly). The
 memory store implements `WritableStore` natively and not `SqlStore`.
 
+Revision checks (OQ-015):
+- The **engine** resolves a request's `Consistency` to exactly one revision and validates it
+  against `head_revision()` and `gc_horizon()` **once per request**, at the start
+  (`docs/02-data-model.md` §4), reporting `RevisionNotYetAvailable` / `RevisionExpired`.
+  These two calls are authoritative: on SQLite they read the database (the horizon query can
+  piggyback on the head query), never a cache.
+- Every store read still checks its `rev` against `gc_horizon..=head` (§1 rule 3) as a
+  fail-closed backstop, but that check must cost **no extra query**: it compares against a
+  horizon cached in memory (the memory store holds it in `Inner`; the SQLite store caches
+  `warden_meta.gc_horizon`, refreshed by its own `gc` and whenever `gc_horizon()` is called)
+  and the head last observed the same way.
+- A backstop failure because a GC moved the horizon after the engine resolved the revision
+  surfaces as `RevisionExpired`, not as a store error.
+- Caveat for SQLite (T2.3): a cached horizon cannot see a GC run by **another process**
+  between the engine's check and a later read in the same request, and such a read could
+  silently miss rows. T2.3 must close this gap, e.g. by running a request's horizon check
+  and all its reads in one read transaction (one WAL snapshot), so a concurrent GC is either
+  wholly visible to the check or not yet visible to the reads.
+
 ---
 
 ## 3. In-memory store (`warden-store-memory`)

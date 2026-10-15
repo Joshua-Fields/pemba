@@ -51,6 +51,18 @@ pub enum ErrorCode {
     /// A relation or permission named like a keyword.
     ReservedName,
 
+    // ---- relationship validation (`docs/02-data-model.md` §6) ----
+    // Not schema diagnostics: carried by `warden_core::Error::InvalidRelationship` when a
+    // written relationship does not fit the schema. An undefined resource type reuses
+    // `UnknownType`. They share this enum so one code namespace covers schema and write
+    // failures (`expectErrors` in fixtures, `docs/07-testing.md` §3).
+    /// The relationship names a relation the resource type does not define.
+    UnknownRelation,
+    /// The relationship names a permission, which is computed and cannot be written.
+    WriteToPermission,
+    /// The relationship's subject matches none of the relation's allowed subject types.
+    SubjectTypeNotAllowed,
+
     // ---- warnings (§5) ----
     /// A wildcard relation flows into a write-like permission.
     WildcardOnWriteLikePermission,
@@ -83,6 +95,9 @@ impl ErrorCode {
             Self::EmptyRelationTypes => "E_EMPTY_RELATION_TYPES",
             Self::DuplicateAllowedType => "E_DUPLICATE_ALLOWED_TYPE",
             Self::ReservedName => "E_RESERVED_NAME",
+            Self::UnknownRelation => "E_UNKNOWN_RELATION",
+            Self::WriteToPermission => "E_WRITE_TO_PERMISSION",
+            Self::SubjectTypeNotAllowed => "E_SUBJECT_TYPE_NOT_ALLOWED",
             Self::WildcardOnWriteLikePermission => "W_WILDCARD_ON_WRITE_LIKE_PERMISSION",
             Self::UnusedRelation => "W_UNUSED_RELATION",
             Self::DanglingDocComment => "W_DANGLING_DOC_COMMENT",

@@ -167,30 +167,47 @@ pub struct WriteRequest {
 }
 ```
 
-Batch semantics (all-or-nothing):
-1. Validate every op against the current schema (§6). Any failure → `Err(InvalidRelationship)`, nothing written.
-2. Check preconditions at the current head (inside the write transaction). Failure → `Err(PreconditionFailed)`.
-3. The same relationship may not appear twice in one batch → `Err(DuplicateInBatch)`.
-4. Allocate a new revision `R`.
-5. Apply ops: `Create`/`Touch` insert with `created_rev = R`; `Delete` sets `deleted_rev = R`
-   on the visible row.
-6. If no op changed anything (all Touch-existing / Delete-absent), **still** allocate the
-   revision (simpler, monotonic, harmless). Return it.
-7. Max ops per batch: 1000 (configurable `EngineConfig::max_write_batch`).
+Batch semantics (all-or-nothing), checked in this order; the first failure aborts the
+batch and nothing is written (OQ-016):
+1. More than `EngineConfig::max_write_batch` ops (default 1000) → `Err(BatchTooLarge)`.
+2. No schema written yet → `Err(NoSchema)`.
+3. Validate every op, `Delete` included, against the current schema (§6). The first failure
+   → `Err(InvalidRelationship)`. A precondition filter naming a type, relation or subject
+   relation the schema does not define, or a permission as its relation, →
+   `Err(InvalidRequest)` (such a filter can never match, so a typo would make
+   `MustNotExist` pass silently; OQ-017).
+4. The same relationship may not appear twice in one batch, whatever the ops →
+   `Err(DuplicateInBatch)`.
+5. Check preconditions over live tuples at the current head (inside the write
+   transaction). The first failure → `Err(PreconditionFailed { index })`.
+6. Allocate a new revision `R`.
+7. Apply ops: `Create`/`Touch` insert with `created_rev = R`; `Delete` sets `deleted_rev = R`
+   on the visible row. `Create` of a live tuple → `Err(AlreadyExists)`.
+8. If no op changed anything (all Touch-existing / Delete-absent, or no ops), **still**
+   allocate the revision (simpler, monotonic, harmless). Return it.
+
+Steps 1–3 are the engine's; steps 4–8 are the store's (`docs/05-storage.md` §5).
 
 `DeleteByFilter(RelationshipFilter)` is a separate API (`delete_relationships`), same
 transaction rules, max rows affected configurable (default 10 000), error if exceeded.
 
 ## 6. Relationship validation against the schema
 
-A `Relationship` is valid iff:
-1. `resource.object_type` is a defined type.
-2. `relation` is a **relation** (not a permission) on that type → else `E_WRITE_TO_PERMISSION`.
-3. The subject matches one of the relation's allowed subject types:
+A `Relationship` is valid iff (checked in this order; the error is
+`InvalidRelationship { rel, code, message }` with `rel` in tuple-string syntax):
+1. `resource.object_type` is a defined type → else `E_UNKNOWN_TYPE`.
+2. `relation` is defined on that type → else `E_UNKNOWN_RELATION`; and is a **relation**
+   (not a permission) → else `E_WRITE_TO_PERMISSION`.
+3. The subject matches one of the relation's allowed subject types → else
+   `E_SUBJECT_TYPE_NOT_ALLOWED` (this includes a subject type or subject relation the schema
+   does not define at all):
    - `Object(t:id)` matches allowed `t`.
    - `Set(t:id#r)` matches allowed `t#r` exactly.
    - `Wildcard(t)` matches allowed `t:*`.
-4. IDs satisfy §1.2.
+4. IDs satisfy §1.2 (guaranteed by construction: `ObjectId` cannot hold an invalid id).
+
+The codes are variants of `warden_schema::ErrorCode`, so schema and write failures share one
+code namespace (`expectErrors` in fixtures, `docs/07-testing.md` §3). OQ-017.
 
 ## 7. Limits (defaults in `EngineConfig`)
 
