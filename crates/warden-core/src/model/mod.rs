@@ -16,4 +16,4 @@ pub use error::{Component, IdentErrorKind, ParseError, ParseErrorReason};
 pub use names::{ObjectId, RelName, TypeName};
 pub use refs::{ObjectRef, Relationship, SubjectRef};
 pub use revision::{Consistency, Revision};
-pub use write::{RelationshipFilter, WriteOp};
+pub use write::{Precondition, RelationshipFilter, WriteOp, WriteRequest};

@@ -4,3 +4,5 @@
 //! Implements `docs/07-testing.md`.
 
 #![forbid(unsafe_code)]
+
+pub mod store_conformance;

@@ -7,8 +7,9 @@ use super::error::{Component, Fail, ParseError, ParseErrorReason};
 
 /// Monotonic, store-assigned. `0` means nothing has been written yet.
 ///
-/// Text form: decimal digits with no sign and no leading zeros, e.g. `42`.
-#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
+/// Text form: decimal digits with no sign and no leading zeros, e.g. `42`. The default is
+/// `Revision(0)`.
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Default)]
 pub struct Revision(pub u64);
 
 /// Which revision a read evaluates at; resolved once per request.

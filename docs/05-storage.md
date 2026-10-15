@@ -12,7 +12,9 @@ Crates: traits in `warden-core::store`; implementations in `warden-store-memory`
    one place, `warden-core::write`, generic over the `WriteTxn` trait (ADR-006). Stores only
    supply SQL text and a transaction handle. The memory store implements the same logic
    natively but must pass the same conformance suite (§9).
-3. Every read is at an explicit `Revision`.
+3. Every read is at an explicit `Revision`, which must lie in `gc_horizon..=head`; outside
+   that range a read fails with `StoreError::RevisionOutOfRange` (fail closed: below the
+   horizon history is incomplete, above head a later commit could change the answer).
 4. Stores are `Send + Sync`.
 
 ---
@@ -36,11 +38,13 @@ pub trait ReadStore: Send + Sync {
     fn read_related_objects(&self, rev: Revision, resource: &ObjectRef, relation: &RelName)
         -> Result<Vec<ObjectRef>, StoreError>;
 
-    /// Reverse index read for lookups. See §6.3 for the SQL.
+    /// Reverse index read for lookups: *distinct* pairs, ordered. See §6.3 for the SQL.
     fn read_reverse(&self, rev: Revision, f: &ReverseFilter)
         -> Result<Vec<(ObjectRef, RelName)>, StoreError>;   // (resource, relation)
 
-    /// General filtered read for read_relationships / tooling, ordered, paginated.
+    /// General filtered read for read_relationships / tooling, paginated. Ordered by the six
+    /// storage columns (resource_type, resource_id, relation, subject_type, subject_id,
+    /// subject_relation) byte-wise; `after` is an exclusive keyset cursor in that order.
     fn read_relationships(&self, rev: Revision, f: &RelationshipFilter,
                           limit: u32, after: Option<&Relationship>)
         -> Result<Vec<Relationship>, StoreError>;
@@ -49,7 +53,8 @@ pub trait ReadStore: Send + Sync {
     fn read_tuples(&self, rev: Revision, resource: &ObjectRef, relation: &RelName)
         -> Result<Vec<SubjectRef>, StoreError>;
 
-    /// Counts for schema-change safety checks (§7).
+    /// Counts for schema-change safety checks (§7), grouped by (resource_type, relation,
+    /// subject_type, subject_relation, wildcard).
     fn count_by_relation(&self, rev: Revision) -> Result<Vec<RelationCount>, StoreError>;
 
     fn current_schema(&self) -> Result<Option<StoredSchema>, StoreError>;
@@ -77,7 +82,19 @@ pub trait SqlDialect: Send + Sync {
     fn table(&self, name: &str) -> String;       // applies TABLE_PREFIX and optional schema
 }
 
+/// Typed mutations every store supports (OQ-014). Each call is one atomic transaction.
 pub trait WritableStore: ReadStore {
+    /// Steps 2–6 of §5; validation (step 1) is the engine's job.
+    fn write(&self, req: &WriteRequest) -> Result<Revision, Error>;
+    /// New schema version at a new revision (kind 'schema'). Always writes; hash
+    /// de-duplication and orphan checks (§7) are the engine's job.
+    fn write_schema(&self, source: &str, hash: &str) -> Result<StoredSchema, Error>;
+    /// §8. Horizon never moves down; keep_from > head -> InvalidRequest. Commits no revision.
+    fn gc(&self, keep_from: Revision) -> Result<GcStats, Error>;
+}
+
+/// SQL-backed stores: the shared write logic (§5) runs over their `WriteTxn`.
+pub trait SqlStore: WritableStore {
     /// Engine-managed transaction: begin, run f, commit (rollback on Err).
     fn with_write_txn<T>(&self, f: &mut dyn FnMut(&mut dyn WriteTxn) -> Result<T, Error>)
         -> Result<T, Error>;
@@ -85,8 +102,12 @@ pub trait WritableStore: ReadStore {
 }
 ```
 
-(Object-safety: `with_write_txn` is generic; if `dyn WritableStore` is needed, make the
-closure return `Result<Revision, Error>` concretely. Implementer's choice — document it.)
+Object safety (decided in T1.1): `ReadStore` and `WritableStore` are object-safe, so the
+evaluator, tooling and the conformance suite can use `&dyn ReadStore` / `&dyn WritableStore`.
+`SqlStore` is not: `with_write_txn` stays generic over the closure's result so callers can
+return a revision, schema version or GC stats without boxing, and nothing needs a
+`dyn SqlStore` (`Engine<S>` is generic; foreign writes use a `WriteTxn` directly). The
+memory store implements `WritableStore` natively and not `SqlStore`.
 
 ---
 
@@ -94,8 +115,11 @@ closure return `Result<Revision, Error>` concretely. Implementer's choice — do
 
 - `RwLock<Inner>`; `Inner` holds `Vec<Row>` plus indexes:
   - `fwd: HashMap<(TypeName, ObjectId, RelName), Vec<RowIdx>>`
-  - `rev: HashMap<(TypeName, String /*subject id*/, Option<RelName>), Vec<RowIdx>>`
-  - `head: Revision`, `revisions: Vec<RevisionInfo>`, `schema_versions: Vec<StoredSchema>`
+  - `rev: HashMap<(TypeName, String /*subject id*/), Vec<RowIdx>>` (no subject relation in
+    the key, so `SubjectRelMatch::Any` is a single lookup)
+  - `live: HashMap<Relationship, RowIdx>` (the partial unique index)
+  - `head: Revision`, `horizon: Revision`, `schema_versions: Vec<StoredSchema>` (no
+    per-revision info: nothing reads `committed_at`/`kind` through the traits)
 - `Row { rel: Relationship, created: Revision, deleted: Option<Revision> }`.
 - Implements the write algorithm (§5) directly against `Inner` under the write lock.
 - Must pass the store conformance suite (§9). Not persistent; per-process.
@@ -261,7 +285,7 @@ ORDER BY subject_type, subject_id, subject_relation;
 
 ### 6.3 `read_reverse`
 ```sql
-SELECT resource_type, resource_id, relation FROM warden_relationships
+SELECT DISTINCT resource_type, resource_id, relation FROM warden_relationships
 WHERE subject_type=? AND subject_id=?
   [AND subject_relation = ?]                   -- Exact(rel); None -> = ''; Any -> omit
   [AND resource_type = ?] [AND relation = ?]
@@ -279,9 +303,10 @@ uses an index (no full `SCAN warden_relationships`).
 - Else compute the diff of removed relations / allowed types / types, then inside one write
   transaction run `count_by_relation`-style queries at head:
   ```sql
-  SELECT resource_type, relation, subject_type, subject_relation, COUNT(*)
+  SELECT resource_type, relation, subject_type, subject_relation,
+         subject_id = '*' AS wildcard, COUNT(*)
   FROM warden_relationships WHERE deleted_rev IS NULL
-  GROUP BY resource_type, relation, subject_type, subject_relation;
+  GROUP BY resource_type, relation, subject_type, subject_relation, wildcard;
   ```
   and refuse with `E_SCHEMA_CHANGE_ORPHANS` if any removed element has rows.
 - Insert a `warden_revisions` row (`kind='schema'`) and the `warden_schema` row with that
@@ -315,7 +340,9 @@ uses an index (no full `SCAN warden_relationships`).
 suite every store must pass, invoked from each store crate's tests. Covers:
 visibility at revisions, Touch/Create/Delete semantics, duplicates, preconditions,
 monotonic revisions, read_reverse filters, pagination ordering, GC horizon errors,
-schema version storage, concurrent writer + readers (threads) never observing a partial batch.
+schema version storage, concurrent writer + readers (threads) never observing a partial batch,
+reads outside `gc_horizon..=head` failing. Cases drive the store only through
+`&dyn WritableStore`; `run` gives each case a fresh store and reports every failing case.
 
 ---
 

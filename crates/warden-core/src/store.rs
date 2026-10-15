@@ -1,0 +1,380 @@
+//! Store traits (`docs/05-storage.md` §2).
+//!
+//! The evaluator talks only to [`ReadStore`]. Writes, schema versions and GC go through
+//! [`WritableStore`]. SQL-backed stores additionally implement [`SqlStore`], which hands the
+//! shared write logic a [`WriteTxn`] so the same SQL can run on the engine's connection or
+//! inside the application's own transaction (ADR-006).
+//!
+//! # Object safety
+//!
+//! [`ReadStore`] and [`WritableStore`] are object-safe: every method is concrete, so the
+//! evaluator and tooling can take `&dyn ReadStore` / `&dyn WritableStore` where that keeps
+//! code size down. [`SqlStore`] is deliberately **not** object-safe: `with_write_txn` is
+//! generic over the closure's result so callers can return whatever the transaction
+//! produces (a revision, a schema version, GC stats) without boxing. Nothing needs a
+//! `dyn SqlStore`: `Engine<S>` is generic over its store, and foreign-transaction writes
+//! use a [`WriteTxn`] directly. If a `dyn SqlStore` is ever needed, fix the closure's
+//! result to `Result<Revision, Error>` as `docs/05-storage.md` §2 allows.
+//!
+//! # Revisions
+//!
+//! Every read takes an explicit revision `rev` and sees exactly the tuples visible at it:
+//! `created_rev <= rev && (deleted_rev is none || deleted_rev > rev)`
+//! (`docs/02-data-model.md` §4). `rev` must lie in `gc_horizon()..=head_revision()`;
+//! outside that range a read fails with [`StoreError::RevisionOutOfRange`] rather than
+//! returning an answer from incomplete history (below the horizon) or one that a later
+//! commit could change (above head).
+//!
+//! # Ordering
+//!
+//! Results are ordered by their storage columns compared byte-wise, matching SQLite's
+//! `BINARY` collation: a wildcard subject has id `"*"` and an absent subject relation is
+//! `""` (see [`subject_columns`] and [`relationship_columns`]).
+
+use std::cmp::Ordering;
+
+use crate::error::Error;
+use crate::model::{
+    ObjectRef, RelName, Relationship, RelationshipFilter, Revision, SubjectRef, TypeName,
+    WriteRequest,
+};
+
+/// A store failure, as opposed to a rejected request.
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum StoreError {
+    /// A read named a revision outside `horizon..=head`.
+    #[error("revision {requested} is outside the readable range {horizon}..={head}")]
+    RevisionOutOfRange {
+        /// The revision asked for.
+        requested: Revision,
+        /// The GC horizon at the time of the read.
+        horizon: Revision,
+        /// The head revision at the time of the read.
+        head: Revision,
+    },
+    /// The database rejected a row because a unique index already had it.
+    #[error("unique constraint violated: {message}")]
+    UniqueViolation {
+        /// Driver message.
+        message: String,
+    },
+    /// An error from a caller-supplied (foreign) connection.
+    #[error("foreign connection error: {message}")]
+    Foreign {
+        /// Driver message.
+        message: String,
+    },
+    /// A thread panicked while holding the store's lock, so its state cannot be trusted.
+    #[error("store lock poisoned by a panic in another thread")]
+    Poisoned,
+    /// The revision counter is at `u64::MAX`; no further revision can be allocated.
+    #[error("revision counter exhausted")]
+    RevisionsExhausted,
+}
+
+/// Which stored subject relations a [`ReverseFilter`] matches.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum SubjectRelMatch {
+    /// Only subjects without a relation (objects and wildcards).
+    None,
+    /// Only subject sets with exactly this relation.
+    Exact(RelName),
+    /// Any subject relation, or none.
+    Any,
+}
+
+/// Reverse-index read: which `(resource, relation)` pairs have this subject?
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct ReverseFilter {
+    /// Subject type.
+    pub subject_type: TypeName,
+    /// Subject id; `"*"` matches wildcard subjects.
+    pub subject_id: String,
+    /// Subject relation to match.
+    pub subject_relation: SubjectRelMatch,
+    /// Restrict to resources of this type.
+    pub resource_type: Option<TypeName>,
+    /// Restrict to this resource relation.
+    pub relation: Option<RelName>,
+}
+
+/// Live-tuple count for one `(resource_type, relation, subject kind)` group, used by
+/// schema-change safety checks (`docs/05-storage.md` §7).
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct RelationCount {
+    /// Resource type.
+    pub resource_type: TypeName,
+    /// Resource relation.
+    pub relation: RelName,
+    /// Subject type.
+    pub subject_type: TypeName,
+    /// Subject relation, if the tuples are subject sets.
+    pub subject_relation: Option<RelName>,
+    /// Whether the tuples are wildcards (`t:*`), counted apart from objects of `t` so
+    /// that removing `t:*` from a relation's allowed types is caught.
+    pub wildcard: bool,
+    /// Number of visible tuples in the group.
+    pub count: u64,
+}
+
+/// One stored schema version.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct StoredSchema {
+    /// 1 for the first schema written, then increasing by one.
+    pub version: u64,
+    /// Schema source exactly as written.
+    pub source: String,
+    /// Hex SHA-256 of the normalised source (`CompiledSchema::hash`).
+    pub hash: String,
+    /// The revision the schema write committed at.
+    pub created_rev: Revision,
+}
+
+/// Outcome of [`WritableStore::gc`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct GcStats {
+    /// Deleted tuple rows physically removed.
+    pub rows_removed: u64,
+    /// The GC horizon after the call.
+    pub horizon: Revision,
+}
+
+/// Read access at explicit revisions. All the evaluator ever sees of a store.
+pub trait ReadStore: Send + Sync {
+    /// Highest committed revision; `Revision(0)` for an empty store.
+    ///
+    /// # Errors
+    ///
+    /// A [`StoreError`] if the backend fails.
+    fn head_revision(&self) -> Result<Revision, StoreError>;
+
+    /// Lowest readable revision; `Revision(0)` until the first GC.
+    ///
+    /// # Errors
+    ///
+    /// A [`StoreError`] if the backend fails.
+    fn gc_horizon(&self) -> Result<Revision, StoreError>;
+
+    /// Is this exact tuple visible at `rev`?
+    ///
+    /// # Errors
+    ///
+    /// [`StoreError::RevisionOutOfRange`] if `rev` is outside `gc_horizon..=head`; any
+    /// other [`StoreError`] if the backend fails.
+    fn exists(&self, rev: Revision, rel: &Relationship) -> Result<bool, StoreError>;
+
+    /// Visible subject *sets* on `resource#relation`, ordered by
+    /// (subject type, subject id, subject relation).
+    ///
+    /// # Errors
+    ///
+    /// [`StoreError::RevisionOutOfRange`] if `rev` is outside `gc_horizon..=head`; any
+    /// other [`StoreError`] if the backend fails.
+    fn read_subject_sets(
+        &self,
+        rev: Revision,
+        resource: &ObjectRef,
+        relation: &RelName,
+    ) -> Result<Vec<(ObjectRef, RelName)>, StoreError>;
+
+    /// Distinct objects related to `resource#relation`, ordered by (type, id). Subject
+    /// relations are dropped and wildcards excluded; used by arrows.
+    ///
+    /// # Errors
+    ///
+    /// [`StoreError::RevisionOutOfRange`] if `rev` is outside `gc_horizon..=head`; any
+    /// other [`StoreError`] if the backend fails.
+    fn read_related_objects(
+        &self,
+        rev: Revision,
+        resource: &ObjectRef,
+        relation: &RelName,
+    ) -> Result<Vec<ObjectRef>, StoreError>;
+
+    /// Distinct `(resource, relation)` pairs with a visible tuple matching `f`, ordered by
+    /// (resource type, resource id, relation).
+    ///
+    /// # Errors
+    ///
+    /// [`StoreError::RevisionOutOfRange`] if `rev` is outside `gc_horizon..=head`; any
+    /// other [`StoreError`] if the backend fails.
+    fn read_reverse(
+        &self,
+        rev: Revision,
+        f: &ReverseFilter,
+    ) -> Result<Vec<(ObjectRef, RelName)>, StoreError>;
+
+    /// Up to `limit` visible relationships matching `f`, in [`relationship_columns`] order,
+    /// starting strictly after `after` when given (keyset pagination).
+    ///
+    /// # Errors
+    ///
+    /// [`StoreError::RevisionOutOfRange`] if `rev` is outside `gc_horizon..=head`; any
+    /// other [`StoreError`] if the backend fails.
+    fn read_relationships(
+        &self,
+        rev: Revision,
+        f: &RelationshipFilter,
+        limit: u32,
+        after: Option<&Relationship>,
+    ) -> Result<Vec<Relationship>, StoreError>;
+
+    /// All visible subjects on `resource#relation`, ordered by [`subject_columns`].
+    ///
+    /// # Errors
+    ///
+    /// [`StoreError::RevisionOutOfRange`] if `rev` is outside `gc_horizon..=head`; any
+    /// other [`StoreError`] if the backend fails.
+    fn read_tuples(
+        &self,
+        rev: Revision,
+        resource: &ObjectRef,
+        relation: &RelName,
+    ) -> Result<Vec<SubjectRef>, StoreError>;
+
+    /// Visible tuple counts grouped as in [`RelationCount`], in its `Ord` order; groups
+    /// with no tuples are omitted.
+    ///
+    /// # Errors
+    ///
+    /// [`StoreError::RevisionOutOfRange`] if `rev` is outside `gc_horizon..=head`; any
+    /// other [`StoreError`] if the backend fails.
+    fn count_by_relation(&self, rev: Revision) -> Result<Vec<RelationCount>, StoreError>;
+
+    /// The latest stored schema, if any has been written.
+    ///
+    /// # Errors
+    ///
+    /// A [`StoreError`] if the backend fails.
+    fn current_schema(&self) -> Result<Option<StoredSchema>, StoreError>;
+}
+
+/// Mutations. Each method is one atomic transaction that commits at a new revision
+/// (except [`gc`](Self::gc), which commits none).
+pub trait WritableStore: ReadStore {
+    /// Applies a batch: steps 2–6 of the write algorithm (`docs/05-storage.md` §5).
+    ///
+    /// Validating the ops against the schema (step 1) is the caller's job. Allocates the
+    /// next revision even if no op changed anything, and returns it.
+    ///
+    /// # Errors
+    ///
+    /// Checked in this order, and on any error nothing is written and no revision is
+    /// committed: a relationship appearing twice → [`Error::DuplicateInBatch`]; a
+    /// precondition not holding over live tuples → [`Error::PreconditionFailed`]; a
+    /// `Create` of a live tuple → [`Error::AlreadyExists`]. Backend failures are
+    /// [`Error::Store`].
+    fn write(&self, req: &WriteRequest) -> Result<Revision, Error>;
+
+    /// Stores a new schema version at a new revision. Always writes: skipping an unchanged
+    /// hash and refusing orphaning changes are the engine's job (`docs/05-storage.md` §7).
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Store`] if the backend fails.
+    fn write_schema(&self, source: &str, hash: &str) -> Result<StoredSchema, Error>;
+
+    /// Physically removes tuples deleted at or before `keep_from` and raises the GC
+    /// horizon to `keep_from`, so reads below it fail from then on. The horizon never
+    /// moves down: a `keep_from` below it is a no-op.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::InvalidRequest`] if `keep_from` is above head; [`Error::Store`] if the
+    /// backend fails.
+    fn gc(&self, keep_from: Revision) -> Result<GcStats, Error>;
+}
+
+/// A parameter or result value in the portable SQL subset.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum SqlValue {
+    /// SQL `NULL`.
+    Null,
+    /// A 64-bit integer.
+    Integer(i64),
+    /// Text.
+    Text(String),
+}
+
+/// A transaction the shared write logic runs inside: the engine's own connection or a
+/// caller-supplied one (ADR-006).
+pub trait WriteTxn {
+    /// Runs a statement; returns the number of rows affected.
+    ///
+    /// # Errors
+    ///
+    /// A [`StoreError`] from the database or connection.
+    fn execute(&mut self, sql: &str, params: &[SqlValue]) -> Result<u64, StoreError>;
+    /// Runs a query; returns all rows.
+    ///
+    /// # Errors
+    ///
+    /// A [`StoreError`] from the database or connection.
+    fn query(&mut self, sql: &str, params: &[SqlValue]) -> Result<Vec<Vec<SqlValue>>, StoreError>;
+    /// Row id of the last `INSERT` on this transaction.
+    ///
+    /// # Errors
+    ///
+    /// A [`StoreError`] from the database or connection.
+    fn last_insert_id(&mut self) -> Result<i64, StoreError>;
+}
+
+/// The SQL differences between databases that the shared statements depend on.
+pub trait SqlDialect: Send + Sync {
+    /// The `n`th (1-based) positional placeholder: `?` for SQLite, `$n` for Postgres.
+    fn placeholder(&self, n: usize) -> String;
+    /// A table name with the table prefix and optional schema applied.
+    fn table(&self, name: &str) -> String;
+}
+
+/// A store whose writes are SQL, so the shared write algorithm can drive it.
+/// Not object-safe; see the [module docs](self#object-safety).
+pub trait SqlStore: WritableStore {
+    /// Engine-managed transaction: begin, run `f`, commit; roll back if `f` fails.
+    ///
+    /// # Errors
+    ///
+    /// Whatever `f` returns, or [`Error::Store`] if begin or commit fails.
+    fn with_write_txn<T>(
+        &self,
+        f: &mut dyn FnMut(&mut dyn WriteTxn) -> Result<T, Error>,
+    ) -> Result<T, Error>;
+
+    /// The SQL dialect for statements run through [`with_write_txn`](Self::with_write_txn).
+    fn dialect(&self) -> &dyn SqlDialect;
+}
+
+/// A subject's storage columns `(subject_type, subject_id, subject_relation)`: `"*"` is the
+/// id of a wildcard, `""` an absent relation. Store results order subjects by these,
+/// compared byte-wise.
+pub fn subject_columns(s: &SubjectRef) -> (&str, &str, &str) {
+    match s {
+        SubjectRef::Object(o) => (o.object_type.as_str(), o.object_id.as_str(), ""),
+        SubjectRef::Set { object, relation } => (
+            object.object_type.as_str(),
+            object.object_id.as_str(),
+            relation.as_str(),
+        ),
+        SubjectRef::Wildcard { object_type } => (object_type.as_str(), "*", ""),
+    }
+}
+
+/// A relationship's six storage columns in index order: resource type, resource id,
+/// relation, then [`subject_columns`]. [`ReadStore::read_relationships`] orders by these.
+pub fn relationship_columns(r: &Relationship) -> [&str; 6] {
+    let (st, sid, srel) = subject_columns(&r.subject);
+    [
+        r.resource.object_type.as_str(),
+        r.resource.object_id.as_str(),
+        r.relation.as_str(),
+        st,
+        sid,
+        srel,
+    ]
+}
+
+/// Compares relationships in [`relationship_columns`] order.
+pub fn cmp_relationships(a: &Relationship, b: &Relationship) -> Ordering {
+    relationship_columns(a).cmp(&relationship_columns(b))
+}

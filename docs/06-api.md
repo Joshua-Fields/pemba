@@ -20,7 +20,8 @@ impl<S: WritableStore> Engine<S> {
 
     // ---- writes ----
     pub fn write(&self, req: WriteRequest) -> Result<Revision, Error>;
-    pub fn write_in<T: WriteTxn>(&self, txn: &mut T, req: WriteRequest) -> Result<Revision, Error>;
+    pub fn write_in<T: WriteTxn>(&self, txn: &mut T, req: WriteRequest) -> Result<Revision, Error>
+        where S: SqlStore;                                   // SQL stores only (05 §2)
     pub fn delete_relationships(&self, filter: RelationshipFilter) -> Result<DeleteResult, Error>;
 
     // ---- reads ----

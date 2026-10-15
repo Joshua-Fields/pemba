@@ -138,3 +138,45 @@ it is resolved.
   in its `--help` text and in `06` §3 ("drops non-doc comments; does not modify files").
   Exit code 2 is documented for usage and I/O errors. A comment-preserving formatter is
   task T3.8 in `08`, before the 0.1 gate.
+
+## OQ-014 — Store write path: typed `WritableStore`, SQL in `SqlStore`
+- Raised in: T1.1 (`docs/05-storage.md` §2–3, §9)
+- Blocking: no
+- Current choice: as specified, `WritableStore` only had `with_write_txn` (SQL) and
+  `dialect`, which the memory store cannot implement, and the traits had no way to store a
+  schema version or run GC, although the conformance suite (§9) must test both through a
+  generic store. `WritableStore` now has typed methods (`write`, `write_schema`, `gc`) that
+  every store implements; `with_write_txn`/`dialect` moved to a sub-trait `SqlStore`, which
+  the SQLite store will implement and back its `WritableStore` methods with the shared
+  algorithm in `warden-core::write`. `Engine::write_in` requires `S: SqlStore`. Schema
+  validation (§5 step 1) stays in the engine, outside the store call. Spec `05` §2–3 and
+  `06` §1 updated. `delete_by_filter` will be added to `WritableStore` in T2.6
+- Resolve by: human review
+- Resolution: (fill in)
+
+## OQ-015 — Store result shapes the spec left open
+- Raised in: T1.1 (`docs/05-storage.md` §2, §6.3, §7)
+- Blocking: no
+- Current choice, all pinned by the conformance suite so SQLite must match:
+  (a) `read_reverse` returns *distinct* pairs; the §6.3 SQL had no `DISTINCT`, so a resource
+  reached through two subject relations (`Any`) appeared twice. Now `SELECT DISTINCT`.
+  (b) `read_relationships` orders by the six storage columns byte-wise (`BINARY` collation;
+  wildcard id `*`, absent subject relation `''`), `after` is an exclusive keyset cursor,
+  `limit = 0` returns nothing. (c) `count_by_relation` also groups by "is wildcard"; the §7
+  `GROUP BY` lumped `t:*` tuples with `t` objects, so removing `t:*` from a relation's
+  allowed types could not be checked for orphans. (d) every read at a revision outside
+  `gc_horizon..=head` fails with `StoreError::RevisionOutOfRange` instead of answering;
+  this costs the SQLite store a head/horizon check per read (or per request, if reads are
+  later batched in one read transaction)
+- Resolve by: human review; revisit (d) if it shows up in T3.5 benchmarks
+- Resolution: (fill in)
+
+## OQ-016 — Order of write errors: duplicates before preconditions
+- Raised in: T1.1 (`docs/02-data-model.md` §5 lists preconditions before duplicates;
+  `docs/05-storage.md` §5 lists duplicates first)
+- Blocking: no
+- Current choice: `05` §5 wins (more specific on storage): duplicates, then preconditions,
+  then `Create` conflicts. Only affects which error a batch with several problems reports.
+  Tested in the conformance suite
+- Resolve by: human review
+- Resolution: (fill in)
