@@ -18,3 +18,8 @@ workspace = true
 
 [dependencies]
 warden = { workspace = true, features = ["sqlite", "memory"] }
+warden-schema.workspace = true
+clap.workspace = true
+
+[dev-dependencies]
+insta.workspace = true

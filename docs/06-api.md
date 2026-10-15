@@ -219,4 +219,23 @@ warden test <fixture.yaml>...               runs fixture files (docs/07 §3); ex
 warden check --db app.db <tuple_string>     ad-hoc check against a SQLite store
 warden migrate --db app.db
 ```
-Use `clap` (derive). Output colours via `anstream`/`owo-colors`, disabled when not a TTY.
+Use `clap` (derive). Output colours via `anstream`/`owo-colors`, disabled when not a TTY
+(not yet implemented; output is plain text).
+
+`schema validate` writes diagnostics (with the file path in the location line) and a
+summary to stderr, and `<file>: ok` / `<file>: ok with N warnings` to stdout on success.
+
+`schema fmt` is **experimental**: it drops non-doc comments; it does not modify files.
+It prints the canonical form to stdout. Because plain `//` / `/* */` comments are dropped,
+`--check` fails on any file containing them (OQ-013; a comment-preserving formatter is
+T3.8). `--check` prints nothing on success and exits 1 with a one-line message if the file
+differs from its canonical form. A schema with errors makes `fmt` print the same
+diagnostics as `validate` and exit 1.
+
+Exit codes for every subcommand:
+
+| Code | Meaning |
+|---|---|
+| 0 | success (warnings alone do not fail `validate`) |
+| 1 | input rejected: schema errors, or `fmt --check` found a non-canonical file |
+| 2 | usage or I/O error: bad arguments, unreadable file, unwritable output |

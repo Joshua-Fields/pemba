@@ -1,0 +1,20 @@
+---
+source: crates/warden-schema/tests/print.rs
+expression: fmt(src)
+---
+definition user {}
+
+/**
+ * Documents.
+ *
+ *   Indented line.
+ */
+definition docs/document {
+    /** who may view */
+    relation viewer: user | user:*
+    relation owner: user
+    relation banned: user
+
+    permission view = (viewer + owner) - banned
+    permission edit = owner
+}

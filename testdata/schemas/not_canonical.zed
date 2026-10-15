@@ -1,0 +1,7 @@
+// A valid schema written untidily.
+definition user{}
+definition document {
+  permission view = (viewer + (owner))
+  relation owner: user
+    relation viewer: user|user:*
+}

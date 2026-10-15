@@ -193,8 +193,14 @@ fn display_width(s: &str) -> usize {
         .sum()
 }
 
-impl fmt::Display for SchemaError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl SchemaError {
+    /// Renders like `Display`, but with `path` in the location line
+    /// (`--> schema.zed:3:5`), as a tool reporting on a file would.
+    pub fn display_with_path<'a>(&'a self, path: &'a str) -> impl fmt::Display + 'a {
+        WithPath { error: self, path }
+    }
+
+    fn render(&self, f: &mut fmt::Formatter<'_>, path: Option<&str>) -> fmt::Result {
         let line_no = self.line.to_string();
         let pad = " ".repeat(line_no.len());
 
@@ -220,7 +226,10 @@ impl fmt::Display for SchemaError {
             "error"
         };
         writeln!(f, "{severity}[{}]: {}", self.code, self.message)?;
-        writeln!(f, "{pad}--> {}:{}", self.line, self.col)?;
+        match path {
+            Some(path) => writeln!(f, "{pad}--> {path}:{}:{}", self.line, self.col)?,
+            None => writeln!(f, "{pad}--> {}:{}", self.line, self.col)?,
+        }
         writeln!(f, "{pad} |")?;
         writeln!(f, "{}", format!("{line_no} | {shown}").trim_end())?;
         write!(
@@ -242,6 +251,23 @@ impl fmt::Display for SchemaError {
             write!(f, "\n{pad} = {label}: {}", text.replace('\n', &indent))?;
         }
         Ok(())
+    }
+}
+
+impl fmt::Display for SchemaError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.render(f, None)
+    }
+}
+
+struct WithPath<'a> {
+    error: &'a SchemaError,
+    path: &'a str,
+}
+
+impl fmt::Display for WithPath<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.error.render(f, Some(self.path))
     }
 }
 

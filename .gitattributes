@@ -1,0 +1,3 @@
+# Schema fixtures are compared byte-for-byte with canonical (LF) printer output, so
+# Windows checkouts must not convert them to CRLF.
+*.zed text eol=lf

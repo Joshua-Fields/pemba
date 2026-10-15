@@ -270,7 +270,7 @@ contribute ∅. (`BTreeMap` rather than `HashMap` so the IR has a deterministic 
 form; lookups are on a handful of entries.)
 
 Index lists are sorted and deduplicated. The `hash` field is produced by the pretty printer's
-normalisation and lands with T0.5.
+normalisation (§9).
 
 Derived indexes computed at compile time (used by lookups, `docs/04-evaluation.md` §5):
 - `used_by[(type, rel)]` → list of `(type, permission)` whose expression contains
@@ -310,7 +310,9 @@ pub struct Compiled { pub schema: CompiledSchema, pub warnings: Vec<SchemaError>
 ```
 Warnings use the same `SchemaError` type; `ErrorCode::is_warning()` is true for `W_` codes,
 and `Display` then says `warning[W_...]` instead of `error[E_...]`.
-`Display` renders rustc-style with a source excerpt and caret. Tests snapshot the rendered
+`Display` renders rustc-style with a source excerpt and caret.
+`SchemaError::display_with_path(path)` renders the same with the file in the location
+line (`--> schema.zed:3:5`), for tools such as the CLI. Tests snapshot the rendered
 output (`insta`).
 
 The parser (`warden_schema::parse`, source → AST with byte spans) stops at the first lexical
@@ -324,7 +326,32 @@ or syntax error: `E_UNEXPECTED_CHAR`, `E_UNTERMINATED_COMMENT`, `E_UNEXPECTED_TO
 `CompiledSchema::to_canonical_string()` emits normalised source: 4-space indent, one blank
 line between definitions, relations before permissions in original relative order, doc
 comments preserved, redundant parentheses removed only where the mixing rule still holds.
-Property: `compile(print(compile(s))) == compile(s)` (IR equality).
+Round-trip property (OQ-012). Printing moves relations ahead of permissions, which
+renumbers member `RelId`s when the input interleaves them, and a recompiled schema's
+`source` is the printed text, so literal IR equality `compile(print(compile(s))) ==
+compile(s)` does not hold in general. Instead, for every valid `s`, with `a = compile(s)`
+and `b = compile(print(a))`:
+1. **Same schema by name**: `a` and `b` are equal once every `TypeId`/`RelId` is replaced by
+   the name it stands for, and `a.hash == b.hash`.
+2. **Fixed point**: `print(b) == print(a)`, so `compile(print(b)) == b` exactly (the whole
+   `CompiledSchema`, `source` included): the IR round-trips exactly once it is canonical.
+3. **Stable ids for canonical order**: if `s` already lists relations before permissions in
+   every definition, `a.types == b.types`.
+
+Details fixed in T0.5:
+- A definition with no members prints as `definition name {}`. Inside a body, one blank line
+  separates the relation group from the permission group; no other blank lines.
+- Allowed types are joined with ` | `; binary operators are surrounded by single spaces.
+- `t.any(p)` prints as `t->p` (alias); `t.all(p)` is kept.
+- An operand is parenthesised iff it contains a binary operator, except the left operand of
+  `-` when it is itself an exclusion (`a - b - c`).
+- A doc comment prints as `/** text */` when the text is one line that is non-empty and does
+  not start with whitespace or `*`; otherwise as a `/**` … ` * line` … ` */` block, so the
+  parser reads back exactly the same text. Plain comments and dangling doc comments are
+  not printed. Output ends with a newline (an empty schema prints as the empty string).
+
+`CompiledSchema::hash` is the SHA-256 of `to_canonical_string()`, so it ignores formatting,
+plain comments and relation/permission interleaving, but changes with doc comments.
 
 ## 10. Schema changes against existing data
 

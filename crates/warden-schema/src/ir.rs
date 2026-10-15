@@ -46,6 +46,10 @@ pub struct CompiledSchema {
     type_by_name: HashMap<Arc<str>, TypeId>,
     /// The original text, for storage and round-trip.
     pub source: Arc<str>,
+    /// SHA-256 of [`CompiledSchema::to_canonical_string`], so two sources that differ only
+    /// in formatting, plain comments or how relations and permissions are interleaved
+    /// hash the same.
+    pub hash: [u8; 32],
     used_by: HashMap<(TypeId, RelId), Vec<(TypeId, RelId)>>,
     arrows_into: HashMap<(TypeId, RelId), Vec<ArrowUse>>,
     subject_set_uses: HashMap<(TypeId, RelId), Vec<(TypeId, RelId)>>,
@@ -97,14 +101,17 @@ impl CompiledSchema {
             list.sort_unstable();
             list.dedup();
         }
-        Self {
+        let mut schema = Self {
             types,
             type_by_name,
             source,
+            hash: [0; 32],
             used_by,
             arrows_into,
             subject_set_uses,
-        }
+        };
+        schema.hash = crate::print::canonical_hash(&schema);
+        schema
     }
 
     /// The id of the type named `name` (including any `/` prefixes).
