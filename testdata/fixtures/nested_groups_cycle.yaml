@@ -38,3 +38,21 @@ assertions:
     - group:x#member@user:bob
     - group:x#member@group:a#member
     - group:a#member@group:x#member
+
+# Lookups walk the cycle backwards and stop: every group of the cycle once.
+expectedLookups:
+  resources:
+    - query: "group#member@user:bob"
+      expect: [a, b, c]
+    - query: "group#member@group:a#member"
+      expect: [a, b, c]
+    - query: "group#member@group:x#member"
+      expect: [x]
+    - query: "group#member@user:eve"
+      expect: []
+    - query: "document#view@user:bob"
+      expect: [d]
+    - query: "document#view@group:c#member"
+      expect: [d]
+    - query: "document#view@user:eve"
+      expect: []

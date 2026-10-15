@@ -105,9 +105,9 @@ impl EvalStats {
 /// not part of the key.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct NodeKey {
-    ty: TypeId,
-    id: ObjectId,
-    rel: RelId,
+    pub(crate) ty: TypeId,
+    pub(crate) id: ObjectId,
+    pub(crate) rel: RelId,
 }
 
 /// Settled node values (least fixed point) for one subject at one revision. Safe to share between
@@ -127,11 +127,11 @@ pub(crate) struct Limits {
 /// A request's subject, resolved against the schema once.
 #[derive(Clone, Debug)]
 pub(crate) struct Subject {
-    reference: SubjectRef,
+    pub(crate) reference: SubjectRef,
     /// The subject's type when it is an object, for wildcard hits.
-    object_type: Option<TypeId>,
+    pub(crate) object_type: Option<TypeId>,
     /// The subject's node when it is a subject set, for self membership.
-    set: Option<NodeKey>,
+    pub(crate) set: Option<NodeKey>,
 }
 
 /// Validates a check against the schema (`docs/04-evaluation.md` §1 step 1) and resolves
@@ -148,6 +148,19 @@ pub(crate) fn resolve(
     subject: &SubjectRef,
 ) -> Result<(NodeKey, Subject), Error> {
     let root = node(schema, resource, permission, "")?;
+    Ok((root, resolve_subject(schema, subject)?))
+}
+
+/// Validates a request's subject against the schema and resolves it.
+///
+/// # Errors
+///
+/// [`Error::InvalidRequest`] if the subject type or subject relation is not defined, or the
+/// subject is a wildcard.
+pub(crate) fn resolve_subject(
+    schema: &CompiledSchema,
+    subject: &SubjectRef,
+) -> Result<Subject, Error> {
     let resolved = match subject {
         SubjectRef::Wildcard { object_type } => {
             return Err(invalid(format!(
@@ -174,10 +187,16 @@ pub(crate) fn resolve(
             set: Some(node(schema, object, relation, "subject ")?),
         },
     };
-    Ok((root, resolved))
+    Ok(resolved)
 }
 
-fn node(
+/// The node for `object#member`.
+///
+/// # Errors
+///
+/// [`Error::InvalidRequest`] if the type or member is not defined; `what` prefixes the
+/// message (`"subject "`).
+pub(crate) fn node(
     schema: &CompiledSchema,
     object: &ObjectRef,
     member: &RelName,
@@ -204,7 +223,7 @@ fn node(
     })
 }
 
-fn invalid(message: String) -> Error {
+pub(crate) fn invalid(message: String) -> Error {
     Error::InvalidRequest { message }
 }
 

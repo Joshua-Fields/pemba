@@ -1,5 +1,5 @@
-//! Properties 1, 4, 5 and 6 of `docs/07-testing.md` §2.3, plus checks that the generators
-//! produce what §2.2 asks for.
+//! Properties 1, 2, 4, 5 and 6 of `docs/07-testing.md` §2.3, plus checks that the
+//! generators produce what §2.2 asks for.
 //!
 //! Property 1 runs on the memory store only; the SQLite store arrives in M2, and on both
 //! generator variants ([`SubSides`]). Plain `cargo test` runs each for 64 cases; the
@@ -7,7 +7,8 @@
 //! the manual `proptest.yml` workflow) run at least 1 000, or `PROPTEST_CASES` if higher.
 //! Property 5 (memory store ≡ SQLite store) runs 64 cases plainly and at least 1 000 in
 //! `prop5_*_full`, likewise ignored. Property 4 (historical reads at `Exact(r)`, on both
-//! stores) likewise: 64 cases plainly, at least 1 000 in the ignored `prop4_*_full`.
+//! stores) likewise: 64 cases plainly, at least 1 000 in the ignored `prop4_*_full`. So
+//! does property 2 (`lookup_resources`, on both stores), in `prop2_*_full`.
 //! Property 6 always runs at least 1 000.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
@@ -713,4 +714,262 @@ mod prop4 {
             historical_reads_match_reference(&case, &batches)?;
         }
     }
+}
+
+// ---- property 2: lookup_resources ----
+
+mod prop2 {
+    use proptest::prelude::*;
+    use warden_core::model::{Consistency, ObjectRef, RelName, SubjectRef, WriteOp, WriteRequest};
+    use warden_core::store::WritableStore;
+    use warden_core::{Engine, LookupResourcesRequest};
+    use warden_schema::ir::CompiledSchema;
+    use warden_store_memory::MemoryStore;
+    use warden_testkit::generate::{self, Case, RawQuery, SubSides};
+    use warden_testkit::reference::{FRESH_ID, Reference};
+
+    use super::{compile, config, query, unlimited};
+
+    /// Lookups per case drawn from its queries, plus as many on fresh subject sets.
+    const LOOKUPS: usize = 8;
+
+    /// Page sizes: 1, 2, 3, or the default (one page).
+    const PAGES: [Option<u32>; 4] = [Some(1), Some(2), Some(3), None];
+
+    /// A case and a page-size pick per lookup.
+    fn lookups(mode: SubSides) -> impl Strategy<Value = (Case, Vec<usize>)> {
+        (
+            generate::case_with(mode),
+            prop::collection::vec(0..PAGES.len(), 2 * LOOKUPS),
+        )
+    }
+
+    /// `(resource type, member, subject)` lookups for one case: the resource's type and
+    /// member and the subject of each of the first queries, then for each a subject set
+    /// `ty:__fresh__#m` (an object in no tuple) looked up on its own type, so self
+    /// membership seeds and same-object use decide the answer.
+    pub(super) fn lookup_queries(
+        schema: &CompiledSchema,
+        oracle: &Reference,
+        universe: &[ObjectRef],
+        queries: &[RawQuery],
+    ) -> Vec<(ObjectRef, RelName, SubjectRef)> {
+        let mut out = Vec::new();
+        for &q in queries.iter().take(LOOKUPS) {
+            out.push(query(schema, oracle, universe, q));
+        }
+        for &q in queries.iter().take(LOOKUPS) {
+            let ty = &schema.types[q.subject % schema.types.len()];
+            let members: Vec<RelName> = ty
+                .members
+                .iter()
+                .map(|m| m.name().parse().unwrap())
+                .collect();
+            let object = ObjectRef {
+                object_type: ty.name.parse().unwrap(),
+                object_id: FRESH_ID.parse().unwrap(),
+            };
+            let subject = SubjectRef::Set {
+                object: object.clone(),
+                relation: members[q.subject_member % members.len()].clone(),
+            };
+            out.push((object, members[q.member % members.len()].clone(), subject));
+        }
+        out
+    }
+
+    /// `{ o : oracle.check(o, m, s) }` over the universe, ids ascending byte-wise.
+    pub(super) fn expected(
+        oracle: &Reference,
+        universe: &[ObjectRef],
+        resource: &ObjectRef,
+        member: &RelName,
+        subject: &SubjectRef,
+    ) -> Vec<String> {
+        let mut ids: Vec<String> = universe
+            .iter()
+            .filter(|o| o.object_type == resource.object_type)
+            .filter(|o| oracle.check(o, member, subject).unwrap())
+            .map(|o| o.object_id.to_string())
+            .collect();
+        ids.sort();
+        ids
+    }
+
+    /// Every page concatenated, later pages at `Exact(first page's revision)`.
+    fn pages<S: WritableStore>(
+        engine: &Engine<S>,
+        resource: &ObjectRef,
+        member: &RelName,
+        subject: &SubjectRef,
+        limit: Option<u32>,
+    ) -> Result<Vec<String>, String> {
+        let mut req = LookupResourcesRequest {
+            limit,
+            ..LookupResourcesRequest::new(
+                resource.object_type.clone(),
+                member.clone(),
+                subject.clone(),
+            )
+        };
+        let mut ids = Vec::new();
+        for _ in 0..1000 {
+            let resp = engine
+                .lookup_resources(req.clone())
+                .map_err(|e| e.to_string())?;
+            if let Some(l) = limit
+                && resp.resource_ids.len() > l as usize
+            {
+                return Err(format!(
+                    "page of {} over limit {l}",
+                    resp.resource_ids.len()
+                ));
+            }
+            ids.extend(resp.resource_ids.iter().map(ToString::to_string));
+            match resp.next_cursor {
+                Some(c) => {
+                    req.cursor = Some(c);
+                    req.consistency = Consistency::Exact(resp.revision);
+                }
+                None => return Ok(ids),
+            }
+        }
+        Err("more than 1000 pages".to_owned())
+    }
+
+    fn engine_with<S: WritableStore>(store: S, src: &str, case: &Case) -> Engine<S> {
+        let engine = Engine::builder()
+            .store(store)
+            .config(unlimited())
+            .build()
+            .unwrap();
+        engine.write_schema(src).unwrap();
+        if !case.tuples.is_empty() {
+            engine
+                .write(WriteRequest {
+                    ops: case.tuples.iter().cloned().map(WriteOp::Touch).collect(),
+                    preconditions: Vec::new(),
+                })
+                .unwrap();
+        }
+        engine
+    }
+
+    /// Property 2 for one case, on the memory and the SQLite store.
+    fn lookups_match_reference(case: &Case, page_picks: &[usize]) -> Result<(), TestCaseError> {
+        let src = case.schema.source();
+        let schema = compile(&src);
+        let oracle = Reference::new(&schema, &case.tuples)
+            .map_err(|e| TestCaseError::fail(format!("oracle refused a generated case: {e}")))?;
+        let universe = oracle.universe();
+        let memory = engine_with(MemoryStore::new(), &src, case);
+        let mut dir = super::prop5::TempSqlite::new();
+        let sqlite = engine_with(dir.store.take().unwrap(), &src, case);
+
+        let lookups = lookup_queries(&schema, &oracle, &universe, &case.queries);
+        for (i, (resource, member, subject)) in lookups.iter().enumerate() {
+            let want = expected(&oracle, &universe, resource, member, subject);
+            let limit = PAGES[page_picks[i % page_picks.len()]];
+            for (store, got) in [
+                ("memory", pages(&memory, resource, member, subject, limit)),
+                ("sqlite", pages(&sqlite, resource, member, subject, limit)),
+            ] {
+                let got = got.map_err(|e| {
+                    TestCaseError::fail(format!(
+                        "{store}: lookup_resources({}#{member}@{subject}) failed: {e}",
+                        resource.object_type
+                    ))
+                })?;
+                prop_assert_eq!(
+                    &got,
+                    &want,
+                    "{}: lookup_resources({}#{}@{}), limit {:?}",
+                    store,
+                    resource.object_type,
+                    member,
+                    subject,
+                    limit
+                );
+            }
+        }
+        Ok(())
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig { cases: 64, ..config(0) })]
+
+        /// Property 2, quick: 64 cases.
+        #[test]
+        fn prop2_lookup_resources_matches_reference((case, pages) in lookups(SubSides::Acyclic)) {
+            lookups_match_reference(&case, &pages)?;
+        }
+
+        /// Property 2, quick, with monotone recursion beneath subtracted sides.
+        #[test]
+        fn prop2_recursive_sub_lookup_resources_matches_reference(
+            (case, pages) in lookups(SubSides::Recursive)
+        ) {
+            lookups_match_reference(&case, &pages)?;
+        }
+    }
+
+    proptest! {
+        #![proptest_config(config(1000))]
+
+        /// Property 2: all pages of `lookup_resources` concatenated equal
+        /// `{ o : reference.check(o, m, s) }` over the universe, on both stores, for page
+        /// sizes 1, 2, 3 and the default, ≥ 1 000 cases.
+        #[test]
+        #[ignore = "slow: 1 000+ cases; run with --ignored"]
+        fn prop2_lookup_resources_matches_reference_full(
+            (case, pages) in lookups(SubSides::Acyclic)
+        ) {
+            lookups_match_reference(&case, &pages)?;
+        }
+
+        /// Property 2 with monotone recursion beneath subtracted sides, ≥ 1 000 cases.
+        #[test]
+        #[ignore = "slow: 1 000+ cases; run with --ignored"]
+        fn prop2_recursive_sub_lookup_resources_matches_reference_full(
+            (case, pages) in lookups(SubSides::Recursive)
+        ) {
+            lookups_match_reference(&case, &pages)?;
+        }
+    }
+}
+
+/// Guards against property 2 testing little: lookups must often have several answers, and
+/// fresh subject-set lookups (`ty:__fresh__#m` on `ty#p`) must often reach the fresh object
+/// through same-object use (`p ≠ m`), not only by self membership.
+#[test]
+fn generated_lookups_are_varied() {
+    let (mut empty, mut several, mut fresh_same_object) = (0, 0, 0);
+    for case in sample(generate::case(), 300) {
+        let src = case.schema.source();
+        let schema = compile(&src);
+        let oracle = Reference::new(&schema, &case.tuples).unwrap();
+        let universe = oracle.universe();
+        for (resource, member, subject) in
+            prop2::lookup_queries(&schema, &oracle, &universe, &case.queries)
+        {
+            let ids = prop2::expected(&oracle, &universe, &resource, &member, &subject);
+            match ids.len() {
+                0 => empty += 1,
+                1 => {}
+                _ => several += 1,
+            }
+            if let SubjectRef::Set { object, relation } = &subject
+                && object.object_id.as_str() == reference::FRESH_ID
+                && *relation != member
+                && ids.iter().any(|id| id == reference::FRESH_ID)
+            {
+                fresh_same_object += 1;
+            }
+        }
+    }
+    let stats = format!("empty {empty}, several {several}, fresh same-object {fresh_same_object}");
+    assert!(
+        empty > 200 && several > 200 && fresh_same_object > 100,
+        "{stats}"
+    );
 }

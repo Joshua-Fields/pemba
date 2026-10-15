@@ -136,3 +136,27 @@ assertions:
     - document:handbook#edit@user:bob
     - folder:shared_ext#view@user:alice
     - folder:design#edit@user:bob
+
+# Lookups, from the hand computation above. `group:eng#member` reaches secret and arch
+# through folder edit, and mockups as a commenter; the public link (`user:*`) on press
+# matches objects only, never a subject set.
+expectedLookups:
+  resources:
+    - query: "document#view@user:bob"
+      expect: [arch, handbook, mockups, press, roadmap, secret]
+    - query: "document#view@user:carol"
+      expect: [handbook, mockups, press, roadmap, secret]
+    - query: "document#view@user:frank"
+      expect: [arch, contract, press]
+    - query: "document#view@user:mallory"
+      expect: [arch, handbook, mockups, press, roadmap]
+    - query: "document#view@user:ivan"
+      expect: [press]
+    - query: "document#edit@user:frank"
+      expect: [contract]
+    - query: "document#view@group:eng#member"
+      expect: [arch, mockups, secret]
+    - query: "folder#view@user:frank"
+      expect: [shared_ext]
+    - query: "folder#edit@user:bob"
+      expect: [engineering, specs]

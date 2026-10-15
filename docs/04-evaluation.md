@@ -307,11 +307,23 @@ Abort with `Err(LookupTooLarge)` if `visited` exceeds `max_lookup_nodes` (defaul
 
 Store calls: `read_reverse(rev, subject_filter, resource_filter)` (`docs/05` §2).
 
+Implementation notes (T2.4, OQ-028):
+- A `Set(t:id#r)` subject also seeds every visible tuple whose subject is exactly `t:id#r`
+  (rule 2 on the seed node, run even when `subject_set_uses[(t, r)]` is empty), because
+  `check` matches such a tuple by exact lookup whether or not the schema still allows it.
+- `read_reverse` rows whose resource type or relation the schema does not define are
+  skipped: no schema member reaches them, so `check` cannot pass through them.
+- Rule 3 reads once per `(S, t)` pair and fans out to every `p` sharing it.
+- `LookupTooLarge` is raised on the attempt to visit node `max_lookup_nodes + 1`. Phase 1
+  reads do not count toward `max_check_reads`, which bounds each phase 2 `check`.
+
 ### 5.2 Phase 2 — filter
 
-Sort candidate ids ascending, drop ids `<= cursor`. For each, run the §3 evaluator with
+Sort candidate ids ascending (byte-wise), drop ids `<= cursor`. For each, run the §3 evaluator with
 **one shared memo** for the whole request (valid: same subject, same revision). Collect
 allowed ids until `limit` is reached; `next_cursor` = last returned id if more candidates remain.
+Any candidate's `check` error fails the page (fail closed). Both phases of a page read
+through one store snapshot (§1); paging consistency is the caller's job (`06` §1).
 
 ### 5.3 Correctness argument (put in code comments)
 

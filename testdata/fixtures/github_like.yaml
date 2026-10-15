@@ -115,3 +115,21 @@ assertions:
     - repository:fork#admin@user:olivia
     - repository:fork#read@user:bob
     - team:frontend#members@user:alice
+
+# Lookups, from the hand computation above.
+expectedLookups:
+  resources:
+    - query: "repository#read@user:alice"
+      expect: [api, docs, fork, infra, web]
+    - query: "repository#write@user:carol"
+      expect: [api, infra]
+    - query: "repository#admin@user:olivia"
+      expect: [api, docs, infra, legacy, web]
+    - query: "repository#read@user:frank"
+      expect: [docs, web]
+    - query: "repository#read@user:stranger"
+      expect: [docs]
+    - query: "repository#maintain@team:frontend#members"
+      expect: [web]
+    - query: "team#members@user:sam"
+      expect: [platform, sre]

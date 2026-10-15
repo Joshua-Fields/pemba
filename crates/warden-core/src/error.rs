@@ -109,6 +109,13 @@ pub enum Error {
         /// The relation it was found on, e.g. `doc#banned`.
         relation: String,
     },
+    /// `lookup_resources` visited more than `EngineConfig::max_lookup_nodes` nodes while
+    /// generating candidates (`docs/04-evaluation.md` §5.1).
+    #[error("lookup visited more than {max} nodes")]
+    LookupTooLarge {
+        /// The configured maximum.
+        max: usize,
+    },
     /// The database has no engine tables, or an older layout, and migrations are not
     /// allowed to run automatically (`docs/05-storage.md` §4.1).
     #[error("the database is not migrated to the current storage version")]
@@ -149,6 +156,7 @@ impl Error {
             Self::FanoutExceeded { .. } => "FANOUT_EXCEEDED",
             Self::CheckReadsExceeded { .. } => "CHECK_READS_EXCEEDED",
             Self::StaleRelationship { .. } => "STALE_RELATIONSHIP",
+            Self::LookupTooLarge { .. } => "LOOKUP_TOO_LARGE",
             Self::NotMigrated => "NOT_MIGRATED",
             Self::StorageVersionTooNew { .. } => "STORAGE_VERSION_TOO_NEW",
             Self::ForeignConnectionMismatch => "FOREIGN_CONNECTION_MISMATCH",

@@ -101,6 +101,33 @@ pub struct EvalStats {
 }
 ```
 
+Lookup types (defined in T2.4; `04` §5):
+
+```rust
+pub struct LookupResourcesRequest {
+    pub resource_type: TypeName,
+    pub permission: RelName,            // a permission or relation of resource_type
+    pub subject: SubjectRef,            // Object or Set; Wildcard -> InvalidRequest
+    pub consistency: Consistency,       // ::new(resource_type, permission, subject) gives Latest
+    pub limit: Option<u32>,             // None = max_lookup_results; 0 or > max -> InvalidRequest
+    pub cursor: Option<ObjectId>,       // exclusive: ids strictly after it
+}
+pub struct LookupResourcesResponse {
+    pub resource_ids: Vec<ObjectId>,    // ascending byte-wise
+    pub next_cursor: Option<ObjectId>,  // last returned id if candidates remain, else None
+    pub revision: Revision,             // pass Consistency::Exact(revision) for later pages
+}
+```
+
+**Paging consistency.** Each `lookup_resources` call is one request on one read snapshot
+(`05` §2 "Revision checks"); no snapshot is held between pages. Callers **must** request
+every page after the first at `Consistency::Exact(first_page.revision)`: at `Latest` a later
+page reads whatever is newest, so resources added or removed between pages can be skipped or
+returned twice relative to one revision. A `next_cursor` only says candidates remain, not
+that any is allowed, so the last page may be empty. Every page re-runs phase 1 (`04` §5.1);
+a page fails as a whole with the first error any candidate's `check` returns, or
+`LookupTooLarge` past `max_lookup_nodes` phase 1 nodes.
+
 `check_bulk` returns `Err` for the whole call on `NoSchema`, consistency errors, `Store`,
 and `RevisionExpired` raised mid-call by GC; every other error (`InvalidRequest`,
 `MaxDepthExceeded`, `NonMonotonicCycle`, `FanoutExceeded`, `CheckReadsExceeded`,
@@ -195,7 +222,7 @@ Every variant has a stable machine code (`Error::code() -> &'static str`, e.g.
 `ALREADY_EXISTS`, `PRECONDITION_FAILED`, `BATCH_TOO_LARGE`, `REVISION_NOT_YET_AVAILABLE`,
 `REVISION_EXPIRED`, `STORE_ERROR`, `MAX_DEPTH_EXCEEDED`, `NON_MONOTONIC_CYCLE`,
 `FANOUT_EXCEEDED`, `CHECK_READS_EXCEEDED`, `STALE_RELATIONSHIP`, `NOT_MIGRATED`,
-`STORAGE_VERSION_TOO_NEW`, `FOREIGN_CONNECTION_MISMATCH`; variants added later use their name in SCREAMING_SNAKE
+`STORAGE_VERSION_TOO_NEW`, `FOREIGN_CONNECTION_MISMATCH`, `LOOKUP_TOO_LARGE` (T2.4); variants added later use their name in SCREAMING_SNAKE
 case.
 
 ---
