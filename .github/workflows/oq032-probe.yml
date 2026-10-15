@@ -1,0 +1,39 @@
+name: OQ-032 SQLite copies probe
+
+# T3.2 phase 0: reports which SQLite CPython's _sqlite3 uses on the runners and whether a
+# close() by that copy drops a write lock held by a bundled copy (OQ-032). The probe
+# exits 1 when it reproduces the bug; this job records that instead of failing on it.
+on:
+  pull_request:
+    paths:
+      - "crates/warden-py/probes/**"
+      - ".github/workflows/oq032-probe.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    name: probe (${{ matrix.os }}, ${{ matrix.python }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python: ["3.11", "3.13"]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: crates/warden-py/probes/sqlite_copies
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python }}
+      - name: build and run
+        run: |
+          python -m venv .venv
+          source .venv/bin/activate
+          pip install maturin==1.15.0
+          maturin develop
+          python run_probe.py || echo "probe exit status $?"
