@@ -64,3 +64,16 @@ it is resolved.
 - Current choice: no numeric targets; correctness first
 - Resolve by: set after benchmarks in T3.5
 - Resolution: (fill in)
+
+## OQ-009 — Text syntax for `Revision`, `Consistency`, `WriteOp`, `RelationshipFilter`
+- Raised in: T0.2 (`docs/08-milestones.md` T0.2 required `Display`/`FromStr`; `docs/02-data-model.md`
+  §3 only defines syntax for objects, subjects and relationships)
+- Blocking: no
+- Current choice: see Resolution
+- Resolve by: human review
+- Resolution: resolved in T0.2 by the human. `FromStr` is kept only for `ObjectRef`,
+  `SubjectRef`, `Relationship` and `Revision` (plus the name newtypes as validating
+  constructors). `Revision` is decimal digits with no sign and no leading zeros, so it
+  round-trips exactly (`02` §3). `Consistency`, `WriteOp` and `RelationshipFilter` keep
+  `Display` for debugging only, with no stable format and no `FromStr`. T0.2 acceptance
+  criteria in `08` and `02` §2–3 updated to match.

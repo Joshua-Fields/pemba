@@ -86,7 +86,12 @@ Implementation notes:
 - `TypeName`/`RelName` are cheap to clone. The compiled schema additionally maps them to
   dense `u32` ids (`TypeId`, `RelId`) for the evaluator's hot path.
 - All types implement `Debug, Clone, Eq, Hash, Ord` and `Display` in tuple-string syntax.
-- `FromStr` implementations parse the canonical string syntax below.
+- `FromStr` is implemented for `TypeName`, `RelName`, `ObjectId`, `ObjectRef`, `SubjectRef`,
+  `Relationship` and `Revision`, parsing the canonical string syntax below.
+  `Consistency`, `WriteOp` and `RelationshipFilter` (§5) implement `Display` for debugging
+  only; that output is not a stable format and cannot be parsed (OQ-009).
+- The §1.1 identifier rules live in `warden-schema` (`warden_schema::ident`), shared by the
+  schema validator and the tuple parser.
 
 ## 3. Canonical string syntax
 
@@ -95,6 +100,7 @@ object        := type ":" id
 subject       := object | object "#" relation | type ":*"
 relationship  := object "#" relation "@" subject
 check_string  := object "#" permission_or_relation "@" subject     (used in fixtures)
+revision      := "0" | [1-9] [0-9]*                                (fits in u64)
 ```
 
 Examples:

@@ -12,3 +12,7 @@ workspace = true
 
 [dependencies]
 warden-schema.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true

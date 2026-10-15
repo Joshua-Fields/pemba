@@ -4,3 +4,5 @@
 //! Implements `docs/03-schema-language.md`.
 
 #![forbid(unsafe_code)]
+
+pub mod ident;

@@ -24,10 +24,18 @@ AC:
 Refs: `02` §1–3.
 AC:
 - `ObjectRef`, `SubjectRef`, `Relationship`, `Revision`, `Consistency`, `WriteOp`,
-  `RelationshipFilter` implemented with `Display`/`FromStr`.
+  `RelationshipFilter` implemented, all with `Display`.
+- `FromStr` (canonical syntax, `02` §3) for `ObjectRef`, `SubjectRef`, `Relationship` and
+  `Revision` only; the name newtypes `TypeName`, `RelName`, `ObjectId` also implement it as
+  their validating constructors. `Consistency`, `WriteOp` and `RelationshipFilter` have no
+  `FromStr`: their `Display` is a debugging aid, not a stable format (OQ-009).
+- `Revision` text form is decimal digits with no sign and no leading zeros (`0` itself is
+  allowed), so every revision has exactly one form.
+- Identifier rules (`02` §1.1) are implemented once, in `warden-schema`, and reused by
+  `warden-core`.
 - All examples in `02` §3 table parse; all invalid examples in `02` §1 rejected with
   positioned `ParseError`.
-- Round-trip property test passes.
+- Round-trip property test passes for every `FromStr` type.
 
 ### T0.3 Schema lexer and parser → AST
 Refs: `03` §2–4, §7.
