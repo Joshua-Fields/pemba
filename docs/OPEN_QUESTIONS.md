@@ -263,3 +263,41 @@ it is resolved.
   are per item (documented in `06` §1)
 - Resolve by: human review
 - Resolution: (fill in)
+
+## OQ-020 — Reference evaluator's Kleene iteration is unsound with a recursive exclusion base
+- Raised in: after T1.3 review (`docs/07-testing.md` §2.1), for T1.4
+- Blocking: yes, for T1.4 (the oracle must be right before property 1 means anything)
+- Problem: §2.1 recomputes every `S(o, m)` from ∅ until nothing changes. That is only sound
+  for monotone schemas, and the generator restriction in §2.1 only keeps recursion out of an
+  exclusion's `sub` side; a recursive *base* side is still allowed. Example:
+  `permission view = (viewer - banned) + parent->view`, `folder:a#parent@folder:b`,
+  `folder:b#parent@folder:a`, user `u` both `viewer` and `banned` on `a`. The correct
+  (stratified) answer is `view(a) = view(b) = ∅`, and the T1.3 engine returns `false` for both.
+  Simulated (scratch script, not committed), what the iteration does depends on details §2.1
+  leaves open:
+  - simultaneous (Jacobi) updates, `banned` direct as above: converges to ∅ (correct, by luck:
+    `viewer` and `banned` fill in the same round);
+  - simultaneous updates with `banned` one hop deeper (e.g. `banned: group#member`): round 1
+    sees `banned = ∅`, `u` enters `view(a)`, then alternates between `view(a)` and `view(b)`
+    forever (`a- -b a- -b ...`), so the iteration never terminates;
+  - in-place (Gauss-Seidel) updates in source order, either variant: stops changing after
+    round 1 with `u ∈ view(a)` and `u ∈ view(b)`, kept alive by the cycle. That is a wrong
+    answer that still looks like a fixed point, which is worse than not terminating.
+- Current choice: none yet (T1.4 not started). Proposed fix for T1.4: stratify by the
+  `(type, member)` dependency graph (edges from computed references, arrow targets on every
+  allowed type, and subject-set allowed types) and evaluate each stratum to a fixed point
+  before any stratum that subtracts it. A schema where a `sub` side depends on its own
+  stratum is not stratifiable. **Refusing such schemas applies only to the reference
+  evaluator (`warden-testkit::reference`) and the proptest generators**: the oracle declines
+  to answer and the generators must not produce them. The schema compiler keeps accepting
+  them and the engine keeps evaluating them, deciding per check from the data
+  (`NonMonotonicCycle` only when a cycle is actually reached, `04` §3.6); hand-written
+  `NonMonotonicCycle` tests cover that behaviour. Add the example above,
+  in both the direct and one-hop-`banned` variants, as a fixed regression case, and add
+  generators that put recursion on the base side of an exclusion. Note: stratifying by
+  type-level graph is coarser than the engine's data-level cycle check, so some schemas the
+  engine evaluates on cycle-free data may be refused by the oracle. That is acceptable for an
+  oracle as long as the generators avoid those schemas. Relates to OQ-018 / T1.4b, whose
+  stratified `sub`-side evaluation should reuse the same strata
+- Resolve by: T1.4 (human to confirm the stratification approach)
+- Resolution: (fill in)
