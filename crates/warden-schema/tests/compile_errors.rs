@@ -182,6 +182,27 @@ fn arrow_target_missing() {
 }
 
 #[test]
+fn arrow_target_missing_suggests_member_of_target_type() {
+    // `memebr` is a typo for `member` on `team`, one of the types allowed on `owner`.
+    check(
+        "arrow_target_missing_did_you_mean",
+        "definition user {}\ndefinition team {\n    relation member: user\n}\ndefinition doc {\n    relation owner: user | team\n    permission view = owner->memebr\n}",
+        &[ErrorCode::ArrowTargetMissing],
+    );
+}
+
+#[test]
+fn arrow_target_missing_single_type_all() {
+    // One allowed type: singular wording; `.all` is shown as written; no close match, so
+    // the hint says to define it. `parent` is not a candidate: it is on `doc`, not `folder`.
+    check(
+        "arrow_target_missing_single_type",
+        "definition folder {\n    relation viewer: folder\n    permission view = viewer\n}\ndefinition doc {\n    relation parent: folder\n    permission edit = parent.all(admin)\n}",
+        &[ErrorCode::ArrowTargetMissing],
+    );
+}
+
+#[test]
 fn arrow_target_on_one_type_is_enough() {
     let src = "definition user {}\ndefinition team {\n relation member: user\n}\ndefinition doc {\n relation owner: user | team\n permission view = owner.all(member)\n}";
     assert!(compile(src).is_ok(), "{:?}", compile(src).err());

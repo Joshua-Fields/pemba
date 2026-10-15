@@ -583,22 +583,8 @@ fn resolve_arrow(
         }
     }
     if targets.is_empty() && !related.is_empty() {
-        let names = related
-            .iter()
-            .map(|&t| format!("`{}`", tables.type_name(t)))
-            .collect::<Vec<_>>()
-            .join(", ");
-        errors.push(tables.error(
-            ErrorCode::ArrowTargetMissing,
-            format!(
-                "no type allowed on `{}` ({names}) has a relation or permission named `{}`",
-                tupleset.name, computed.name
-            ),
-            computed.span,
-            Some(format!(
-                "define `{}` on at least one of {names}",
-                computed.name
-            )),
+        errors.push(arrow_target_missing(
+            tables, tupleset, computed, mode, &related,
         ));
     }
     Expr::Arrow {
@@ -607,6 +593,56 @@ fn resolve_arrow(
         mode,
         targets,
     }
+}
+
+/// `E_ARROW_TARGET_MISSING` for an arrow whose right side exists on none of `related`, the
+/// types allowed on the tupleset.
+fn arrow_target_missing(
+    tables: &Tables<'_>,
+    tupleset: &ast::Ident,
+    computed: &ast::Ident,
+    mode: ast::ArrowMode,
+    related: &[TypeId],
+) -> SchemaError {
+    let names = related
+        .iter()
+        .map(|&t| format!("`{}`", tables.type_name(t)))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let types = if related.len() == 1 {
+        format!("type {names} has")
+    } else {
+        format!("types {names} have")
+    };
+    // `.any(x)` is an alias, so it is shown in the arrow form like the printer does.
+    let arrow = match mode {
+        ast::ArrowMode::Any => format!("{}->{}", tupleset.name, computed.name),
+        ast::ArrowMode::All => format!("{}.all({})", tupleset.name, computed.name),
+    };
+    let candidates = related
+        .iter()
+        .filter_map(|&t| tables.scope_of(t))
+        .flat_map(Scope::member_names);
+    let help = suggest(&computed.name, candidates).map_or_else(
+        || {
+            let on = if related.len() == 1 {
+                names.clone()
+            } else {
+                format!("at least one of {names}")
+            };
+            format!("define `{}` on {on}", computed.name)
+        },
+        |s| format!("did you mean `{s}`?"),
+    );
+    tables.error(
+        ErrorCode::ArrowTargetMissing,
+        format!(
+            "`{arrow}`: {types} no relation or permission named `{}`",
+            computed.name
+        ),
+        computed.span,
+        Some(help),
+    )
 }
 
 // ---- E_DIRECT_CYCLE ----
