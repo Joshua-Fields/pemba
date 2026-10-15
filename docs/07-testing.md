@@ -97,8 +97,12 @@ every pull request (~1 s since T1.4c bounded check cost, OQ-021); the manual
    on both sides of exclusions and intersections under recursion (random data): the
    generated schemas put a wildcard beneath an exclusion in only ~2% of cases, which would
    leave the cofinite cells of `04` §6.1 barely exercised end to end.
-4. After random interleaved writes/deletes, `check` at `Exact(r)` equals the reference run on
-   the tuple set as of revision `r` (MVCC correctness).
+4. After random interleaved writes/deletes and GCs (T2.6), `check` at `Exact(r)` equals the
+   reference run on the tuple set as of revision `r` for every `r` at or above the GC
+   horizon, and fails with `RevisionExpired` below it (MVCC correctness), on both stores.
+   Alongside (T2.6): after any `write_schema` the engine accepts, every live tuple fits the
+   new schema and `check` at head agrees with the oracle; a refused change reports exactly
+   the live tuples it would orphan (`schema_change_leaves_no_stale_tuple_at_head`).
 5. Memory store and SQLite store return identical results for identical op sequences.
 6. Schema pretty-print round-trip: `compile(print(ir)) == ir`.
 

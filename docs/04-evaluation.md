@@ -96,9 +96,14 @@ eval(key, depth) -> Result<Outcome>          // Outcome { value: bool, low: Opti
 Order matters for performance, not correctness:
 
 1. **Exact hit** — one point query: does a visible tuple `o#r@subject` exist exactly
-   (same type, id, and subject relation or lack of it)? → `true`.
-2. **Wildcard hit** — only if subject is `Object(t:id)` and `t:*` is an allowed type on `r`:
-   does `o#r@t:*` exist? → `true`. (Wildcards never match subject *sets*.)
+   (same type, id, and subject relation or lack of it)? → `true`; but if the subject's
+   form (`t`, or `t#rel` for a subject set) is not an allowed type of `r` →
+   `Err(StaleRelationship)` (T2.6).
+2. **Wildcard hit** — only if subject is `Object(t:id)`: if `t:*` is an allowed type on `r`,
+   does `o#r@t:*` exist? → `true`. If it is not allowed, the same query runs only when the
+   read is at a revision below the current schema's (`05` §7: only there can a stale
+   wildcard exist), and a hit → `Err(StaleRelationship)`, since ignoring it would shrink
+   `S(o, r)`. (Wildcards never match subject *sets*.)
 3. **Subject-set fan-out** — read visible tuples `o#r@x:*#y` (i.e. subject_relation
    non-empty), and for each stored subject set `x:id#y` in store order: if `x#y` is not an
    allowed type of `r` (left behind by a schema change, or `x`/`y` no longer defined) →
@@ -108,8 +113,16 @@ Order matters for performance, not correctness:
 
 Step 3's query runs even when the relation allows no subject sets, so stale ones are
 always seen. Skipping them would silently shrink `S(o, r)`, which on the subtracted side
-of an exclusion grants access (OQ-019). Once T2.6 refuses schema changes that orphan
-tuples, the query may again be skipped for relations without subject-set types.
+of an exclusion grants access (OQ-019). Since T2.6, `write_schema` refuses changes that
+orphan live tuples (`05` §7), so stale tuples exist only at revisions below the current
+schema's; reads there (`Exact(old)`) still meet them, so the query keeps running.
+
+**Stale arrow objects (T2.6).** An arrow (§2 `Arrow`) reads the related objects of its
+tupleset; one whose type is no longer an allowed type of the tupleset (as an object or a
+subject set) → `Err(StaleRelationship)`, rather than ∅ (which fails open under exclusion).
+No extra read. `lookup_subjects` (§6.2) applies the same rules: a stored object or
+wildcard of the subject type that `r` no longer allows is an error, not counted or
+ignored.
 
 ### 3.4 `eval_expr(o, expr)`
 
@@ -209,7 +222,7 @@ nested groups that contain each other) is legal. Rules:
     start and end of every `check` and every `check_bulk` item (after an error too); only
     the request memo, holding settled values, is shared between `check_bulk` items.
   - *Backstop.* `EngineConfig::max_check_reads` (default **200 000**) caps store reads per
-    `check` (per item for `check_bulk`); exceeding it returns `CheckReadsExceeded{ max }`
+    `check` (per item for `check_bulk`); exceeding it returns `ReadLimitExceeded{ max }`
     (`06` §1), failing closed. It bounds cost against bugs in this rule and against large
     but legitimate graphs, independently of any proof. 200 000 is twice
     `max_check_fanout`, so one node at full fan-out (each child ≥ 1 read) still fits; at an
@@ -426,7 +439,7 @@ Unit-test every cell, and property-test the algebra against a finite universe mo
 - *Cost bound.* `lookup_subjects` counts its store reads against
   `EngineConfig::max_check_reads` (the whole request is one `gather`, evaluated by the same
   per-node, per-pass rules as one `check`, so the same `(|S| + 1)`-passes-style bound and the
-  same default apply) and fails closed with `CheckReadsExceeded`. `max_depth` applies as for
+  same default apply) and fails closed with `ReadLimitExceeded`. `max_depth` applies as for
   `check`.
 
 ### 6.3 Invariant (property test)

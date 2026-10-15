@@ -20,6 +20,9 @@ pub(crate) const HEAD_AND_HORIZON: &str = "\
 SELECT (SELECT COALESCE(MAX(rev), 0) FROM warden_revisions),
        (SELECT value FROM warden_meta WHERE key = 'gc_horizon')";
 
+/// The latest schema version number, `0` if none.
+pub(crate) const SCHEMA_VERSION: &str = "SELECT COALESCE(MAX(version), 0) FROM warden_schema";
+
 /// The latest schema version, if any.
 pub(crate) const CURRENT_SCHEMA: &str = "\
 SELECT version, source, hash, created_rev FROM warden_schema ORDER BY version DESC LIMIT 1";

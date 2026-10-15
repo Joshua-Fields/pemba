@@ -32,10 +32,10 @@ use std::time::Duration;
 
 use rusqlite::{Connection, ErrorCode, OpenFlags, TransactionBehavior};
 use warden_core::Error;
-use warden_core::model::{Revision, WriteRequest};
+use warden_core::model::{RelationshipFilter, Revision, WriteRequest};
 use warden_core::store::{
-    GcStats, ReadStore, SqlDialect, SqlStore, SqlValue, StoreError, StoredSchema, WritableStore,
-    WriteTxn,
+    DeleteResult, ReadStore, SchemaCheck, SqlDialect, SqlStore, SqlValue, StoreError, StoredSchema,
+    WritableStore, WriteTxn,
 };
 
 pub use migrate::STORAGE_VERSION;
@@ -211,29 +211,52 @@ impl SqliteStore {
 }
 
 impl WritableStore for SqliteStore {
-    fn write(&self, req: &WriteRequest) -> Result<Revision, Error> {
-        let rev = self
-            .with_write_txn(&mut |txn| warden_core::write::write(txn, &txn::SqliteDialect, req))?;
+    fn write(&self, req: &WriteRequest, schema_version: Option<u64>) -> Result<Revision, Error> {
+        let rev = self.with_write_txn(&mut |txn| {
+            warden_core::write::write(txn, &txn::SqliteDialect, req, schema_version)
+        })?;
         self.cache.observe_head(rev);
         Ok(rev)
     }
 
-    fn write_schema(&self, source: &str, hash: &str) -> Result<StoredSchema, Error> {
+    fn write_schema(
+        &self,
+        source: &str,
+        hash: &str,
+        check: SchemaCheck<'_>,
+    ) -> Result<StoredSchema, Error> {
         let stored = self.with_write_txn(&mut |txn| {
-            warden_core::write::write_schema(txn, &txn::SqliteDialect, source, hash)
+            warden_core::write::write_schema(txn, &txn::SqliteDialect, source, hash, check)
         })?;
         self.cache.observe_head(stored.created_rev);
         Ok(stored)
     }
 
-    fn gc(&self, keep_from: Revision) -> Result<GcStats, Error> {
-        let stats = self.with_write_txn(&mut |txn| {
-            warden_core::write::gc(txn, &txn::SqliteDialect, keep_from)
+    fn delete_matching(
+        &self,
+        filter: &RelationshipFilter,
+        limit: usize,
+    ) -> Result<DeleteResult, Error> {
+        let result = self.with_write_txn(&mut |txn| {
+            warden_core::write::delete_matching(txn, &txn::SqliteDialect, filter, limit)
         })?;
-        self.cache
-            .horizon
-            .fetch_max(stats.horizon.0, Ordering::AcqRel);
-        Ok(stats)
+        self.cache.observe_head(result.revision);
+        Ok(result)
+    }
+
+    /// Its own `BEGIN IMMEDIATE` transaction, committed before any row is removed.
+    fn raise_gc_horizon(&self, keep_from: Revision) -> Result<Revision, Error> {
+        let horizon = self.with_write_txn(&mut |txn| {
+            warden_core::write::raise_gc_horizon(txn, &txn::SqliteDialect, keep_from)
+        })?;
+        self.cache.horizon.fetch_max(horizon.0, Ordering::AcqRel);
+        Ok(horizon)
+    }
+
+    fn gc_batch(&self, max_rows: usize) -> Result<u64, Error> {
+        self.with_write_txn(&mut |txn| {
+            warden_core::write::gc_batch(txn, &txn::SqliteDialect, max_rows)
+        })
     }
 }
 

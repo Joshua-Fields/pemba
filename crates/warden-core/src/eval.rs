@@ -123,6 +123,10 @@ pub(crate) struct Limits {
     pub(crate) max_fanout: usize,
     /// Store reads per `check` (per `check_bulk` item).
     pub(crate) max_reads: u64,
+    /// The read is at a revision before the schema was written, so it can meet tuples the
+    /// schema rejects (`docs/05-storage.md` §7): probe for those it would otherwise not
+    /// read, and fail with `StaleRelationship` if one is there.
+    pub(crate) stale_possible: bool,
 }
 
 /// A request's subject, resolved against the schema once.
@@ -376,23 +380,35 @@ impl<'a> Evaluator<'a> {
             subject: self.subject.reference.clone(),
         };
         if self.exists(&exact)? {
+            // A tuple the schema no longer allows (only at revisions before a schema
+            // change): what it meant is unknown, so neither grant nor ignore it.
+            if !self.subject_form_allowed(allowed) {
+                return Err(stale(self.schema, key, &exact));
+            }
             return Ok(Outcome::TRUE);
         }
 
-        // Wildcards match objects only, never subject sets.
+        // Wildcards match objects only, never subject sets. One the schema no longer
+        // allows can only be stored below the schema's revision; probe for it there,
+        // since ignoring it would shrink the relation (failing open on a subtracted side).
         if let (Some(t), SubjectRef::Object(o)) =
             (self.subject.object_type, &self.subject.reference)
-            && allowed.contains(&AllowedSubject::Wildcard(t))
         {
-            let wildcard = Relationship {
-                resource: resource.clone(),
-                relation: relation.clone(),
-                subject: SubjectRef::Wildcard {
-                    object_type: o.object_type.clone(),
-                },
-            };
-            if self.exists(&wildcard)? {
-                return Ok(Outcome::TRUE);
+            let wildcard_allowed = allowed.contains(&AllowedSubject::Wildcard(t));
+            if wildcard_allowed || self.limits.stale_possible {
+                let wildcard = Relationship {
+                    resource: resource.clone(),
+                    relation: relation.clone(),
+                    subject: SubjectRef::Wildcard {
+                        object_type: o.object_type.clone(),
+                    },
+                };
+                if self.exists(&wildcard)? {
+                    if !wildcard_allowed {
+                        return Err(stale(self.schema, key, &wildcard));
+                    }
+                    return Ok(Outcome::TRUE);
+                }
             }
         }
 
@@ -491,6 +507,7 @@ impl<'a> Evaluator<'a> {
                 // Distinct objects, subject relation dropped, wildcards excluded (`docs/05` §2).
                 let objects =
                     self.read(|s, rev| s.read_related_objects(rev, &resource, &relation))?;
+                check_related_objects(self.schema, key, *tupleset, &objects)?;
                 self.count_tuples(objects.len());
                 *fanout = fanout.saturating_add(objects.len());
                 self.check_fanout(key, *fanout)?;
@@ -576,6 +593,16 @@ impl<'a> Evaluator<'a> {
         resolve_set(self.schema, key, resource, relation, object, rel, allowed)
     }
 
+    /// Whether the subject's own form (its type, or its type and relation) is an allowed
+    /// subject of a relation.
+    fn subject_form_allowed(&self, allowed: &[AllowedSubject]) -> bool {
+        match (self.subject.object_type, &self.subject.set) {
+            (Some(t), _) => allowed.contains(&AllowedSubject::Object(t)),
+            (None, Some(k)) => allowed.contains(&AllowedSubject::Set(k.ty, k.rel)),
+            (None, None) => false,
+        }
+    }
+
     fn check_fanout(&self, key: &NodeKey, read: usize) -> Result<(), Error> {
         if read > self.limits.max_fanout {
             return Err(Error::FanoutExceeded {
@@ -598,7 +625,7 @@ impl<'a> Evaluator<'a> {
     ) -> Result<T, Error> {
         self.check_reads += 1;
         if self.check_reads > self.limits.max_reads {
-            return Err(Error::CheckReadsExceeded {
+            return Err(Error::ReadLimitExceeded {
                 max: self.limits.max_reads,
             });
         }
@@ -661,6 +688,52 @@ pub(crate) fn resolve_set(
             relation: format!("{}#{relation}", type_name(schema, key.ty)),
         }),
     }
+}
+
+/// `StaleRelationship` for stored tuple `tuple`, found on `key`'s relation.
+pub(crate) fn stale(schema: &CompiledSchema, key: &NodeKey, tuple: &Relationship) -> Error {
+    Error::StaleRelationship {
+        tuple: tuple.to_string(),
+        relation: format!("{}#{}", type_name(schema, key.ty), tuple.relation),
+    }
+}
+
+/// Fails with `StaleRelationship` if an object related through `key`'s `tupleset` has a type
+/// the tupleset no longer allows (as an object or a subject set): an arrow cannot tell what
+/// such a tuple meant, and treating it as contributing nothing fails open under exclusion.
+/// Only possible at revisions before a schema change (`docs/05-storage.md` §7).
+pub(crate) fn check_related_objects(
+    schema: &CompiledSchema,
+    key: &NodeKey,
+    tupleset: RelId,
+    objects: &[ObjectRef],
+) -> Result<(), Error> {
+    let Some(Member::Relation(r)) = schema.type_def(key.ty).and_then(|t| t.member(tupleset)) else {
+        return Err(invalid(format!(
+            "internal: tupleset of {} is not a relation",
+            name(schema, key)
+        )));
+    };
+    for x in objects {
+        let ok = schema.type_id(x.object_type.as_str()).is_some_and(|t| {
+            r.allowed.iter().any(|a| match *a {
+                AllowedSubject::Object(u) | AllowedSubject::Set(u, _) => u == t,
+                AllowedSubject::Wildcard(_) => false,
+            })
+        });
+        if !ok {
+            return Err(stale(
+                schema,
+                key,
+                &Relationship {
+                    resource: object_ref(schema, key),
+                    relation: rel_name(schema, key.ty, tupleset),
+                    subject: SubjectRef::Object(x.clone()),
+                },
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// The object `key` is a member of.
@@ -819,6 +892,7 @@ mod tests {
             max_depth: 50,
             max_fanout: 100,
             max_reads: 1_000,
+            stale_possible: false,
         };
         let mut memo = Memo::new();
         let mut ev = Evaluator::new(&schema, &store, Revision(1), limits, &subject, &mut memo);
@@ -869,6 +943,7 @@ mod tests {
             max_depth: 50,
             max_fanout: 100,
             max_reads: 5,
+            stale_possible: false,
         };
         let mut memo = Memo::new();
         let mut ev = Evaluator::new(&schema, &store, Revision(1), limits, &subject, &mut memo);
@@ -876,7 +951,7 @@ mod tests {
         // a, b (cycle back to a), then c's subject-set read is the sixth.
         assert!(matches!(
             ev.check(&key("a")),
-            Err(Error::CheckReadsExceeded { max: 5 })
+            Err(Error::ReadLimitExceeded { max: 5 })
         ));
         assert!(ev.cycle.is_empty());
         // The read budget is per check.

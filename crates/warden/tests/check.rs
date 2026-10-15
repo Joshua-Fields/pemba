@@ -13,7 +13,8 @@ use warden::model::{
     WriteOp, WriteRequest,
 };
 use warden::store::{
-    GcStats, ReadStore, RelationCount, ReverseFilter, StoreError, StoredSchema, WritableStore,
+    DeleteResult, ReadStore, RelationCount, ReverseFilter, SchemaCheck, StoreError, StoredSchema,
+    WritableStore,
 };
 use warden::{CheckItem, CheckRequest, Engine, EngineConfig, Error, MemoryStore};
 
@@ -575,14 +576,19 @@ fn all_arrow_is_false_if_a_related_object_lacks_target() {
 #[test]
 fn arrow_skips_wildcard_related_objects() {
     let store = MemoryStore::new();
-    store.write_schema(SCHEMA, "unchecked").unwrap();
     store
-        .write(&touch(&[
-            "document:d#parent@folder:*",
-            "document:d#approver@group:*",
-            "folder:f#viewer@user:anne",
-            "group:g#member@user:anne",
-        ]))
+        .write_schema(SCHEMA, "unchecked", &|_| Ok(()))
+        .unwrap();
+    store
+        .write(
+            &touch(&[
+                "document:d#parent@folder:*",
+                "document:d#approver@group:*",
+                "folder:f#viewer@user:anne",
+                "group:g#member@user:anne",
+            ]),
+            None,
+        )
         .unwrap();
     let e = Engine::builder().store(store).build().unwrap();
     // Expanding `folder:*` would reach folder:f; skipping it reaches nothing.
@@ -702,10 +708,10 @@ fn store_reads_above_limit_is_an_error() {
     // viewer: exact, wildcard, subject sets; a: exact, subject sets; b: exact (hit) = 6.
     let e = engine_cfg(SCHEMA, config(5), &rels);
     match check(&e, "document:d#viewer@user:anne") {
-        Err(err @ Error::CheckReadsExceeded { max: 5 }) => {
-            assert_eq!(err.code(), "CHECK_READS_EXCEEDED");
+        Err(err @ Error::ReadLimitExceeded { max: 5 }) => {
+            assert_eq!(err.code(), "READ_LIMIT_EXCEEDED");
         }
-        other => panic!("expected CheckReadsExceeded, got {other:?}"),
+        other => panic!("expected ReadLimitExceeded, got {other:?}"),
     }
     let e = engine_cfg(SCHEMA, config(6), &rels);
     assert_allowed(&e, "document:d#viewer@user:anne");
@@ -1203,64 +1209,86 @@ fn stale(r: Result<bool, Error>) -> (String, String) {
     }
 }
 
+fn check_at<S: WritableStore>(e: &Engine<S>, s: &str, rev: Revision) -> Result<bool, Error> {
+    e.check(request(s, Consistency::Exact(rev)))
+        .map(|r| r.allowed)
+}
+
+/// Since T2.6 a schema change cannot orphan live tuples, so stale tuples exist only in
+/// history: `rels` are written (the returned revision), `gone` deleted, and the schema
+/// changed to `v2`, which first refuses while `gone` is live. Reads at the returned
+/// revision then meet tuples `v2` rejects.
+fn stale_history(v2: &str, rels: &[&str], gone: &[&str]) -> (Engine<MemoryStore>, Revision) {
+    let e = engine(STALE_V1, rels);
+    let old = e.head_revision().unwrap();
+    let err = e.write_schema(v2).unwrap_err();
+    assert!(matches!(err, Error::SchemaChangeOrphans(_)), "{err:?}");
+    e.write(WriteRequest {
+        ops: gone.iter().map(|r| WriteOp::Delete(rel(r))).collect(),
+        preconditions: Vec::new(),
+    })
+    .unwrap();
+    e.write_schema(v2).unwrap();
+    (e, old)
+}
+
 #[test]
 fn stale_subject_set_on_subtracted_side_is_an_error_not_true() {
-    let e = engine(
-        STALE_V1,
+    let (e, old) = stale_history(
+        STALE_V2_BANNED,
         &[
             "doc:d#viewer@user:anne",
             "doc:d#banned@group:x#member",
             "group:x#member@user:anne",
         ],
+        &["doc:d#banned@group:x#member"],
     );
-    assert_denied(&e, "doc:d#view@user:anne");
-    e.write_schema(STALE_V2_BANNED).unwrap();
     // Skipping the stale tuple would make `banned` false and grant `view`.
-    let (tuple, relation) = stale(check(&e, "doc:d#view@user:anne"));
+    let (tuple, relation) = stale(check_at(&e, "doc:d#view@user:anne", old));
     assert_eq!(tuple, "doc:d#banned@group:x#member");
     assert_eq!(relation, "doc#banned");
+    assert_allowed(&e, "doc:d#view@user:anne");
 }
 
 #[test]
 fn stale_subject_set_on_granting_side_is_an_error_not_false() {
-    let e = engine(
-        STALE_V1,
+    let (e, old) = stale_history(
+        STALE_V2_VIEWER,
         &["doc:d#viewer@group:x#member", "group:x#member@user:anne"],
+        &["doc:d#viewer@group:x#member"],
     );
-    assert_allowed(&e, "doc:d#view@user:anne");
-    e.write_schema(STALE_V2_VIEWER).unwrap();
-    let (tuple, relation) = stale(check(&e, "doc:d#view@user:anne"));
+    let (tuple, relation) = stale(check_at(&e, "doc:d#view@user:anne", old));
     assert_eq!(tuple, "doc:d#viewer@group:x#member");
     assert_eq!(relation, "doc#viewer");
 }
 
 #[test]
 fn stale_subject_set_of_removed_type_is_an_error() {
-    let e = engine(
-        STALE_V1,
+    let (e, old) = stale_history(
+        STALE_V2_NO_GROUP,
         &["doc:d#viewer@user:anne", "doc:d#banned@group:x#member"],
+        &["doc:d#banned@group:x#member"],
     );
-    e.write_schema(STALE_V2_NO_GROUP).unwrap();
-    let (tuple, relation) = stale(check(&e, "doc:d#view@user:anne"));
+    let (tuple, relation) = stale(check_at(&e, "doc:d#view@user:anne", old));
     assert_eq!(tuple, "doc:d#banned@group:x#member");
     assert_eq!(relation, "doc#banned");
 }
 
 #[test]
 fn stale_subject_set_fails_only_its_check_bulk_item() {
-    let e = engine(
-        STALE_V1,
+    let (e, old) = stale_history(
+        STALE_V2_BANNED,
         &[
             "doc:d#viewer@user:anne",
             "doc:d#banned@group:x#member",
             "doc:e#viewer@user:anne",
         ],
+        &["doc:d#banned@group:x#member"],
     );
-    e.write_schema(STALE_V2_BANNED).unwrap();
     let out = e
         .check_bulk(
             vec![item("doc:d#view@user:anne"), item("doc:e#view@user:anne")],
-            Consistency::Latest,
+            Consistency::Exact(old),
         )
         .unwrap();
     assert!(matches!(out[0], Err(Error::StaleRelationship { .. })));
@@ -1342,14 +1370,29 @@ impl ReadStore for FlakyStore {
 }
 
 impl WritableStore for FlakyStore {
-    fn write(&self, req: &WriteRequest) -> Result<Revision, Error> {
-        self.inner.write(req)
+    fn write(&self, req: &WriteRequest, schema_version: Option<u64>) -> Result<Revision, Error> {
+        self.inner.write(req, schema_version)
     }
-    fn write_schema(&self, source: &str, hash: &str) -> Result<StoredSchema, Error> {
-        self.inner.write_schema(source, hash)
+    fn write_schema(
+        &self,
+        source: &str,
+        hash: &str,
+        check: SchemaCheck<'_>,
+    ) -> Result<StoredSchema, Error> {
+        self.inner.write_schema(source, hash, check)
     }
-    fn gc(&self, keep_from: Revision) -> Result<GcStats, Error> {
-        self.inner.gc(keep_from)
+    fn delete_matching(
+        &self,
+        filter: &RelationshipFilter,
+        limit: usize,
+    ) -> Result<DeleteResult, Error> {
+        self.inner.delete_matching(filter, limit)
+    }
+    fn raise_gc_horizon(&self, keep_from: Revision) -> Result<Revision, Error> {
+        self.inner.raise_gc_horizon(keep_from)
+    }
+    fn gc_batch(&self, max_rows: usize) -> Result<u64, Error> {
+        self.inner.gc_batch(max_rows)
     }
 }
 

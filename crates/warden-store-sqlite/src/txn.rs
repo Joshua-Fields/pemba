@@ -129,4 +129,8 @@ impl SqlDialect for SqliteDialect {
     fn table(&self, name: &str) -> String {
         name.to_owned()
     }
+
+    fn row_id(&self) -> &'static str {
+        "rowid"
+    }
 }

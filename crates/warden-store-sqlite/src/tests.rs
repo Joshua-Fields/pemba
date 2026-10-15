@@ -426,7 +426,8 @@ fn foreign_write_does_not_touch_the_cache() {
     let mut app = db.raw();
     let tx = app.transaction().unwrap();
     let rev =
-        warden_core::write::write(&mut crate::SqliteTxn::new(&tx), store.dialect(), &req).unwrap();
+        warden_core::write::write(&mut crate::SqliteTxn::new(&tx), store.dialect(), &req, None)
+            .unwrap();
     assert_eq!(rev, Revision(1));
     let out_of_range = |r: Result<bool, StoreError>| {
         assert!(

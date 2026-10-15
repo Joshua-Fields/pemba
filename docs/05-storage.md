@@ -92,14 +92,33 @@ pub trait SqlDialect: Send + Sync {
 
 /// Typed mutations every store supports (OQ-014). Each call is one atomic transaction.
 pub trait WritableStore: ReadStore {
-    /// Steps 2–6 of §5; validation (step 1) is the engine's job.
-    fn write(&self, req: &WriteRequest) -> Result<Revision, Error>;
-    /// New schema version at a new revision (kind 'schema'). Always writes; hash
-    /// de-duplication and orphan checks (§7) are the engine's job.
-    fn write_schema(&self, source: &str, hash: &str) -> Result<StoredSchema, Error>;
-    /// §8. Horizon never moves down; keep_from > head -> InvalidRequest. Commits no revision.
-    fn gc(&self, keep_from: Revision) -> Result<GcStats, Error>;
+    /// Steps 2–6 of §5; validation (step 1) is the engine's job. With
+    /// `schema_version`, commits only if the store is still at it (§5 step 2b, T2.6).
+    fn write(&self, req: &WriteRequest, schema_version: Option<u64>) -> Result<Revision, Error>;
+    /// New schema version at a new revision (kind 'schema'). Inside the same transaction,
+    /// first passes the live counts at head to `check`, which may refuse (§7). Hash
+    /// de-duplication is the engine's job.
+    fn write_schema(&self, source: &str, hash: &str, check: SchemaCheck<'_>)
+        -> Result<StoredSchema, Error>;
+    /// Delete-by-filter (`02` §5): at most `limit` live matches, storage order, one revision.
+    fn delete_matching(&self, filter: &RelationshipFilter, limit: usize)
+        -> Result<DeleteResult, Error>;
+    /// §8 step 1, its own committed transaction. Never lowers; keep_from > head ->
+    /// InvalidRequest. Commits no revision. Returns the horizon after.
+    fn raise_gc_horizon(&self, keep_from: Revision) -> Result<Revision, Error>;
+    /// §8 step 2: removes at most `max_rows` rows deleted at or before the stored horizon.
+    fn gc_batch(&self, max_rows: usize) -> Result<u64, Error>;
+    /// Provided: raise_gc_horizon, then gc_batch(GC_BATCH_ROWS = 10_000) until one removes 0.
+    fn gc(&self, keep_from: Revision) -> Result<GcStats, Error> { /* default */ }
 }
+pub type SchemaCheck<'a> = &'a dyn Fn(&[RelationCount]) -> Result<(), Error>;
+pub struct DeleteResult { pub deleted: u64, pub more: bool, pub revision: Revision }
+pub struct GcStats { pub rows_removed: u64, pub horizon: Revision, pub batches: u64 }
+// ReadStore also gains (T2.6) `fn schema_version(&self) -> Result<u64, StoreError>`:
+// latest schema version (0 if none), as of the snapshot when called through one; the
+// default reads `current_schema()`. SqlDialect gains `fn row_id(&self) -> &'static str`
+// (`rowid` / `ctid`) for batched DELETE/UPDATE. StoreError gains
+// `SchemaChanged { expected, found }`, retryable.
 
 /// SQL-backed stores: the shared write logic (§5) runs over their `WriteTxn`.
 pub trait SqlStore: WritableStore {
@@ -301,6 +320,9 @@ or rolls back the transaction itself.
 ```text
 1. validate all ops against the current schema (docs/02 §6)        -- no SQL
 2. reject duplicates within the batch                              -- no SQL
+2b. (T2.6) if the engine passed the schema version it validated against:
+     SELECT COALESCE(MAX(version), 0) FROM warden_schema
+     differs -> Err(Store(SchemaChanged))  -- the engine reloads, revalidates, retries (≤3)
 3. for each precondition:
      SELECT 1 FROM warden_relationships WHERE <filter> AND deleted_rev IS NULL LIMIT 1
      MustExist & none found  -> Err(PreconditionFailed)
@@ -408,36 +430,74 @@ and without `ANALYZE` statistics.
 
 ## 7. Schema storage and safe changes
 
-- `write_schema(source)`: compile → if hash equals current, no-op returning current version.
-- Else compute the diff of removed relations / allowed types / types, then inside one write
-  transaction run `count_by_relation`-style queries at head:
+- `write_schema(source)`: compile → if hash equals the store's current one, no-op returning
+  the current version.
+- Else, **inside the schema write's own transaction** (`WritableStore::write_schema`'s
+  `check`), read the live counts at head:
   ```sql
   SELECT resource_type, relation, subject_type, subject_relation,
-         subject_id = '*' AS wildcard, COUNT(*)
+         CASE WHEN subject_id = '*' THEN 1 ELSE 0 END AS wildcard, COUNT(*)
   FROM warden_relationships WHERE deleted_rev IS NULL
   GROUP BY resource_type, relation, subject_type, subject_relation, wildcard;
   ```
-  and refuse with `E_SCHEMA_CHANGE_ORPHANS` if any removed element has rows.
+  and refuse with `Error::SchemaChangeOrphans` (code `SCHEMA_CHANGE_ORPHANS`, `03` §10) if
+  any group is **orphaned: a tuple of its shape would fail write validation (`02` §6)
+  under the new schema**. One `OrphanReport` per group: resource type, relation, subject
+  form (`user`, `user:*`, `group#member`), count, and the validation code. That covers a
+  removed type (as resource or subject), a removed relation, a relation that became a
+  permission of the same name, a removed allowed type, subject set (including `x#p` whose
+  `p` was deleted from `x`) or wildcard (wildcards are grouped apart from objects, OQ-015
+  (c)). Removing a permission is allowed exactly when no live tuple uses it as a subject
+  relation. Running the check in the write transaction means no write can slip in between.
 - Insert a `warden_revisions` row (`kind='schema'`) and the `warden_schema` row with that
   `created_rev`.
-- The engine caches the compiled schema in an `ArcSwap` (or `RwLock<Arc<_>>`); readers grab
-  an `Arc` at request start. Multi-process deployments (several gunicorn workers on one file)
-  must detect schema changes made by other processes: at request start, compare the latest
-  `warden_schema.version` (cheap query, or piggyback on the head-revision query) and reload
-  if it changed.
+- **Writes check the version** (§5 step 2b): every engine write passes the version it
+  validated against; a mismatch aborts the transaction (`SchemaChanged`), and the engine
+  reloads the schema, revalidates and retries (up to 3 attempts). If validation fails
+  against a cached schema, the engine compares the store's version and revalidates
+  against the newer one before refusing. Together with the orphan check, **no live tuple
+  at or above the current schema's revision contradicts it** (stale tuples are impossible
+  at head).
+- **Reads take the schema from their snapshot.** The engine caches compiled schemas by
+  version; each request, after taking its snapshot (§2), reads
+  `ReadStore::schema_version()` through it and uses that version (compiling it from the
+  snapshot's `current_schema()` if the cache holds another). Schema and data therefore
+  always come from the same moment, and a schema written by another process is used by the
+  next request without any reload call.
 - MVP: checks always evaluate with the **current** schema, even for `Exact(old_rev)` reads.
+  Below the current schema's `created_rev` a read can meet tuples that schema rejects
+  (written before the change, deleted before it was allowed); the evaluator fails closed
+  on them with `StaleRelationship` (`04` §3.3). A relation that was removed entirely, or
+  became a permission, is never read by the current schema, so its old tuples simply do
+  not count at `Exact(old)` (OQ-030 (d)).
 
 ---
 
 ## 8. Garbage collection
 
-- `Engine::gc(keep_from: Revision) -> GcStats`: 
-  ```sql
-  DELETE FROM warden_relationships WHERE deleted_rev IS NOT NULL AND deleted_rev <= ?keep_from;
-  UPDATE warden_meta SET value = ?keep_from WHERE key = 'gc_horizon';
-  ```
-  in batches of 10 000 rows per transaction to avoid long write locks (T2.6; until then
-  `warden_core::write::gc` deletes in one statement).
+`Engine::gc(keep_from: Revision) -> GcStats` (T2.6), in this order:
+
+1. **Raise the horizon first**, in its own committed transaction:
+   `UPDATE warden_meta SET value = ?keep_from WHERE key = 'gc_horizon'` (never lowering it;
+   `keep_from > head` → `InvalidRequest`).
+2. **Then delete in batches**, each its own transaction, until a batch removes nothing:
+   ```sql
+   DELETE FROM warden_relationships WHERE rowid IN (
+     SELECT rowid FROM warden_relationships
+     WHERE deleted_rev IS NOT NULL AND deleted_rev <= ?horizon LIMIT 10000);
+   ```
+   (`rowid` is `SqlDialect::row_id()`; `ctid` on Postgres.) The bound is the **stored**
+   horizon, so a batch can never remove a row some readable revision still needs.
+
+Why this order: deleting first (the pre-T2.6 spec) let a reader pass the horizon check and
+then read half-deleted history, a silent wrong answer. With the horizon committed first, a
+request whose snapshot was taken before it sees all of its revision (WAL keeps its pages),
+and every later request at `Exact(r < keep_from)` fails with `RevisionExpired`: never a
+partial answer. Tested by `warden-store-sqlite/tests/multi_process.rs`
+(`a_reader_mid_gc_gets_the_full_answer_or_revision_expired`, pausing between batches
+through a test wrapper). If a batch fails, the horizon is already raised; the remaining
+rows are removed by the next GC and change no answer.
+
 - After GC, `Exact(r)` with `r < keep_from` → `Err(RevisionExpired)`.
 - Optionally prune `warden_revisions` rows below the horizon except the newest (keep head).
 - No automatic GC in the MVP. Document a recommended cron (e.g. keep 24h of history).

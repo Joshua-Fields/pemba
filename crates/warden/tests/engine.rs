@@ -135,7 +135,9 @@ fn fresh_engine_is_empty() {
 #[test]
 fn builder_loads_the_stored_schema() {
     let store = MemoryStore::new();
-    store.write_schema(SCHEMA, "not-checked").unwrap();
+    store
+        .write_schema(SCHEMA, "not-checked", &|_| Ok(()))
+        .unwrap();
     let e = Engine::builder().store(store).build().unwrap();
     assert_eq!(e.read_schema().unwrap().as_deref(), Some(SCHEMA));
     e.write(touch(&["document:readme#viewer@user:anne"]))
@@ -146,7 +148,11 @@ fn builder_loads_the_stored_schema() {
 fn builder_fails_on_a_stored_schema_that_does_not_compile() {
     let store = MemoryStore::new();
     store
-        .write_schema("definition document { relation viewer: nobody }", "x")
+        .write_schema(
+            "definition document { relation viewer: nobody }",
+            "x",
+            &|_| Ok(()),
+        )
         .unwrap();
     let err = Engine::builder().store(store).build().unwrap_err();
     assert_eq!(err.code(), "SCHEMA_ERROR");
@@ -949,9 +955,9 @@ fn consistency_beyond_head_is_revision_not_yet_available() {
 #[test]
 fn exact_below_the_gc_horizon_is_revision_expired() {
     let store = MemoryStore::new();
-    store.write_schema(SCHEMA, "x").unwrap();
+    store.write_schema(SCHEMA, "x", &|_| Ok(())).unwrap();
     for r in ["document:a#viewer@user:anne", "document:a#viewer@user:bob"] {
-        store.write(&touch(&[r])).unwrap();
+        store.write(&touch(&[r]), None).unwrap();
     }
     store.gc(Revision(2)).unwrap();
     let e = Engine::builder().store(store).build().unwrap();

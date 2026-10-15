@@ -189,8 +189,11 @@ batch and nothing is written (OQ-016):
 
 Steps 1–3 are the engine's; steps 4–8 are the store's (`docs/05-storage.md` §5).
 
-`DeleteByFilter(RelationshipFilter)` is a separate API (`delete_relationships`), same
-transaction rules, max rows affected configurable (default 10 000), error if exceeded.
+`DeleteByFilter(RelationshipFilter)` is a separate API (`delete_relationships(filter,
+limit)`, T2.6): one transaction, one new revision (allocated even if nothing matched, as
+rule 8), deleting at most `limit` live matches in storage order (`limit` defaults to and
+may not exceed `max_delete_by_filter`, 10 000). It returns how many were deleted and
+whether more remain; call again until `more` is false. Not an error when more match.
 
 ## 6. Relationship validation against the schema
 
