@@ -20,7 +20,9 @@ use warden_core::store::{
 };
 
 use crate::pool::Lease;
-use crate::{SqliteStore, poisoned, sql, store_err};
+use warden_sqlite_common::sql;
+
+use crate::{SqliteStore, poisoned, store_err};
 
 fn corrupt(message: String) -> StoreError {
     StoreError::Corrupt { message }

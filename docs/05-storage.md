@@ -215,8 +215,14 @@ Revision checks (OQ-015):
 
 ## 4. SQLite schema (`warden-store-sqlite`)
 
-Driver: `rusqlite` with the `bundled` feature (consistent SQLite version everywhere).
-Requires SQLite ≥ 3.35 (partial indexes, `RETURNING`; bundled satisfies this).
+Two stores share this layout and every statement (T3.2a). Statement text, migrations and
+row decoding live in the driver-free `warden-sqlite-common`:
+- `warden-store-sqlite` (Rust): `rusqlite` with the `bundled` feature (one SQLite version
+  everywhere).
+- `warden-store-pysqlite` (Python, used by `Engine.sqlite()`): CPython's own `sqlite3`
+  module, so the process has one SQLite library (§4.4, ADR-006, OQ-032).
+
+Requires SQLite ≥ `MIN_SQLITE_VERSION` = 3.26.0 (§4.3).
 
 ```sql
 CREATE TABLE IF NOT EXISTS warden_meta (
@@ -292,7 +298,10 @@ should use WAL for concurrency.
   documented as recommended for production). Migration is a store concern; the engine has
   no `migrate` and no `auto_migrate` (OQ-025 (d)).
 - Newer `storage_version` than the library knows → `Err(StorageVersionTooNew)`.
-- Migrations are a static ordered list of SQL scripts in `warden-store-sqlite/migrations/`.
+- Migrations are a static ordered list of SQL scripts in
+  `warden-sqlite-common/migrations/`. The shared runner executes them one statement at a
+  time (a statement ends at a line ending in `;`), because a driver's `execute` takes one
+  statement. A test pins the result to SQLite's own script runner.
 
 ### 4.2 Connections
 
@@ -306,6 +315,45 @@ should use WAL for concurrency.
 - Reader connections are opened read-only, after the writer has set WAL and migrated.
 - A reader returned to the pool inside a transaction is rolled back (or discarded if that
   fails) so no caller inherits an old snapshot.
+
+### 4.3 Minimum SQLite version
+
+The newest feature each statement needs:
+
+| Feature | Where | SQLite |
+|---|---|---|
+| WAL (`journal_mode = WAL`) | every connection | 3.7.0 |
+| `SAVEPOINT` / `RELEASE` / `ROLLBACK TO` | write algorithm (§5) | 3.6.8 |
+| `INDEXED BY`, `AUTOINCREMENT`, `?NNN` parameters | reads (§6), tables | 3.6 |
+| multi-row `VALUES` | migration 1 | 3.7.11 |
+| partial indexes (`warden_rel_live`, `warden_rel_deleted`) | migration 1 | 3.8.0 |
+| row values (`(a, b, …) > (?, ?, …)`) | `read_relationships` cursor (§6) | 3.15.0 |
+| upsert (`ON CONFLICT … DO NOTHING` / `DO UPDATE`, with a partial-index target) | Touch (§5), migration runner | 3.24.0 |
+
+Not used (they would raise the floor): `sqlite_schema` (3.33; the runner reads
+`sqlite_master`), `RETURNING` (3.35), `UPDATE … FROM` (3.33), window functions (3.25),
+`NULLS FIRST` (3.30), generated columns (3.31), JSON operators (3.38).
+
+The SQL needs 3.24.0. **`MIN_SQLITE_VERSION` is 3.26.0**, the oldest release CI runs
+(Rocky Linux 8: Python 3.11 with its system SQLite 3.26.0, job `python-oldest`).
+`Engine.sqlite()` refuses an older `sqlite3` with a `StorageError` naming both versions.
+It also refuses a `sqlite3` built without thread support (`sqlite3.threadsafety == 0`),
+because connections move between threads. Raising the floor needs this table updated and
+the CI job moved.
+
+### 4.4 The Python store (`warden-store-pysqlite`)
+
+The same as §4.2 except that each connection is a `sqlite3.Connection`
+(`isolation_level=None`; the store issues `BEGIN IMMEDIATE`, `BEGIN DEFERRED`, `COMMIT`
+and `ROLLBACK` itself; `check_same_thread=False`; statement cache 128). Snapshots (T2.3:
+one `BEGIN DEFERRED` read transaction per request, head, horizon and schema version read
+inside it), the write algorithm (§5) and the GC order (§8) are unchanged. Every statement
+takes the GIL. The store never waits for a lock while holding it: the reader pool never
+blocks (with nothing idle a request opens a connection, and at most `reader_pool` are
+kept), and the writer mutex is taken before any statement. `warden-py` holds the GIL for
+a whole request and serialises requests per engine (OQ-033 (b)). Dropping the store
+closes every connection at once. The conformance suite (§9) and property 5 run against
+it in an embedded interpreter.
 
 ---
 
@@ -520,7 +568,10 @@ reads outside `gc_horizon..=head` failing. Cases drive the store only through
 
 `engine.write(updates, conn=sqlite3_connection)`:
 
-1. `warden-py` wraps the Python connection in `PyDbApiTxn: WriteTxn`:
+1. `warden-py` wraps the Python connection in a `WriteTxn` (`warden-store-pysqlite`'s
+   `PyTxn` is the adapter the native Python writes already use, T3.2a). The app's
+   connection and the engine's connections are the same SQLite library (§4.4), which is
+   what makes sharing a file in one process safe:
    - `execute` → `cursor.execute(sql, params)`; return `cursor.rowcount`.
    - `query` → `cursor.execute(...)` then `fetchall()`.
    - `last_insert_id` → `cursor.lastrowid`.

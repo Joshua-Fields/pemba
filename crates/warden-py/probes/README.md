@@ -6,7 +6,6 @@ Throwaway investigation code, not workspace members, never shipped. See
 - `sqlite_copies/`: holds a write lock with a bundled SQLite copy (built like `warden-py`)
   and shows that a `close()` by CPython's `sqlite3` drops it. `maturin develop && python
   run_probe.py`. Exit status 1 = lock lost. CI: `.github/workflows/oq032-probe.yml`.
-- `pystore/`: option A prototype, a store that runs every statement on Python `sqlite3`
-  connections. `maturin develop --release`, then `python conformance.py` (store
-  conformance suite) and `python bench.py [rounds]` (needs `warden` built with
-  `--release` and `pyyaml`).
+- `pystore/` (removed in T3.2a): the option A prototype, superseded by
+  `crates/warden-store-pysqlite`. Its benchmark lives on as `crates/warden-py/bench/`.
+  The probe itself is now the regression test `tests/test_one_sqlite.py`.

@@ -13,7 +13,9 @@ use rusqlite::Connection;
 use warden_core::Error;
 use warden_core::store::StoreError;
 
-use crate::{STORAGE_VERSION, SqliteConfig, SqliteStore, Synchronous, migrate};
+use warden_sqlite_common::migrate;
+
+use crate::{SqliteConfig, SqliteStore, Synchronous};
 
 /// A database path in a fresh directory, removed on drop. Declare it before the store so
 /// the store closes first (Windows cannot delete open files).
@@ -49,9 +51,10 @@ impl Drop for TempDb {
 }
 
 fn manual() -> SqliteConfig {
-    SqliteConfig {
-        auto_migrate: false,
-        ..SqliteConfig::default()
+    {
+        let mut c = SqliteConfig::default();
+        c.auto_migrate = false;
+        c
     }
 }
 
@@ -98,11 +101,6 @@ fn migration_ddl_is_the_spec_ddl() {
     let spec_ddl = creates(block);
     assert_eq!(spec_ddl.len(), 8);
     assert_eq!(creates(migrate::MIGRATIONS[0]), spec_ddl);
-}
-
-#[test]
-fn one_migration_per_storage_version() {
-    assert_eq!(migrate::MIGRATIONS.len(), STORAGE_VERSION as usize);
 }
 
 #[test]
@@ -264,9 +262,10 @@ fn failed_migration_rolls_back() {
 #[test]
 fn invalid_configs_are_rejected() {
     let db = TempDb::new();
-    let config = SqliteConfig {
-        reader_pool: 0,
-        ..SqliteConfig::default()
+    let config = {
+        let mut c = SqliteConfig::default();
+        c.reader_pool = 0;
+        c
     };
     assert!(matches!(
         SqliteStore::open(db.path(), config),
@@ -300,11 +299,12 @@ fn pragmas(conn: &Connection) -> (String, i64, i64, i64) {
 #[test]
 fn pragmas_on_every_connection() {
     let db = TempDb::new();
-    let config = SqliteConfig {
-        reader_pool: 3,
-        busy_timeout: Duration::from_millis(1234),
-        synchronous: Synchronous::Full,
-        ..SqliteConfig::default()
+    let config = {
+        let mut c = SqliteConfig::default();
+        c.reader_pool = 3;
+        c.busy_timeout = Duration::from_millis(1234);
+        c.synchronous = Synchronous::Full;
+        c
     };
     let store = SqliteStore::open(db.path(), config).unwrap();
     // synchronous: NORMAL = 1, FULL = 2.
@@ -342,9 +342,10 @@ fn pragmas_on_every_connection() {
 #[test]
 fn reader_waits_for_a_free_connection() {
     let db = TempDb::new();
-    let config = SqliteConfig {
-        reader_pool: 1,
-        ..SqliteConfig::default()
+    let config = {
+        let mut c = SqliteConfig::default();
+        c.reader_pool = 1;
+        c
     };
     let store = SqliteStore::open(db.path(), config).unwrap();
     let (leased_tx, leased_rx) = mpsc::channel();
@@ -377,9 +378,10 @@ fn reader_waits_for_a_free_connection() {
 #[test]
 fn leases_come_back_clean_after_errors_and_panics() {
     let db = TempDb::new();
-    let config = SqliteConfig {
-        reader_pool: 1,
-        ..SqliteConfig::default()
+    let config = {
+        let mut c = SqliteConfig::default();
+        c.reader_pool = 1;
+        c
     };
     let store = SqliteStore::open(db.path(), config).unwrap();
     let in_txn = |conn: &Connection| {
@@ -440,4 +442,29 @@ fn foreign_write_does_not_touch_the_cache() {
     tx.rollback().unwrap();
     out_of_range(store.exists(rev, &rel));
     assert_eq!(store.head_revision().unwrap(), Revision(0));
+}
+
+/// The shared runner executes migration scripts one statement at a time
+/// (`warden_sqlite_common::migrate::statements`); that must build exactly what SQLite's own
+/// script runner builds from the whole script.
+#[test]
+fn split_migrations_match_the_whole_script() {
+    let schema = |conn: &Connection| -> Vec<(String, String)> {
+        let mut stmt = conn
+            .prepare("SELECT name, sql FROM sqlite_master WHERE name LIKE 'warden%' ORDER BY name")
+            .unwrap();
+        stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap()
+    };
+    for script in migrate::MIGRATIONS {
+        let whole = Connection::open_in_memory().unwrap();
+        whole.execute_batch(script).unwrap();
+        let split = Connection::open_in_memory().unwrap();
+        for statement in migrate::statements(script) {
+            split.execute(&statement, []).unwrap();
+        }
+        assert_eq!(schema(&split), schema(&whole));
+    }
 }

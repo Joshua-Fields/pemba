@@ -9,7 +9,7 @@ optimised code path is checked against something simpler.
 | Snapshot tests (diagnostics, IR, pretty-print) | `insta` | `warden-schema` |
 | Fixture scenarios (YAML) | `warden-testkit` runner | `testdata/fixtures/` |
 | Reference-evaluator property tests | `proptest` | `warden-testkit`, `warden-core` |
-| Store conformance | generic suite | `warden-testkit::store_conformance` |
+| Store conformance | generic suite | `warden-testkit::store_conformance` (memory, SQLite, Python SQLite) |
 | Differential vs SpiceDB | Docker + HTTP | `warden-difftest` (`#[ignore]`, CI job) |
 | Fuzzing | `cargo-fuzz` | `fuzz/` |
 | Mutation testing | `cargo-mutants` (eval + schema validator) | CI weekly |

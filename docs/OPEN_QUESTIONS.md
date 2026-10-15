@@ -734,9 +734,7 @@ it is resolved.
   caller's `rusqlite::Transaction` from the re-exported `rusqlite`, which is the same copy
   by construction. Document: "open the app's connection through
   `warden_store_sqlite::rusqlite`".
-- Current choice (conservative, until resolved): T3.2 is on hold. The rusqlite store stays
-  as it is. Phase 1 must not ship foreign mode over native connections, because that is
-  exactly the corrupting configuration.
+- Current choice: resolved, see Resolution.
 - Recommendation:
   1. **Option A for `warden-py`'s SQLite store**, with requests serialised (one Rust mutex
      taken without the GIL, the GIL then held for the whole request, reader pool kept for
@@ -757,4 +755,56 @@ it is resolved.
      permanent regression test (running the real `warden` package instead of the probe
      module, expecting `lock held`), and document it for gunicorn/threads users.
 - Resolve by: human review of this entry and the draft ADR-006 amendment, then phase 1
+- Resolution (human, T3.2a): **option A, with requests serialised and the GIL held per
+  request; option B rejected.** ADR-006 amended accordingly. T3.2 is split into T3.2a
+  (Python SQLite store, one SQLite copy) and T3.2b (foreign transaction mode).
+  Implemented in T3.2a as `warden-store-pysqlite`. `warden-py` no longer depends on
+  rusqlite, and CI fails if the built extension or the release wheel contains SQLite. The
+  probe is now `crates/warden-py/tests/test_one_sqlite.py`. It covers both directions,
+  and the app-holds-the-lock test fails against the T3.1 rusqlite build. Floor: SQLite
+  3.26.0 (`docs/05-storage.md` §4.3), tested on Rocky Linux 8. Details decided along the
+  way are in OQ-033.
+
+## OQ-033 — Python SQLite store details decided in T3.2a
+- Raised in: T3.2a (ADR-006 as amended, OQ-032; `docs/05-storage.md` §4.3–§4.4,
+  `docs/06-api.md` §2)
+- Blocking: no
+- Current choice:
+  (a) Two new crates. `warden-sqlite-common` is driver-free: SQL text, migration scripts
+  and runner over `WriteTxn`, row decoding over `WriteTxn`, `SqliteDialect`,
+  `SqliteConfig`, `MIN_SQLITE_VERSION`. `warden-store-pysqlite` is the store over
+  CPython's `sqlite3`. `warden-store-sqlite` re-exports `SqliteConfig`/`Synchronous`, so
+  its public paths are unchanged. Migration scripts moved to
+  `crates/warden-sqlite-common/migrations/` and run one statement at a time; a test pins
+  the result to SQLite's own script runner. The migration runner reads `sqlite_master`,
+  not its 3.33 alias `sqlite_schema`. The native store keeps its typed `rusqlite`
+  decoding on the hot path; conformance and property 5 hold both stores to the same
+  answers.
+  (b) *Every* request on a SQLite engine is serialised (one per engine), not just
+  `check`. Writes, lookups, GC and schema writes would otherwise deadlock the same way:
+  a thread holding the GIL waits on the writer mutex while the mutex's holder waits for
+  the GIL. The memory engine still releases the GIL.
+  (c) The reader pool never blocks: with no idle connection, a request opens one, and at
+  most `reader_pool` are kept. A blocking pool could deadlock a GIL holder. Under
+  serialisation one request needs at most two connections (snapshot plus a store-level
+  read).
+  (d) `Engine.sqlite()` refuses (`StorageError`, `STORE_ERROR`, naming both versions) a
+  `sqlite3` whose SQLite is older than `MIN_SQLITE_VERSION` or built without thread
+  support (`sqlite3.threadsafety == 0`). Both are checked before the file is opened. New
+  constant `warden.MIN_SQLITE_VERSION` (`"3.26.0"`).
+  (e) `auto_migrate=True` takes the write lock even when there is nothing to migrate,
+  exactly as the native store does. App processes should open with
+  `auto_migrate=False` (already the documented production advice), or `Engine.sqlite()`
+  waits up to `busy_timeout_ms` behind an open app write transaction.
+  (f) PyO3's deprecated `extension-module` feature is dropped. maturin sets
+  `PYO3_BUILD_EXTENSION_MODULE`, and the feature would unify into
+  `warden-store-pysqlite`'s tests, which embed an interpreter and must link it. The
+  workspace `test` CI job therefore installs Python 3.11 on all three OSes.
+  (g) Property 5's harness moved into `warden_testkit::store_equivalence`, so any store's
+  tests can run it. `warden-store-pysqlite` runs it (64 cases, and ≥ 1 000 with
+  `--ignored`) along with the conformance suite.
+  (h) A destructor that calls Python (closing connections) sets aside and restores any
+  pending exception. Before this fix, a temporary `Engine` dropped while its own call was
+  raising turned the exception into `SystemError`.
+- Resolve by: human review
 - Resolution: (fill in)

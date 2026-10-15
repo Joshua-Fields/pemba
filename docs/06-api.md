@@ -328,6 +328,8 @@ conn.execute("COMMIT")
 ### 2.2 Signatures (ship as `warden/__init__.pyi`)
 
 ```python
+MIN_SQLITE_VERSION: str   # "3.26.0": oldest sqlite3.sqlite_version Engine.sqlite() accepts
+
 class Revision(int): ...
 
 class Engine:
@@ -347,7 +349,7 @@ class Engine:
               create: Iterable[str | Relationship] = (),
               delete: Iterable[str | Relationship] = (),
               preconditions: Iterable["Precondition"] = (),
-              conn: Any | None = None, allow_autocommit: bool = False) -> Revision: ...  # conn: T3.2
+              conn: Any | None = None, allow_autocommit: bool = False) -> Revision: ...  # conn: T3.2b
     def delete_relationships(self, *, resource_type: str, resource_id: str | None = None,
                              relation: str | None = None, subject_type: str | None = None,
                              subject_id: str | None = None,
@@ -417,7 +419,10 @@ Rules:
   processes open with `auto_migrate=False` (`NotMigrated` if the step was skipped). An
   instance method could never run where it matters: with `auto_migrate=False` an
   unmigrated database fails in `Engine.sqlite` before any engine exists.
-- All engine calls release the GIL except foreign-connection writes (they call Python).
+- Memory-engine calls release the GIL. SQLite-engine calls run one at a time per engine
+  and hold the GIL throughout, because every statement is a call into `sqlite3` (§2.5,
+  OQ-033 (b)). Other Python threads still run while SQLite itself works or waits on a
+  lock (`sqlite3` releases the GIL there).
 - `Engine` is thread-safe; share one instance per process. Not fork-safe: create it after
   forking (document for gunicorn `--preload` users).
 - Dataclass-like result types (`Relationship`, `Precondition`, `CheckResult`,
@@ -460,6 +465,28 @@ def get_doc(doc_id: str, _=Depends(authz.require("document", "view", path_param=
 ```
 Raises `HTTPException(403)` on deny, `HTTPException(503)` on `WardenError` (fail closed).
 Pure Python, optional extra `pip install warden[fastapi]`.
+
+### 2.5 SQLite in the same process
+
+`Engine.sqlite()` runs on **CPython's own `sqlite3` module**. The engine shares the
+interpreter's SQLite library and bundles none (ADR-006, OQ-032). It requires that library
+to be at least `warden.MIN_SQLITE_VERSION` (`05` §4.3), and refuses an older one with a
+`StorageError` naming both versions.
+
+Safe in the same process on the same database file: `sqlite3`, and everything built on it
+(SQLAlchemy's `sqlite` / `pysqlite` dialect, Django, `aiosqlite`, `sqlite-utils`). **Not
+safe:** `apsw`, `pysqlite3-binary`, `sqlean.py`, or any module, extension or
+`ctypes`-loaded library that brings its own SQLite, and any code that `open()`s and
+`close()`s the database or its `-wal`/`-shm` files directly (backups included; use
+`sqlite3.Connection.backup`). Why: on Linux and macOS, SQLite's locks are POSIX `fcntl`
+locks, which belong to the process, and a `close()` of any descriptor on the file
+silently releases all of them. SQLite works around this with a process-wide list of open
+files, but each SQLite copy keeps its own list. A close by one copy therefore drops the
+other's locks: another process can then write at the same time, and one of the commits is
+lost or the database corrupted, with no error anywhere. warden's T3.2 probe lost a
+committed transaction exactly this way
+(<https://www.sqlite.org/howtocorrupt.html>, §2.2–2.3). Windows locks per handle and is
+not affected, but the same rule applies so code stays portable.
 
 ---
 

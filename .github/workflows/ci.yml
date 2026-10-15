@@ -43,6 +43,18 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: Swatinem/rust-cache@v2
+      # warden-store-pysqlite's tests embed an interpreter (conformance suite, property 5).
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - name: Point PyO3 at that interpreter
+        shell: bash
+        run: |
+          echo "PYO3_PYTHON=$(python -c 'import sys; print(sys.executable)')" >> "$GITHUB_ENV"
+          echo "PYTHONHOME=$(python -c 'import sys; print(sys.base_prefix)')" >> "$GITHUB_ENV"
+          if [ "$RUNNER_OS" = Linux ]; then
+            echo "LD_LIBRARY_PATH=$(python -c 'import sysconfig; print(sysconfig.get_config_var("LIBDIR"))')" >> "$GITHUB_ENV"
+          fi
       - run: cargo test --workspace --all-features
 
   python:
@@ -69,8 +81,48 @@ jobs:
           if [ -d .venv/Scripts ]; then source .venv/Scripts/activate; else source .venv/bin/activate; fi
           pip install maturin==1.15.0 pytest==9.1.1 mypy==2.4.0
           maturin develop
+          python ci/check_no_sqlite.py
           pytest -q
           mypy --strict tests
+      # The shipped artefact, not just the dev build (ADR-006, OQ-032).
+      - name: release wheel bundles no SQLite
+        run: |
+          source .venv/bin/activate 2>/dev/null || source .venv/Scripts/activate
+          maturin build --release --out dist
+          python -c "import sys, zipfile; z = zipfile.ZipFile(sys.argv[1]); [open(n.rsplit('/', 1)[-1], 'wb').write(z.read(n)) for n in z.namelist() if '_warden' in n]" dist/*.whl
+          python ci/check_no_sqlite.py _warden.*
+
+  python-oldest:
+    # The oldest combination docs/05-storage.md §4.3 claims: CPython 3.11 (the abi3 floor,
+    # ADR-014) on SQLite 3.26.0 (MIN_SQLITE_VERSION), as Rocky Linux 8 ships them.
+    name: python (Rocky Linux 8, Python 3.11, SQLite 3.26.0)
+    runs-on: ubuntu-latest
+    container: rockylinux/rockylinux:8
+    defaults:
+      run:
+        shell: bash
+        working-directory: crates/warden-py
+    steps:
+      - name: system packages
+        working-directory: /
+        run: dnf install -y --setopt=install_weak_deps=False python3.11 python3.11-pip gcc git
+      - uses: actions/checkout@v5
+      - name: Rust (version from rust-toolchain.toml)
+        run: |
+          curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+      - name: check the combination
+        run: |
+          python3.11 -c "import sqlite3, sys; print(sys.version, sqlite3.sqlite_version); assert sys.version_info[:2] == (3, 11); assert sqlite3.sqlite_version == '3.26.0'"
+      - name: maturin develop, pytest
+        run: |
+          python3.11 -m venv .venv
+          source .venv/bin/activate
+          pip install maturin==1.15.0 pytest==9.1.1
+          maturin develop
+          python ci/check_no_sqlite.py
+          python -c "import warden; assert warden.MIN_SQLITE_VERSION == '3.26.0'"
+          pytest -q
 
   prop1:
     name: property 1, 1000 cases
