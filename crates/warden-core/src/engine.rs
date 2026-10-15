@@ -15,7 +15,7 @@ use crate::eval::{
 use crate::model::{
     Consistency, Precondition, Relationship, RelationshipFilter, Revision, SubjectRef, WriteRequest,
 };
-use crate::store::{SqlStore, StoreError, WritableStore, WriteTxn};
+use crate::store::{ReadStore, SqlStore, StoreError, WritableStore, WriteTxn};
 use crate::validate::{validate_filter, validate_ops};
 
 /// Limits and switches (`docs/02-data-model.md` §7). `Default` gives the spec defaults.
@@ -367,10 +367,10 @@ impl<S: WritableStore> Engine<S> {
         }
         let schema = self.current_schema()?;
         validate_filter(&schema, &req.filter)?;
-        let revision = self.resolve(req.consistency)?;
+        let snapshot = self.store.snapshot()?;
+        let revision = resolve(&*snapshot, req.consistency)?;
         // One extra row tells whether another page exists without a second query.
-        let mut relationships = self
-            .store
+        let mut relationships = snapshot
             .read_relationships(
                 revision,
                 &req.filter,
@@ -431,12 +431,13 @@ impl<S: WritableStore> Engine<S> {
         let start = Instant::now();
         let schema = self.current_schema()?;
         let (root, subject) = eval::resolve(&schema, &req.resource, &req.permission, &req.subject)?;
-        let revision = self.resolve(req.consistency)?;
+        let snapshot = self.store.snapshot()?;
+        let revision = resolve(&*snapshot, req.consistency)?;
         span.record("revision", revision.0);
         let mut memo = Memo::new();
         let mut evaluator = Evaluator::new(
             &schema,
-            &self.store,
+            &*snapshot,
             revision,
             self.limits(),
             &subject,
@@ -486,7 +487,9 @@ impl<S: WritableStore> Engine<S> {
         let _entered = span.enter();
         let start = Instant::now();
         let schema = self.current_schema()?;
-        let revision = self.resolve(c)?;
+        // One snapshot for the whole call: every item reads the same state.
+        let snapshot = self.store.snapshot()?;
+        let revision = resolve(&*snapshot, c)?;
         span.record("revision", revision.0);
         let limits = self.limits();
         // Memoised values are settled, so they hold for any check with the same subject
@@ -501,7 +504,7 @@ impl<S: WritableStore> Engine<S> {
                     Ok((root, subject)) => {
                         let memo = memos.entry(item.subject).or_default();
                         let mut evaluator =
-                            Evaluator::new(&schema, &self.store, revision, limits, &subject, memo);
+                            Evaluator::new(&schema, &*snapshot, revision, limits, &subject, memo);
                         let result = evaluator.check(&root);
                         stats.absorb(&evaluator.stats());
                         result
@@ -532,27 +535,6 @@ impl<S: WritableStore> Engine<S> {
         }
     }
 
-    /// Resolves `c` to the single revision a request reads at, checked once against the
-    /// store's head and GC horizon (`docs/02-data-model.md` §4, `docs/05-storage.md` §2).
-    fn resolve(&self, c: Consistency) -> Result<Revision, Error> {
-        let head = self.store.head_revision()?;
-        let requested = match c {
-            Consistency::Latest => return Ok(head),
-            Consistency::AtLeast(r) | Consistency::Exact(r) => r,
-        };
-        if requested > head {
-            return Err(Error::RevisionNotYetAvailable { requested, head });
-        }
-        if matches!(c, Consistency::AtLeast(_)) {
-            return Ok(head);
-        }
-        let horizon = self.store.gc_horizon()?;
-        if requested < horizon {
-            return Err(Error::RevisionExpired { requested, horizon });
-        }
-        Ok(requested)
-    }
-
     fn current_schema(&self) -> Result<Arc<CompiledSchema>, Error> {
         self.schema_read().clone().ok_or(Error::NoSchema)
     }
@@ -567,6 +549,29 @@ impl<S: WritableStore> Engine<S> {
     fn schema_write(&self) -> RwLockWriteGuard<'_, Option<Arc<CompiledSchema>>> {
         self.schema.write().unwrap_or_else(PoisonError::into_inner)
     }
+}
+
+/// Resolves `c` to the single revision a request reads at, checked once against the
+/// snapshot's head and GC horizon (`docs/02-data-model.md` §4, `docs/05-storage.md` §2).
+/// Every read of the request must go through the same snapshot, so a GC committed by
+/// another process after this check cannot hide rows from those reads.
+fn resolve(snapshot: &dyn ReadStore, c: Consistency) -> Result<Revision, Error> {
+    let head = snapshot.head_revision()?;
+    let requested = match c {
+        Consistency::Latest => return Ok(head),
+        Consistency::AtLeast(r) | Consistency::Exact(r) => r,
+    };
+    if requested > head {
+        return Err(Error::RevisionNotYetAvailable { requested, head });
+    }
+    if matches!(c, Consistency::AtLeast(_)) {
+        return Ok(head);
+    }
+    let horizon = snapshot.gc_horizon()?;
+    if requested < horizon {
+        return Err(Error::RevisionExpired { requested, horizon });
+    }
+    Ok(requested)
 }
 
 fn record_stats(span: &tracing::Span, stats: &EvalStats) {

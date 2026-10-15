@@ -126,8 +126,9 @@ Parsing rules:
 - **Head revision** = highest committed revision.
 - A tuple row is **visible at revision R** iff `created_rev <= R && (deleted_rev IS NULL || deleted_rev > R)`.
 - A request resolves its `Consistency` to exactly one revision **once**, at the start, and
-  uses it for every store read in that request. This is what makes a check internally
-  consistent even while writes commit concurrently.
+  uses it for every store read in that request, all through one store snapshot
+  (`docs/05-storage.md` §2, "Revision checks"). This is what makes a check internally
+  consistent even while writes commit, or another process garbage-collects, concurrently.
 - Resolution:
   - `Latest` → `head`.
   - `AtLeast(r)` → if `head >= r` then `head` else `Err(RevisionNotYetAvailable { requested: r, head })`.

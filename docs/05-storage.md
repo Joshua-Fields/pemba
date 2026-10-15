@@ -61,6 +61,11 @@ pub trait ReadStore: Send + Sync {
     fn count_by_relation(&self, rev: Revision) -> Result<Vec<RelationCount>, StoreError>;
 
     fn current_schema(&self) -> Result<Option<StoredSchema>, StoreError>;
+
+    /// One fixed view of the store for a whole request (T2.3): head, horizon and every read
+    /// through it see the same state, whatever commits or GCs meanwhile, in any process.
+    /// Dropping it releases what it holds. Default: the store itself (see "Revision checks").
+    fn snapshot(&self) -> Result<Box<dyn ReadStore + '_>, StoreError> { Ok(Box::new(self)) }
 }
 
 pub struct ReverseFilter {
@@ -145,11 +150,32 @@ Revision checks (OQ-015):
   and the head last observed the same way.
 - A backstop failure because a GC moved the horizon after the engine resolved the revision
   surfaces as `RevisionExpired`, not as a store error.
-- Caveat for SQLite (T2.3): a cached horizon cannot see a GC run by **another process**
-  between the engine's check and a later read in the same request, and such a read could
-  silently miss rows. T2.3 must close this gap, e.g. by running a request's horizon check
-  and all its reads in one read transaction (one WAL snapshot), so a concurrent GC is either
-  wholly visible to the check or not yet visible to the reads.
+- Cross-process GC (closed in T2.3): a cached horizon cannot see a GC run by **another
+  process** between the engine's check and a later read, and such a read could silently
+  miss rows. So every request (`check`, the whole of `check_bulk`, `read_relationships`, and
+  the lookups from T2.4) takes one `ReadStore::snapshot()` first, resolves its revision
+  against the snapshot's `head_revision()`/`gc_horizon()`, and makes every read through it.
+  On SQLite the snapshot is one leased reader connection inside `BEGIN DEFERRED`, whose
+  first statement is the head/horizon query, so WAL pins all later reads to that state: a
+  GC committed afterwards, by any process, is invisible to the request (SQLite never
+  checkpoints over pages an open reader still needs), and the next request sees the new
+  horizon and fails `Exact(r)` below it with `RevisionExpired`. The snapshot's backstop
+  compares against its own head and horizon. Dropping it rolls the read transaction back
+  and returns the connection to the pool, on every exit path including errors and panics.
+  The memory store keeps the default (`snapshot()` is the store itself): its range check
+  reads the authoritative horizon under the same lock as the rows, so a concurrent GC fails
+  the read closed (`RevisionExpired`) rather than hiding rows. Tested by
+  `warden-store-sqlite/tests/snapshot.rs` (two `SqliteStore`s on one file standing in for
+  two processes).
+- A request holds one reader connection for its whole duration, so at most
+  `SqliteConfig::reader_pool` requests read at once; the rest wait for a connection.
+- **Long read transactions hold back WAL checkpoints.** A checkpoint cannot copy WAL frames
+  past the oldest open reader's snapshot, nor reset the WAL while a reader uses it, so a
+  long-lived snapshot lets the WAL file grow under write load. `check` is short (one
+  request, bounded by `max_check_reads`); **T2.4 lookups must watch this**: a
+  `lookup_resources` page visiting up to `max_lookup_nodes` nodes holds its snapshot for
+  the whole page, and pagination must not keep a snapshot open between pages (each page
+  is its own request at `Exact(first_page.revision)`).
 
 ---
 
