@@ -13,7 +13,10 @@ use warden_core::model::{
 use warden_core::store::{
     GcStats, ReadStore, RelationCount, ReverseFilter, StoreError, StoredSchema, WritableStore,
 };
-use warden_core::{CheckRequest, CheckResponse, Engine, EngineConfig, Error};
+use warden_core::{
+    CheckRequest, CheckResponse, Engine, EngineConfig, Error, LookupSubjectsRequest,
+    LookupSubjectsResponse,
+};
 use warden_store_memory::MemoryStore;
 use warden_testkit::reference::Reference;
 
@@ -267,6 +270,18 @@ impl Groups {
         Self { engine, reads }
     }
 
+    /// `lookup_subjects(group:g#member, user)`, with the read budget reset first; returns
+    /// the answer and the store reads it made.
+    fn lookup(&self, group: &str) -> Result<(LookupSubjectsResponse, u64), Error> {
+        self.reads.store(0, Ordering::Relaxed);
+        let resp = self.engine.lookup_subjects(LookupSubjectsRequest::new(
+            format!("group:{group}").parse().unwrap(),
+            "member".parse().unwrap(),
+            "user".parse().unwrap(),
+        ))?;
+        Ok((resp, self.reads.load(Ordering::Relaxed)))
+    }
+
     /// `group:g#member@user:anne`, with the read budget reset first.
     fn check(&self, group: &str) -> Result<CheckResponse, Error> {
         self.reads.store(0, Ordering::Relaxed);
@@ -327,6 +342,85 @@ fn complete_group_graph_with_the_user_in_one_group_reads_polynomially() {
     let groups = Groups::new(&tuples, COMPLETE_MAX_READS + 1);
     for i in 1..=N {
         assert_bounded(&groups, &name(i), true, COMPLETE_MAX_READS);
+    }
+}
+
+/// `lookup_subjects` on `group` returns exactly `want` within `max` store reads, and
+/// within `max` as `max_check_reads` too.
+fn assert_lookup_bounded(groups: &Groups, group: &str, want: &[&str], max: u64) {
+    let (resp, reads) = groups.lookup(group).unwrap_or_else(|e| {
+        panic!("lookup_subjects on {group} failed (more than {max} reads?): {e}")
+    });
+    let want: Vec<_> = want.iter().map(|s| s.parse().unwrap()).collect();
+    assert_eq!(resp.subject_ids, want, "wrong answer for {group}");
+    assert!(!resp.wildcard);
+    assert!(reads <= max, "{group}: {reads} store reads (max {max})");
+}
+
+/// The engine's own backstop, set to the same bound, must not trip either.
+fn bounded_by_config(tuples: &[String], max: u64) -> Groups {
+    let groups = Groups::new(tuples, max + 1);
+    let engine = Engine::builder()
+        .store(Budgeted {
+            inner: MemoryStore::new(),
+            reads: Arc::clone(&groups.reads),
+            budget: Arc::new(AtomicU64::new(u64::MAX)),
+        })
+        .config(EngineConfig {
+            max_depth: 1_000_000,
+            max_check_fanout: usize::MAX,
+            max_check_reads: max,
+            ..EngineConfig::default()
+        })
+        .build()
+        .unwrap();
+    engine.write_schema(GROUP_SCHEMA).unwrap();
+    engine
+        .write(WriteRequest {
+            ops: tuples
+                .iter()
+                .map(|t| WriteOp::Touch(t.parse().unwrap()))
+                .collect(),
+            preconditions: Vec::new(),
+        })
+        .unwrap();
+    Groups {
+        engine,
+        reads: groups.reads,
+    }
+}
+
+#[test]
+fn lookup_subjects_on_the_complete_group_graph_without_users_reads_polynomially() {
+    let tuples = complete_graph(N);
+    let groups = Groups::new(&tuples, COMPLETE_MAX_READS + 1);
+    assert_lookup_bounded(&groups, "g1", &[], COMPLETE_MAX_READS);
+    let groups = bounded_by_config(&tuples, COMPLETE_MAX_READS);
+    assert_lookup_bounded(&groups, "g1", &[], COMPLETE_MAX_READS);
+}
+
+#[test]
+fn lookup_subjects_on_the_complete_group_graph_with_users_reads_polynomially() {
+    let mut tuples = complete_graph(N);
+    // Late in store order, so most of the region is first evaluated without them.
+    tuples.push(format!("group:{}#member@user:anne", name(9)));
+    tuples.push(format!("group:{}#member@user:bob", name(5)));
+    let budgeted = Groups::new(&tuples, COMPLETE_MAX_READS + 1);
+    let configured = bounded_by_config(&tuples, COMPLETE_MAX_READS);
+    for groups in [&budgeted, &configured] {
+        for i in 1..=N {
+            assert_lookup_bounded(groups, &name(i), &["anne", "bob"], COMPLETE_MAX_READS);
+        }
+    }
+}
+
+#[test]
+fn lookup_subjects_on_a_ring_reads_linearly() {
+    let mut tuples = ring();
+    tuples.push(format!("group:{}#member@user:anne", name(RING)));
+    let groups = Groups::new(&tuples, RING_MAX_READS + 1);
+    for i in 1..=RING {
+        assert_lookup_bounded(&groups, &name(i), &["anne"], RING_MAX_READS);
     }
 }
 

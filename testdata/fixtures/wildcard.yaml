@@ -37,3 +37,15 @@ assertions:
     - document:public#view@bot:r2
     - document:team#view@user:anne
     - document:team#view@user:zed
+
+# Lookups: the wildcard answers "every user" (subject type user only).
+expectedLookups:
+  subjects:
+    - query: "document:public#view@user"
+      expect: { wildcard: true, excluded: [] }
+    - query: "document:public#view@bot"
+      expect: { ids: [] }
+    - query: "document:private#view@user"
+      expect: { ids: [anne] }
+    - query: "document:team#view@user"
+      expect: { ids: [bob] }

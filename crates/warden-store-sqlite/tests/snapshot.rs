@@ -21,7 +21,7 @@ use warden_core::store::{
 };
 use warden_core::{
     CheckItem, CheckRequest, Engine, EngineConfig, Error, LookupResourcesRequest,
-    ReadRelationshipsRequest,
+    LookupSubjectsRequest, ReadRelationshipsRequest,
 };
 use warden_store_sqlite::{SqliteConfig, SqliteStore};
 
@@ -406,6 +406,15 @@ fn every_read_api_takes_exactly_one_snapshot() {
         .unwrap();
     assert_eq!(page.resource_ids, vec!["readme".parse().unwrap()]);
     assert_eq!(snapshots.load(Ordering::SeqCst), n0 + 3);
+    let subjects = e
+        .lookup_subjects(LookupSubjectsRequest::new(
+            "document:readme".parse().unwrap(),
+            "view".parse().unwrap(),
+            "user".parse().unwrap(),
+        ))
+        .unwrap();
+    assert_eq!(subjects.subject_ids, vec!["bob".parse().unwrap()]);
+    assert_eq!(snapshots.load(Ordering::SeqCst), n0 + 4);
 }
 
 /// `"document#view@user:anne"` → a lookup request.
@@ -491,6 +500,16 @@ fn snapshot_is_released_on_every_exit_path() {
         matches!(err, Error::RevisionNotYetAvailable { .. }),
         "{err:?}"
     );
+
+    // lookup_subjects: an evaluation error (view → viewer is depth 2).
+    let err = e
+        .lookup_subjects(LookupSubjectsRequest::new(
+            "document:readme".parse().unwrap(),
+            "view".parse().unwrap(),
+            "user".parse().unwrap(),
+        ))
+        .unwrap_err();
+    assert!(matches!(err, Error::MaxDepthExceeded { .. }), "{err:?}");
 
     // The connection is back, outside any transaction: a new commit is visible.
     let r4 = e

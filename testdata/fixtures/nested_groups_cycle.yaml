@@ -56,3 +56,12 @@ expectedLookups:
       expect: [d]
     - query: "document#view@user:eve"
       expect: []
+  subjects:
+    - query: "group:a#member@user"
+      expect: { ids: [bob] }
+    - query: "group:c#member@user"
+      expect: { ids: [bob] }
+    - query: "group:x#member@user"
+      expect: { ids: [] }
+    - query: "document:d#view@user"
+      expect: { ids: [bob] }

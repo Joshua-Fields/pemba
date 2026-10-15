@@ -160,3 +160,18 @@ expectedLookups:
       expect: [shared_ext]
     - query: "folder#edit@user:bob"
       expect: [engineering, specs]
+  subjects:
+    - query: "document:press#view@user"
+      expect: { wildcard: true, excluded: [] }
+    - query: "document:roadmap#view@user"
+      expect: { ids: [alice, bob, carol, dave, erin, mallory] }
+    - query: "document:arch#view@user"
+      expect: { ids: [alice, bob, dave, erin, frank, mallory] }
+    - query: "document:secret#view@user"
+      expect: { ids: [alice, bob, carol, dave, erin] }
+    - query: "document:contract#view@user"
+      expect: { ids: [frank, grace] }
+    - query: "folder:shared_ext#view@user"
+      expect: { ids: [frank, grace, mallory] }
+    - query: "group:eng#member@user"
+      expect: { ids: [bob, carol, dave] }

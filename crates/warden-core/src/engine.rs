@@ -17,6 +17,7 @@ use crate::model::{
     Consistency, Precondition, Relationship, RelationshipFilter, Revision, SubjectRef, WriteRequest,
 };
 use crate::store::{ReadStore, SqlStore, StoreError, WritableStore, WriteTxn};
+use crate::subjects::{self, Gatherer, LookupSubjectsRequest, LookupSubjectsResponse, SubjectSet};
 use crate::validate::{validate_filter, validate_ops};
 
 /// Limits and switches (`docs/02-data-model.md` §7). `Default` gives the spec defaults.
@@ -551,6 +552,78 @@ impl<S: WritableStore> Engine<S> {
         Ok(LookupResourcesResponse {
             resource_ids,
             next_cursor,
+            revision,
+        })
+    }
+
+    /// Every object of `req.subject_type` that has `req.permission` on `req.resource`
+    /// (`docs/04-evaluation.md` §6): a list of ids, or, when a wildcard grants it, every
+    /// object except a list of ids.
+    ///
+    /// Object subjects only; never `false` (or `true`) in place of an error. The whole
+    /// request is one evaluation, bounded like one [`check`](Self::check): store reads
+    /// count against [`EngineConfig::max_check_reads`].
+    ///
+    /// # Errors
+    ///
+    /// [`Error::NoSchema`]; [`Error::InvalidRequest`] if the resource type, permission or
+    /// subject type is not defined; [`Error::RevisionNotYetAvailable`] /
+    /// [`Error::RevisionExpired`] if the consistency cannot be met;
+    /// [`Error::MaxDepthExceeded`], [`Error::NonMonotonicCycle`],
+    /// [`Error::FanoutExceeded`] or [`Error::CheckReadsExceeded`] if evaluation hits a
+    /// limit or an undefined cycle; [`Error::StaleRelationship`] if it meets a stored
+    /// subject set the schema no longer allows; [`Error::Store`] if the store fails.
+    #[allow(
+        clippy::needless_pass_by_value,
+        reason = "signature fixed by docs/06-api.md §1"
+    )]
+    pub fn lookup_subjects(
+        &self,
+        req: LookupSubjectsRequest,
+    ) -> Result<LookupSubjectsResponse, Error> {
+        let span = tracing::info_span!(
+            "lookup_subjects",
+            resource = %req.resource,
+            permission = %req.permission,
+            subject_type = %req.subject_type,
+            revision = tracing::field::Empty,
+            results = tracing::field::Empty,
+            wildcard = tracing::field::Empty,
+            store_reads = tracing::field::Empty,
+            tuples_read = tracing::field::Empty,
+            memo_hits = tracing::field::Empty,
+            max_depth_reached = tracing::field::Empty,
+            cycle_passes = tracing::field::Empty,
+            elapsed_us = tracing::field::Empty,
+        );
+        let _entered = span.enter();
+        let start = Instant::now();
+        let schema = self.current_schema()?;
+        let (root, subject_type) = subjects::resolve(&schema, &req)?;
+        let snapshot = self.store.snapshot()?;
+        let revision = resolve(&*snapshot, req.consistency)?;
+        span.record("revision", revision.0);
+        let mut gatherer = Gatherer::new(
+            &schema,
+            &*snapshot,
+            revision,
+            self.limits(),
+            (subject_type, &req.subject_type),
+        );
+        let result = gatherer.gather(&root);
+        let mut stats = gatherer.stats();
+        stats.elapsed = start.elapsed();
+        record_stats(&span, &stats);
+        let (subject_ids, wildcard, excluded_ids) = match result? {
+            SubjectSet::Ids(ids) => (ids.into_iter().collect::<Vec<_>>(), false, Vec::new()),
+            SubjectSet::AllExcept(x) => (Vec::new(), true, x.into_iter().collect()),
+        };
+        span.record("results", subject_ids.len());
+        span.record("wildcard", wildcard);
+        Ok(LookupSubjectsResponse {
+            subject_ids,
+            wildcard,
+            excluded_ids,
             revision,
         })
     }

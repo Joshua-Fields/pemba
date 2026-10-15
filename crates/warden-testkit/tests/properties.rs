@@ -1,4 +1,4 @@
-//! Properties 1, 2, 4, 5 and 6 of `docs/07-testing.md` §2.3, plus checks that the
+//! Properties 1–6 of `docs/07-testing.md` §2.3, plus checks that the
 //! generators produce what §2.2 asks for.
 //!
 //! Property 1 runs on the memory store only; the SQLite store arrives in M2, and on both
@@ -8,7 +8,8 @@
 //! Property 5 (memory store ≡ SQLite store) runs 64 cases plainly and at least 1 000 in
 //! `prop5_*_full`, likewise ignored. Property 4 (historical reads at `Exact(r)`, on both
 //! stores) likewise: 64 cases plainly, at least 1 000 in the ignored `prop4_*_full`. So
-//! does property 2 (`lookup_resources`, on both stores), in `prop2_*_full`.
+//! does property 2 (`lookup_resources`, on both stores), in `prop2_*_full`, and property 3
+//! (`lookup_subjects`, on both stores), in `prop3_*_full`.
 //! Property 6 always runs at least 1 000.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
@@ -972,4 +973,380 @@ fn generated_lookups_are_varied() {
         empty > 200 && several > 200 && fresh_same_object > 100,
         "{stats}"
     );
+}
+
+// ---- property 3: lookup_subjects ----
+
+mod prop3 {
+    use proptest::prelude::*;
+    use warden_core::model::{ObjectRef, SubjectRef, WriteOp, WriteRequest};
+    use warden_core::store::WritableStore;
+    use warden_core::{CheckRequest, Engine, LookupSubjectsRequest, LookupSubjectsResponse};
+    use warden_store_memory::MemoryStore;
+    use warden_testkit::generate::{self, Case, SubSides};
+    use warden_testkit::reference::Reference;
+
+    use super::{compile, config, query, unlimited};
+
+    /// Lookups per case, from its first queries.
+    const LOOKUPS: usize = 8;
+
+    fn engine_with<S: WritableStore>(store: S, src: &str, case: &Case) -> Engine<S> {
+        let engine = Engine::builder()
+            .store(store)
+            .config(unlimited())
+            .build()
+            .unwrap();
+        engine.write_schema(src).unwrap();
+        if !case.tuples.is_empty() {
+            engine
+                .write(WriteRequest {
+                    ops: case.tuples.iter().cloned().map(WriteOp::Touch).collect(),
+                    preconditions: Vec::new(),
+                })
+                .unwrap();
+        }
+        engine
+    }
+
+    /// Property 3 for one case (`docs/04` §6.3): for every object `u` of the subject type in
+    /// the universe (every id in the data plus the oracle's fresh id),
+    /// `check(resource, permission, u)` equals "the response contains `u`", by the oracle
+    /// and by the engine's `check`; and the response names no id outside the universe.
+    fn lookup_subjects_matches_check(case: &Case) -> Result<(), TestCaseError> {
+        let src = case.schema.source();
+        let schema = compile(&src);
+        let oracle = Reference::new(&schema, &case.tuples)
+            .map_err(|e| TestCaseError::fail(format!("oracle refused a generated case: {e}")))?;
+        let universe = oracle.universe();
+        let memory = engine_with(MemoryStore::new(), &src, case);
+        let mut dir = super::prop5::TempSqlite::new();
+        let sqlite = engine_with(dir.store.take().unwrap(), &src, case);
+
+        for &q in case.queries.iter().take(LOOKUPS) {
+            let (resource, member, _) = query(&schema, &oracle, &universe, q);
+            let subject_type = schema.types[q.subject % schema.types.len()]
+                .name
+                .parse()
+                .unwrap();
+            let of_type: Vec<&ObjectRef> = universe
+                .iter()
+                .filter(|o| o.object_type == subject_type)
+                .collect();
+            let req = LookupSubjectsRequest::new(resource.clone(), member.clone(), subject_type);
+            let what = format!("lookup_subjects({resource}#{member}@{})", req.subject_type);
+            let responses: Vec<(&str, LookupSubjectsResponse)> = [
+                ("memory", memory.lookup_subjects(req.clone())),
+                ("sqlite", sqlite.lookup_subjects(req.clone())),
+            ]
+            .into_iter()
+            .map(|(store, r)| {
+                r.map(|r| (store, r))
+                    .map_err(|e| TestCaseError::fail(format!("{store}: {what} failed: {e}")))
+            })
+            .collect::<Result<_, _>>()?;
+            prop_assert_eq!(
+                &responses[0].1,
+                &responses[1].1,
+                "{} differs by store",
+                what
+            );
+            for (store, resp) in &responses {
+                let mut sorted = resp.subject_ids.clone();
+                sorted.sort();
+                prop_assert_eq!(&sorted, &resp.subject_ids, "{}: {} not sorted", store, what);
+                for id in resp.subject_ids.iter().chain(&resp.excluded_ids) {
+                    prop_assert!(
+                        of_type.iter().any(|o| o.object_id == *id),
+                        "{}: {} names {} outside the universe",
+                        store,
+                        what,
+                        id
+                    );
+                }
+            }
+            let resp = &responses[0].1;
+            for u in of_type {
+                let subject = SubjectRef::Object(u.clone());
+                let want = oracle.check(&resource, &member, &subject).unwrap();
+                let got = memory
+                    .check(CheckRequest {
+                        resource: resource.clone(),
+                        permission: member.clone(),
+                        subject,
+                        consistency: warden_core::model::Consistency::Latest,
+                    })
+                    .map_err(|e| TestCaseError::fail(format!("check failed: {e}")))?
+                    .allowed;
+                prop_assert_eq!(got, want, "check({}#{}@{})", resource, member, u);
+                prop_assert_eq!(
+                    resp.contains(&u.object_id),
+                    want,
+                    "{}: contains {}? response {:?}",
+                    what,
+                    u,
+                    resp
+                );
+            }
+        }
+        Ok(())
+    }
+
+    /// Wildcards on both sides of exclusions and intersections, under recursion: the
+    /// cofinite cells of the algebra (`AllExcept` minus `Ids`, ...) that generated schemas
+    /// rarely reach (a wildcard beneath an exclusion in about 2% of cases).
+    const WILDCARD_SCHEMA: &str = "
+definition user {}
+
+definition group {
+    relation member: user | user:* | group#member
+    relation banned: user | user:*
+    permission active = member - banned
+}
+
+definition doc {
+    relation parent: doc
+    relation viewer: user | user:* | group#member | group#active
+    relation banned: user | user:* | group#member
+    relation editor: user | user:* | group#member
+    permission view = (viewer + parent->view) - banned
+    permission edit = editor & view
+    permission view_not_edit = view - edit
+    permission all_parents = parent.all(view)
+}
+";
+
+    /// Relations of [`WILDCARD_SCHEMA`] with their allowed subjects, as tuple templates.
+    const WILDCARD_RELATIONS: &[(&str, &str, &[&str])] = &[
+        ("group", "member", &["user:{}", "user:*", "group:{}#member"]),
+        ("group", "banned", &["user:{}", "user:*"]),
+        ("doc", "parent", &["doc:{}"]),
+        (
+            "doc",
+            "viewer",
+            &["user:{}", "user:*", "group:{}#member", "group:{}#active"],
+        ),
+        ("doc", "banned", &["user:{}", "user:*", "group:{}#member"]),
+        ("doc", "editor", &["user:{}", "user:*", "group:{}#member"]),
+    ];
+
+    const WILDCARD_IDS: [&str; 4] = ["a", "b", "c", "d"];
+
+    /// 0–30 random tuples over [`WILDCARD_SCHEMA`]; every object and member is looked up.
+    fn wildcard_tuples() -> impl Strategy<Value = Vec<warden_core::model::Relationship>> {
+        prop::collection::vec(
+            (
+                any::<usize>(),
+                any::<usize>(),
+                0..WILDCARD_IDS.len(),
+                0..WILDCARD_IDS.len(),
+            ),
+            0..=30,
+        )
+        .prop_map(|raw| {
+            let mut out: Vec<warden_core::model::Relationship> = Vec::new();
+            for (r, a, res, sub) in raw {
+                let (ty, rel, allowed) = WILDCARD_RELATIONS[r % WILDCARD_RELATIONS.len()];
+                let subject = allowed[a % allowed.len()].replace("{}", WILDCARD_IDS[sub]);
+                let t = format!("{ty}:{}#{rel}@{subject}", WILDCARD_IDS[res])
+                    .parse()
+                    .unwrap();
+                if !out.contains(&t) {
+                    out.push(t);
+                }
+            }
+            out
+        })
+    }
+
+    /// Property 3 over [`WILDCARD_SCHEMA`]: every object, every member, subject type `user`.
+    fn wildcard_lookups_match_check(
+        tuples: &[warden_core::model::Relationship],
+    ) -> Result<usize, TestCaseError> {
+        let schema = compile(WILDCARD_SCHEMA);
+        let oracle = Reference::new(&schema, tuples)
+            .map_err(|e| TestCaseError::fail(format!("oracle refused: {e}")))?;
+        let universe = oracle.universe();
+        let memory = Engine::builder()
+            .store(MemoryStore::new())
+            .config(unlimited())
+            .build()
+            .unwrap();
+        let mut dir = super::prop5::TempSqlite::new();
+        let sqlite = Engine::builder()
+            .store(dir.store.take().unwrap())
+            .config(unlimited())
+            .build()
+            .unwrap();
+        setup(&memory, tuples);
+        setup(&sqlite, tuples);
+        let mut with_exclusions = 0;
+        let user: warden_core::model::TypeName = "user".parse().unwrap();
+        let users: Vec<&ObjectRef> = universe.iter().filter(|o| o.object_type == user).collect();
+        for resource in universe.iter().filter(|o| o.object_type != user) {
+            let t = schema.type_id(resource.object_type.as_str()).unwrap();
+            for m in &schema.types[t.index()].members {
+                let member: warden_core::model::RelName = m.name().parse().unwrap();
+                let req =
+                    LookupSubjectsRequest::new(resource.clone(), member.clone(), user.clone());
+                let a = memory.lookup_subjects(req.clone());
+                let b = sqlite.lookup_subjects(req);
+                let what = format!("lookup_subjects({resource}#{member}@user)");
+                let a = a.map_err(|e| TestCaseError::fail(format!("memory: {what}: {e}")))?;
+                let b = b.map_err(|e| TestCaseError::fail(format!("sqlite: {what}: {e}")))?;
+                prop_assert_eq!(&a, &b, "{} differs by store", what);
+                with_exclusions += usize::from(a.wildcard && !a.excluded_ids.is_empty());
+                for id in a.subject_ids.iter().chain(&a.excluded_ids) {
+                    prop_assert!(users.iter().any(|u| u.object_id == *id), "{}: {}", what, id);
+                }
+                for u in &users {
+                    let want = oracle
+                        .check(resource, &member, &SubjectRef::Object((*u).clone()))
+                        .unwrap();
+                    prop_assert_eq!(a.contains(&u.object_id), want, "{}: {}? {:?}", what, u, a);
+                }
+            }
+        }
+        Ok(with_exclusions)
+    }
+
+    fn setup<S: WritableStore>(engine: &Engine<S>, tuples: &[warden_core::model::Relationship]) {
+        engine.write_schema(WILDCARD_SCHEMA).unwrap();
+        if !tuples.is_empty() {
+            engine
+                .write(WriteRequest {
+                    ops: tuples.iter().cloned().map(WriteOp::Touch).collect(),
+                    preconditions: Vec::new(),
+                })
+                .unwrap();
+        }
+    }
+
+    /// Guards the wildcard variant against testing little.
+    #[test]
+    fn wildcard_variant_reaches_exclusions() {
+        let mut runner = proptest::test_runner::TestRunner::deterministic();
+        let (mut cases, mut total) = (0, 0);
+        for _ in 0..200 {
+            let tuples = proptest::strategy::ValueTree::current(
+                &wildcard_tuples().new_tree(&mut runner).unwrap(),
+            );
+            let n = wildcard_lookups_match_check(&tuples).unwrap();
+            cases += usize::from(n > 0);
+            total += n;
+        }
+        assert!(
+            cases > 40,
+            "cases with wildcard exclusions {cases}, lookups {total}"
+        );
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig { cases: 64, ..config(0) })]
+
+        /// Property 3 on wildcards under exclusions, quick: 64 cases.
+        #[test]
+        fn prop3_wildcard_lookup_subjects_matches_check(tuples in wildcard_tuples()) {
+            wildcard_lookups_match_check(&tuples)?;
+        }
+    }
+
+    proptest! {
+        #![proptest_config(config(1000))]
+
+        /// Property 3 on wildcards under exclusions, ≥ 1 000 cases.
+        #[test]
+        #[ignore = "slow: 1 000+ cases; run with --ignored"]
+        fn prop3_wildcard_lookup_subjects_matches_check_full(tuples in wildcard_tuples()) {
+            wildcard_lookups_match_check(&tuples)?;
+        }
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig { cases: 64, ..config(0) })]
+
+        /// Property 3, quick: 64 cases.
+        #[test]
+        fn prop3_lookup_subjects_matches_check(case in generate::case()) {
+            lookup_subjects_matches_check(&case)?;
+        }
+
+        /// Property 3, quick, with monotone recursion beneath subtracted sides.
+        #[test]
+        fn prop3_recursive_sub_lookup_subjects_matches_check(
+            case in generate::case_with(SubSides::Recursive)
+        ) {
+            lookup_subjects_matches_check(&case)?;
+        }
+    }
+
+    proptest! {
+        #![proptest_config(config(1000))]
+
+        /// Property 3: `lookup_subjects` agrees with `check` for every object of the subject
+        /// type in the data and a fresh id, on both stores, ≥ 1 000 cases.
+        #[test]
+        #[ignore = "slow: 1 000+ cases; run with --ignored"]
+        fn prop3_lookup_subjects_matches_check_full(case in generate::case()) {
+            lookup_subjects_matches_check(&case)?;
+        }
+
+        /// Property 3 with monotone recursion beneath subtracted sides, ≥ 1 000 cases.
+        #[test]
+        #[ignore = "slow: 1 000+ cases; run with --ignored"]
+        fn prop3_recursive_sub_lookup_subjects_matches_check_full(
+            case in generate::case_with(SubSides::Recursive)
+        ) {
+            lookup_subjects_matches_check(&case)?;
+        }
+    }
+}
+
+/// Guards against property 3 testing little: answers must often be non-empty lists, and
+/// wildcard answers (with and without exclusions) must occur.
+#[test]
+fn generated_subject_lookups_are_varied() {
+    use warden_core::model::{WriteOp, WriteRequest};
+    use warden_core::{Engine, LookupSubjectsRequest};
+    let (mut ids, mut wildcard, mut excluded) = (0, 0, 0);
+    for case in sample(generate::case(), 300) {
+        let src = case.schema.source();
+        let schema = compile(&src);
+        let oracle = Reference::new(&schema, &case.tuples).unwrap();
+        let universe = oracle.universe();
+        let engine = Engine::builder()
+            .store(MemoryStore::new())
+            .config(unlimited())
+            .build()
+            .unwrap();
+        engine.write_schema(&src).unwrap();
+        if !case.tuples.is_empty() {
+            engine
+                .write(WriteRequest {
+                    ops: case.tuples.iter().cloned().map(WriteOp::Touch).collect(),
+                    preconditions: Vec::new(),
+                })
+                .unwrap();
+        }
+        for &q in case.queries.iter().take(8) {
+            let (resource, member, _) = query(&schema, &oracle, &universe, q);
+            let ty = schema.types[q.subject % schema.types.len()]
+                .name
+                .parse()
+                .unwrap();
+            let r = engine
+                .lookup_subjects(LookupSubjectsRequest::new(resource, member, ty))
+                .unwrap();
+            if r.wildcard {
+                wildcard += 1;
+                excluded += usize::from(!r.excluded_ids.is_empty());
+            } else if !r.subject_ids.is_empty() {
+                ids += 1;
+            }
+        }
+    }
+    // Wildcards minus exclusions are rare here; `prop3::wildcard_variant_reaches_exclusions`
+    // covers them.
+    let stats = format!("ids {ids}, wildcard {wildcard}, wildcard with exclusions {excluded}");
+    assert!(ids > 200 && wildcard > 50, "{stats}");
 }

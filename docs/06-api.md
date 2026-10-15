@@ -124,9 +124,34 @@ pub struct LookupResourcesResponse {
 every page after the first at `Consistency::Exact(first_page.revision)`: at `Latest` a later
 page reads whatever is newest, so resources added or removed between pages can be skipped or
 returned twice relative to one revision. A `next_cursor` only says candidates remain, not
-that any is allowed, so the last page may be empty. Every page re-runs phase 1 (`04` §5.1);
+that any is allowed, so **a page may be empty**: callers loop, passing each `next_cursor`
+back, **until `next_cursor` is `None`**, and must not treat an empty page as the end (OQ-028
+(c)). Every page re-runs phase 1 (`04` §5.1);
 a page fails as a whole with the first error any candidate's `check` returns, or
 `LookupTooLarge` past `max_lookup_nodes` phase 1 nodes.
+
+`lookup_subjects` types (defined in T2.5; `04` §6):
+
+```rust
+pub struct LookupSubjectsRequest {
+    pub resource: ObjectRef,
+    pub permission: RelName,
+    pub subject_type: TypeName,         // object subjects only
+    pub consistency: Consistency,       // ::new(resource, permission, subject_type) gives Latest
+}
+pub struct LookupSubjectsResponse {
+    pub subject_ids: Vec<ObjectId>,     // ascending byte-wise; empty if wildcard
+    pub wildcard: bool,                 // every object of subject_type (even unwritten) ...
+    pub excluded_ids: Vec<ObjectId>,    // ... except these, ascending
+    pub revision: Revision,
+}
+impl LookupSubjectsResponse { pub fn contains(&self, id: &ObjectId) -> bool; }
+```
+
+`lookup_subjects` is one request on one snapshot, not paginated. It is one evaluation,
+bounded like one `check`: its store reads count against `max_check_reads`
+(`CheckReadsExceeded`), and `max_depth` / `max_check_fanout` apply (fan-out counts every
+tuple read on a relation, OQ-029). It fails with the same evaluation errors as `check`.
 
 `check_bulk` returns `Err` for the whole call on `NoSchema`, consistency errors, `Store`,
 and `RevisionExpired` raised mid-call by GC; every other error (`InvalidRequest`,

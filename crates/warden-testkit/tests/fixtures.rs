@@ -256,12 +256,77 @@ fn malformed_lookups_are_failures() {
     }
 }
 
+// ---- expectedLookups.subjects (T2.5) ----
+
+const WILDCARD_SCHEMA: &str = "schema: |-
+  definition user {}
+  definition doc {
+      relation viewer: user | user:*
+      relation banned: user
+      permission view = viewer - banned
+  }
+relationships: |-
+  doc:a#viewer@user:anne
+  doc:p#viewer@user:*
+  doc:p#banned@user:eve
+";
+
 #[test]
-fn subject_lookups_are_skipped_with_a_warning_until_t2_5() {
+fn subject_lookup_expectations_pass() {
     let r = run_text(&format!(
-        "{SCHEMA}expectedLookups:\n  subjects:\n    - query: doc:a#view@user\n      expect: {{ wildcard: false, excluded: [] }}\n"
+        "{WILDCARD_SCHEMA}expectedLookups:\n  subjects:\n    - query: doc:a#view@user\n      expect: {{ ids: [anne] }}\n    - query: doc:p#view@user\n      expect: {{ wildcard: true, excluded: [eve] }}\n    - query: doc:none#view@user\n      expect: {{}}\n"
     ));
     assert!(r.passed(), "{r:?}");
-    assert_eq!(r.warnings.len(), 1, "{:?}", r.warnings);
-    assert!(r.warnings[0].contains("expectedLookups.subjects"));
+    assert_eq!(r.checked, 3);
+    assert!(r.warnings.is_empty(), "{:?}", r.warnings);
+}
+
+#[test]
+fn wrong_subject_lookup_expectation_is_reported_by_engine_and_oracle() {
+    let r = run_text(&format!(
+        "{WILDCARD_SCHEMA}expectedLookups:\n  subjects:\n    - query: doc:p#view@user\n      expect: {{ wildcard: true }}\n"
+    ));
+    assert_eq!(r.failures.len(), 1, "{r:?}");
+    assert_eq!(r.failures[0].location, "expectedLookups.subjects");
+    assert_eq!(
+        r.failures[0].message,
+        "expected every object except [], but engine says every object except [\"eve\"]; \
+         reference evaluator says every object except [\"eve\"]"
+    );
+}
+
+#[test]
+fn malformed_subject_lookups_are_failures() {
+    for (lookup, want) in [
+        (
+            "    - query: doc:a-view@user\n      expect: {}\n",
+            "not a lookup",
+        ),
+        (
+            "    - query: doc:a#view@user\n      expect: { ids: [a, a] }\n",
+            "twice",
+        ),
+        (
+            "    - query: doc:a#view@user\n      expect: { ids: [a], wildcard: true }\n",
+            "wildcard",
+        ),
+        (
+            "    - query: doc:a#view@user\n      expect: { excluded: [a] }\n",
+            "wildcard",
+        ),
+        (
+            "    - query: doc:a#nope@user\n      expect: {}\n",
+            "INVALID_REQUEST",
+        ),
+        (
+            "    - query: doc:a#view@user\n      expect: { idz: [] }\n",
+            "idz",
+        ),
+    ] {
+        let r = run_text(&format!(
+            "{WILDCARD_SCHEMA}expectedLookups:\n  subjects:\n{lookup}"
+        ));
+        assert_eq!(r.failures.len(), 1, "{lookup}: {r:?}");
+        assert!(r.failures[0].message.contains(want), "{lookup}: {r:?}");
+    }
 }

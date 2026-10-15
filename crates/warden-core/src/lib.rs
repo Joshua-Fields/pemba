@@ -10,7 +10,9 @@ mod error;
 mod eval;
 mod lookup;
 pub mod model;
+mod scc;
 pub mod store;
+mod subjects;
 mod validate;
 pub mod write;
 
@@ -21,4 +23,5 @@ pub use engine::{
 pub use error::Error;
 pub use eval::{CheckItem, CheckRequest, CheckResponse, EvalStats};
 pub use lookup::{LookupResourcesRequest, LookupResourcesResponse};
+pub use subjects::{LookupSubjectsRequest, LookupSubjectsResponse};
 pub use warden_schema::{ErrorCode, SchemaError, SchemaErrors};
