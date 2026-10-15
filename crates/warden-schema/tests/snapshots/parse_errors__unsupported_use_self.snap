@@ -1,0 +1,11 @@
+---
+source: crates/warden-schema/tests/parse_errors.rs
+description: "use self\n\ndefinition user {}"
+---
+error[E_UNSUPPORTED_FEATURE]: `use self` (the `self` keyword) is not supported
+ --> 1:1
+  |
+1 | use self
+  | ^^^^^^^^
+  |
+  = help: remove the directive; optional SpiceDB language features are not available

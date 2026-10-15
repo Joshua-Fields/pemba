@@ -1,0 +1,14 @@
+---
+source: crates/warden-schema/tests/parse_errors.rs
+description: "definition doc {\n    permission view = (viewer + parent->view & member) - banned\n}"
+---
+error[E_AMBIGUOUS_OPERATORS]: `+` and `&` cannot be mixed without parentheses
+ --> 2:46
+  |
+2 |     permission view = (viewer + parent->view & member) - banned
+  |                                              ^
+  |
+  = help: add parentheses to say which grouping you mean, either
+              (viewer + parent->view) & member
+          or
+              viewer + (parent->view & member)

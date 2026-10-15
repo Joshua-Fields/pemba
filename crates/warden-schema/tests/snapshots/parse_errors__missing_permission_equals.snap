@@ -1,0 +1,9 @@
+---
+source: crates/warden-schema/tests/parse_errors.rs
+description: "definition doc {\n    permission view viewer\n}"
+---
+error[E_UNEXPECTED_TOKEN]: expected `=` after the permission name, found identifier `viewer`
+ --> 2:21
+  |
+2 |     permission view viewer
+  |                     ^^^^^^

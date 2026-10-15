@@ -1,0 +1,9 @@
+---
+source: crates/warden-schema/tests/parse_errors.rs
+description: "definition doc {\n    permission view = (viewer + editor\n}"
+---
+error[E_UNEXPECTED_TOKEN]: expected `)`, found `}`
+ --> 3:1
+  |
+3 | }
+  | ^

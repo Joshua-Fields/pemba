@@ -56,6 +56,17 @@ impl IdentError {
     }
 }
 
+/// Whether `c` may start an identifier token: `[a-z_]`. The schema lexer uses this so it
+/// splits text exactly where [`validate_identifier`] would object to a character.
+pub fn is_ident_start(c: char) -> bool {
+    c.is_ascii_lowercase() || c == '_'
+}
+
+/// Whether `c` may appear in an identifier: `[a-z0-9_]`.
+pub fn is_ident_char(c: char) -> bool {
+    is_ident_start(c) || c.is_ascii_digit()
+}
+
 /// Validates a relation or permission name, or one segment of a type name:
 /// `^[a-z_][a-z0-9_]{1,62}[a-z0-9]$`.
 ///
@@ -99,10 +110,7 @@ pub fn validate_type_name(s: &str) -> Result<(), IdentError> {
 /// that the string is ASCII, so byte length equals character count. An empty segment
 /// (as in `docs//x`) reports `TooShort`, which reads better than "empty" mid-name.
 fn validate_segment(s: &str) -> Result<(), IdentError> {
-    if let Some((i, c)) = s
-        .char_indices()
-        .find(|&(_, c)| !(c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_'))
-    {
+    if let Some((i, c)) = s.char_indices().find(|&(_, c)| !is_ident_char(c)) {
         return Err(IdentError::new(i, IdentErrorKind::InvalidChar(c)));
     }
     if s.len() < IDENT_MIN_LEN {
@@ -119,7 +127,7 @@ fn validate_segment(s: &str) -> Result<(), IdentError> {
     }
     let bytes = s.as_bytes();
     if let Some(&first) = bytes.first()
-        && first.is_ascii_digit()
+        && !is_ident_start(char::from(first))
     {
         return Err(IdentError::new(
             0,

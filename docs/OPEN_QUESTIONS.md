@@ -77,3 +77,22 @@ it is resolved.
   round-trips exactly (`02` §3). `Consistency`, `WriteOp` and `RelationshipFilter` keep
   `Display` for debugging only, with no stable format and no `FromStr`. T0.2 acceptance
   criteria in `08` and `02` §2–3 updated to match.
+
+## OQ-010 — Doc comments that attach to nothing
+- Raised in: T0.3 (`docs/03-schema-language.md` §2)
+- Blocking: no
+- Current choice: a doc comment before `}` or end of file, or inside a member (e.g. within an
+  expression), is discarded like a plain comment; consecutive doc comments before one node are
+  joined with `\n`. Losing documentation is not a correctness risk, and rejecting would refuse
+  schemas SpiceDB accepts (ADR-004)
+- Resolve by: human review; revisit when the pretty printer (T0.5) needs to round-trip comments
+- Resolution: (fill in)
+
+## OQ-011 — Whitespace inside type references
+- Raised in: T0.3 (`docs/03-schema-language.md` §2–3)
+- Blocking: no
+- Current choice: whitespace is rejected around `/` in a type name (`docs / document` →
+  `E_UNEXPECTED_TOKEN`), conservative. Whitespace around `#` and `:` in allowed types
+  (`group # member`, `user : *`) is accepted, as the grammar treats them as separate tokens
+- Resolve by: differential test in T3.4 (does SpiceDB accept each form?)
+- Resolution: (fill in)

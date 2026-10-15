@@ -1,0 +1,11 @@
+---
+source: crates/warden-schema/tests/parse_errors.rs
+description: "definition doc {\n    relation viewer: user with expiration\n}"
+---
+error[E_UNSUPPORTED_FEATURE]: expiring relationships are not supported (`with expiration`)
+ --> 2:27
+  |
+2 |     relation viewer: user with expiration
+  |                           ^^^^^^^^^^^^^^^
+  |
+  = help: remove the `with` clause; warden stores unconditional, non-expiring relationships only

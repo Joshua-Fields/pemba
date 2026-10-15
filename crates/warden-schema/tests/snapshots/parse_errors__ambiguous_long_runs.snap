@@ -1,0 +1,14 @@
+---
+source: crates/warden-schema/tests/parse_errors.rs
+description: "definition doc {\n    permission view = a1x + b1x + c1x & d1x & e1x - f1x\n}"
+---
+error[E_AMBIGUOUS_OPERATORS]: `+` and `&` cannot be mixed without parentheses
+ --> 2:39
+  |
+2 |     permission view = a1x + b1x + c1x & d1x & e1x - f1x
+  |                                       ^
+  |
+  = help: add parentheses to say which grouping you mean, either
+              (a1x + b1x + c1x) & d1x & e1x ...
+          or
+              a1x + b1x + (c1x & d1x & e1x) ...

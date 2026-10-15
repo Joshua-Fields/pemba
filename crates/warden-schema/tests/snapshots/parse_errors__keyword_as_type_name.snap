@@ -1,0 +1,9 @@
+---
+source: crates/warden-schema/tests/parse_errors.rs
+description: "definition permission {}"
+---
+error[E_UNEXPECTED_TOKEN]: expected a type name, found keyword `permission`
+ --> 1:12
+  |
+1 | definition permission {}
+  |            ^^^^^^^^^^

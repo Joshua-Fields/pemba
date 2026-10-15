@@ -1,0 +1,13 @@
+---
+source: crates/warden-schema/tests/parse_errors.rs
+description: "definition doc {\n    permission view = folder.any(parent)->view\n}"
+---
+error[E_ARROW_CHAIN]: arrows cannot be chained: the right side of an arrow must be a single relation or permission name
+ --> 2:23
+  |
+2 |     permission view = folder.any(parent)->view
+  |                       ^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = help: add an intermediate permission to the types allowed on `folder`:
+              permission view_via_parent = parent->view
+          then write `folder->view_via_parent` here

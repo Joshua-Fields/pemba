@@ -54,6 +54,12 @@ definition document {
 - Lexer is hand-written (or `logos`), producing tokens with byte spans.
 - Unterminated block comment → `E_UNTERMINATED_COMMENT`.
 - Any other character → `E_UNEXPECTED_CHAR`.
+- Doc comments: `/**/` is an empty plain comment, not a doc comment. Consecutive doc
+  comments before one node are joined with `\n`. A doc comment followed by nothing it can
+  attach to (before `}` or end of file), or one inside a member, is discarded like a plain
+  comment (OQ-010).
+- Type names are written without whitespace around `/` (`docs/document`); `docs / document`
+  is `E_UNEXPECTED_TOKEN` (OQ-011).
 
 ## 3. Grammar (EBNF)
 
@@ -255,12 +261,19 @@ pub struct SchemaError {
     pub code: ErrorCode,          // enum, Display = "E_..."
     pub message: String,          // human sentence
     pub span: Span,               // byte range
-    pub line: u32, pub col: u32,  // 1-based, computed from span
+    pub line: u32, pub col: u32,  // 1-based, computed from span (col counts characters)
+    pub source_line: String,      // text of line `line`, so Display needs no source
     pub help: Option<String>,     // fix-it hint
 }
 ```
 `Display` renders rustc-style with a source excerpt and caret. Tests snapshot the rendered
 output (`insta`).
+
+The parser (`warden_schema::parse`, source → AST with byte spans) stops at the first lexical
+or syntax error: `E_UNEXPECTED_CHAR`, `E_UNTERMINATED_COMMENT`, `E_UNEXPECTED_TOKEN`,
+`E_AMBIGUOUS_OPERATORS`, `E_ARROW_CHAIN`, `E_UNSUPPORTED_FEATURE`. Collecting all errors
+(§5) applies to the semantic pass. The parser accepts keywords as relation/permission names
+(`relation nil: user`) so the validator can report `E_RESERVED_NAME`.
 
 ## 9. Pretty printer
 

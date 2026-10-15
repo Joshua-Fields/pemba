@@ -1,0 +1,11 @@
+---
+source: crates/warden-schema/tests/parse_errors.rs
+description: "definition doc {\n    relation viewer: user with only_on_tuesday\n}"
+---
+error[E_UNSUPPORTED_FEATURE]: caveats are not supported (`with only_on_tuesday`)
+ --> 2:27
+  |
+2 |     relation viewer: user with only_on_tuesday
+  |                           ^^^^^^^^^^^^^^^^^^^^
+  |
+  = help: remove the `with` clause; warden stores unconditional, non-expiring relationships only

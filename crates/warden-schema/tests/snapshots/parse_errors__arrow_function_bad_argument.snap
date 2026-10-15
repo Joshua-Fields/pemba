@@ -1,0 +1,11 @@
+---
+source: crates/warden-schema/tests/parse_errors.rs
+description: "definition doc {\n    permission view = folder.any(view + edit)\n}"
+---
+error[E_UNEXPECTED_TOKEN]: expected `)`, found `+`
+ --> 2:39
+  |
+2 |     permission view = folder.any(view + edit)
+  |                                       ^
+  |
+  = help: `.any()` takes a single relation or permission name

@@ -1,0 +1,11 @@
+---
+source: crates/warden-schema/tests/parse_errors.rs
+description: "definition doc {\n    permission view: user | team = viewer\n}"
+---
+error[E_UNSUPPORTED_FEATURE]: permission type annotations are not supported
+ --> 2:20
+  |
+2 |     permission view: user | team = viewer
+  |                    ^^^^^^^^^^^^^
+  |
+  = help: remove the annotation: `permission view = ...`
