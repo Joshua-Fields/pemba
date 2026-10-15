@@ -1,0 +1,8 @@
+# E_ARROW_OVER_WILDCARD: An arrow over a relation that allows a wildcard.
+schema: |-
+  definition folder {
+      relation parent: folder | folder:*
+      permission view = parent->view
+  }
+expectErrors:
+  - E_ARROW_OVER_WILDCARD

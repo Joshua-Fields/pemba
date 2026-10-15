@@ -113,6 +113,22 @@ impl Reference {
     /// [`ReferenceError::InvalidTuple`] if a tuple is not allowed by the schema or uses
     /// [`FRESH_ID`].
     pub fn new(schema: &CompiledSchema, tuples: &[Relationship]) -> Result<Self, ReferenceError> {
+        Self::with_objects(schema, tuples, &[])
+    }
+
+    /// As [`new`](Self::new), with `objects` added to the universe although no tuple
+    /// mentions them, so a query may name them (hand-written fixtures ask about subjects
+    /// that appear in no tuple). Objects of undefined types are ignored; a query naming
+    /// one fails as usual.
+    ///
+    /// # Errors
+    ///
+    /// As [`new`](Self::new).
+    pub fn with_objects(
+        schema: &CompiledSchema,
+        tuples: &[Relationship],
+        objects: &[ObjectRef],
+    ) -> Result<Self, ReferenceError> {
         let order = stratify(schema)?;
         let fresh = object_id(FRESH_ID)?;
 
@@ -121,6 +137,11 @@ impl Reference {
             .iter()
             .map(|t| (t.id, BTreeSet::from([fresh.clone()])))
             .collect();
+        for o in objects {
+            if let Some(ty) = schema.type_id(o.object_type.as_str()) {
+                universe.entry(ty).or_default().insert(o.object_id.clone());
+            }
+        }
         let mut stored: BTreeMap<Node, Vec<Stored>> = BTreeMap::new();
         for tuple in tuples {
             let (node, subject) = resolve_tuple(schema, tuple)?;

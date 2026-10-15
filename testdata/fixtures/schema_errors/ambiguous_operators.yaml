@@ -1,0 +1,11 @@
+# E_AMBIGUOUS_OPERATORS: `+` and `&` mixed at one level without parentheses.
+schema: |-
+  definition user {}
+  definition doc {
+      relation viewer: user
+      relation editor: user
+      relation member: user
+      permission view = viewer + editor & member
+  }
+expectErrors:
+  - E_AMBIGUOUS_OPERATORS

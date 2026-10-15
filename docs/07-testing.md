@@ -145,12 +145,27 @@ expectErrors:                       # optional: schema or write must fail with t
 ```
 
 - `relationships` is a single multi-line string (as in SpiceDB), one tuple per line; `//`
-  comment lines and blank lines allowed.
+  comment lines and blank lines allowed. They are written as one batch of `Touch` ops.
 - SpiceDB's `validation:` (expected relations) and `assertCaveated:` keys are **recognised and
-  skipped with a warning** in the MVP.
+  skipped with a warning** in the MVP. So is `expectedLookups:` until T2.4 / T2.5 check it.
+  Any other unknown key is a failure, so a misspelt `assertTure` cannot silently test nothing.
+- `expectErrors` lists the codes (`E_...`) the schema compile, or the `relationships` write,
+  must fail with, compared as a multiset. A write failure that is not a relationship
+  validation error is named by `Error::code()` (e.g. `DUPLICATE_IN_BATCH`). A fixture with
+  `expectErrors` has no assertions or steps.
 - Runner: `warden-testkit::fixtures::run(path, store_kind)` and the CLI `warden test`.
-  Each fixture runs against **both** memory and SQLite stores.
-- Use a maintained YAML crate (check status before choosing; `serde_yaml` is archived).
+  Each fixture runs against **both** memory and SQLite stores (memory only until the SQLite
+  store lands in M2; adding a store kind is one `StoreKind` variant and one match arm).
+- **Every `assertTrue` / `assertFalse` is cross-checked**: the runner answers it with the
+  engine and with the reference evaluator (§2.1) over its own model of the live tuples, and
+  reports a failure naming each of the two that disagrees with the file. Objects the
+  assertions name are added to the oracle's universe. If the oracle declines the schema
+  (`NotStratifiable`), the runner warns and checks the engine only.
+- CRLF line endings are accepted: the runner turns `\r\n` into `\n` in the fixture and in a
+  `schemaFile` before parsing, so schema, relationships and assertions read the same.
+- A fixture that is not valid YAML, or not a valid fixture, is a failure (exit 1); only an
+  unreadable file is an I/O error (exit 2).
+- YAML crate: `serde-saphyr` (`docs/09-repo-and-tooling.md` §2).
 
 ### 3.1 Required fixture corpus (M1–M2 deliverable)
 
@@ -173,7 +188,48 @@ expectErrors:                       # optional: schema or write must fail with t
 | `prefixed_types.yaml` | `docs/document`, `iam/user` |
 | `depth_limit.yaml` | chain of 60 folders → `MaxDepthExceeded` |
 | `non_monotone_cycle.yaml` | cycle through exclusion → `NonMonotonicCycle` |
-| `schema_errors/*.yaml` | one file per schema error code |
+| `schema_errors/*.yaml` | one file per schema error code (except `E_EMPTY_RELATION_TYPES`, which the parser makes unreachable from source text: `relation r:` is `E_UNEXPECTED_TOKEN`) |
+
+### 3.2 warden extensions (ignored by `zed`)
+
+Both extensions are warden-only keys; `zed validate` does not know them, so a file using
+them is a warden fixture first. What `zed` would check is exactly the top-level
+`relationships` and `assertions` ("step 0").
+
+**`expectCheckErrors`** (OQ-022): a map from a check, in assertion syntax, to the code
+`Error::code()` that check must fail with. Allowed at top level (checked after step 0) and in
+each step. Not cross-checked against the oracle, which has no evaluation limits.
+
+```yaml
+expectCheckErrors:
+  document:deep#view@user:root: MAX_DEPTH_EXCEEDED
+  doc:a#view@user:u: NON_MONOTONIC_CYCLE
+```
+
+A check named here must not also appear in `assertTrue` / `assertFalse`: an expected answer
+and an expected error are different claims.
+
+**`steps`** (OQ-023): an ordered list run after step 0. Each step is one write batch
+(`ops`, applied in order at one revision), then its own `assertions` and
+`expectCheckErrors`, evaluated at the new head. `expectError` names the code the batch
+must fail with (`Error::code()`, or the `E_...` code for an invalid relationship); a batch
+that fails applies nothing, which the step's assertions can then show.
+
+```yaml
+steps:
+  - ops:
+      - create: document:spec#viewer@user:erin
+      - create: document:readme#viewer@user:anne   # already live
+    expectError: ALREADY_EXISTS
+    assertions:
+      assertFalse:
+        - document:spec#view@user:erin             # nothing from the batch applied
+  - ops:
+      - delete: document:readme#viewer@user:anne
+    assertions:
+      assertFalse:
+        - document:readme#view@user:anne
+```
 
 ---
 

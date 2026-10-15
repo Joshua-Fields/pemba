@@ -1,0 +1,34 @@
+# `.any(p)` is identical to `->p`.
+schema: |-
+  definition user {}
+
+  definition folder {
+      relation viewer: user
+      permission view = viewer
+  }
+
+  definition document {
+      relation parent: folder
+      permission via_arrow = parent->view
+      permission via_any = parent.any(view)
+  }
+
+relationships: |-
+  document:d#parent@folder:a
+  document:d#parent@folder:b
+  document:orphan#parent@folder:empty
+  folder:a#viewer@user:anne
+  folder:b#viewer@user:bob
+
+# Both = view(a) ∪ view(b) = {anne, bob} on d; ∅ on orphan.
+assertions:
+  assertTrue:
+    - document:d#via_arrow@user:anne
+    - document:d#via_any@user:anne
+    - document:d#via_arrow@user:bob
+    - document:d#via_any@user:bob
+  assertFalse:
+    - document:d#via_arrow@user:carol
+    - document:d#via_any@user:carol
+    - document:orphan#via_arrow@user:anne
+    - document:orphan#via_any@user:anne

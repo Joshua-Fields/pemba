@@ -1,8 +1,8 @@
 //! The `warden` command-line tool (`docs/06-api.md` §3).
 //!
-//! Exit codes: 0 success, 1 the input was rejected (schema errors, or `fmt --check` found a
-//! file that is not canonical), 2 usage or I/O error (bad arguments, unreadable file,
-//! unwritable output).
+//! Exit codes: 0 success, 1 the input was rejected (schema errors, `fmt --check` found a
+//! file that is not canonical, or a fixture failed), 2 usage or I/O error (bad arguments,
+//! unreadable file, unwritable output).
 
 #![forbid(unsafe_code)]
 
@@ -12,6 +12,7 @@ use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
 use warden_schema::{SchemaError, compile};
+use warden_testkit::fixtures::{self, StoreKind};
 
 #[derive(Parser)]
 #[command(
@@ -30,6 +31,15 @@ enum Command {
     /// Schema files (`.zed`).
     #[command(subcommand)]
     Schema(SchemaCommand),
+    /// Run fixture files (`docs/07-testing.md` §3) on every store kind.
+    ///
+    /// Directories are searched recursively for `.yaml` and `.yml` files. Exits 1 if any
+    /// assertion fails.
+    Test {
+        /// Fixture files or directories.
+        #[arg(required = true)]
+        paths: Vec<PathBuf>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -57,7 +67,8 @@ enum SchemaCommand {
 
 const EXIT_CODES: &str = "Exit codes:
   0  success (warnings alone do not fail `validate`)
-  1  input rejected: schema errors, or `fmt --check` found a non-canonical file
+  1  input rejected: schema errors, `fmt --check` found a non-canonical file, or a
+     `test` fixture failed
   2  usage or I/O error: bad arguments, unreadable file, unwritable output";
 
 const REJECTED: u8 = 1;
@@ -68,6 +79,7 @@ fn main() -> ExitCode {
     let result = match cli.command {
         Command::Schema(SchemaCommand::Validate { file }) => validate(&file),
         Command::Schema(SchemaCommand::Fmt { file, check }) => fmt(&file, check),
+        Command::Test { paths } => test(&paths),
     };
     match result {
         Ok(code) => code,
@@ -179,4 +191,98 @@ fn fmt(file: &Path, check: bool) -> CmdResult {
         .write_all(canonical.as_bytes())
         .map_err(|e| io_error(&e))?;
     Ok(ExitCode::SUCCESS)
+}
+
+/// Expands directories into the fixture files beneath them, sorted. Files named directly
+/// are kept whatever their extension.
+fn fixture_files(paths: &[PathBuf]) -> Result<Vec<PathBuf>, String> {
+    fn walk(dir: &Path, out: &mut Vec<PathBuf>) -> Result<(), String> {
+        let entries =
+            std::fs::read_dir(dir).map_err(|e| format!("cannot read `{}`: {e}", dir.display()))?;
+        let mut found = Vec::new();
+        for entry in entries {
+            let path = entry
+                .map_err(|e| format!("cannot read `{}`: {e}", dir.display()))?
+                .path();
+            if path.is_dir() {
+                walk(&path, &mut found)?;
+            } else if path.extension().is_some_and(|e| e == "yaml" || e == "yml") {
+                found.push(path);
+            }
+        }
+        found.sort();
+        out.extend(found);
+        Ok(())
+    }
+    let mut out = Vec::new();
+    for path in paths {
+        if path.is_dir() {
+            walk(path, &mut out)?;
+        } else {
+            out.push(path.clone());
+        }
+    }
+    Ok(out)
+}
+
+/// `path` with `/` separators on every platform, so `warden test` output is the same on
+/// Windows as elsewhere.
+fn slash_path(path: &Path) -> String {
+    let s = path.display().to_string();
+    if std::path::MAIN_SEPARATOR == '/' {
+        s
+    } else {
+        s.replace(std::path::MAIN_SEPARATOR, "/")
+    }
+}
+
+fn test(paths: &[PathBuf]) -> CmdResult {
+    let files = fixture_files(paths)?;
+    if files.is_empty() {
+        return Err("no fixture files found".to_owned());
+    }
+    let mut out = io::stdout().lock();
+    let mut err = io::stderr().lock();
+    let (mut failed_files, mut failures, mut checked) = (0, 0, 0);
+    for file in &files {
+        let path = slash_path(file);
+        for &store in StoreKind::ALL {
+            let report = fixtures::run(file, store).map_err(|e| e.to_string())?;
+            for w in &report.warnings {
+                writeln!(err, "warning: {path} [{store}]: {w}").map_err(|e| io_error(&e))?;
+            }
+            checked += report.checked;
+            if report.passed() {
+                writeln!(out, "ok    {path} [{store}] ({} checked)", report.checked)
+                    .map_err(|e| io_error(&e))?;
+            } else {
+                failed_files += 1;
+                failures += report.failures.len();
+                writeln!(out, "FAIL  {path} [{store}]").map_err(|e| io_error(&e))?;
+                for f in &report.failures {
+                    writeln!(out, "  {path}: {f}").map_err(|e| io_error(&e))?;
+                }
+            }
+        }
+    }
+    let runs = files.len() * StoreKind::ALL.len();
+    if failures == 0 {
+        writeln!(
+            out,
+            "\n{} passed, {checked} checks",
+            plural(runs, "fixture run")
+        )
+        .map_err(|e| io_error(&e))?;
+        Ok(ExitCode::SUCCESS)
+    } else {
+        writeln!(
+            out,
+            "\n{} of {} failed with {}",
+            failed_files,
+            plural(runs, "fixture run"),
+            plural(failures, "failure")
+        )
+        .map_err(|e| io_error(&e))?;
+        Ok(ExitCode::from(REJECTED))
+    }
 }

@@ -1,0 +1,11 @@
+# E_UNKNOWN_SUBJECT_RELATION: A subject set naming an undefined member.
+schema: |-
+  definition user {}
+  definition group {
+      relation member: user
+  }
+  definition doc {
+      relation viewer: group#membr
+  }
+expectErrors:
+  - E_UNKNOWN_SUBJECT_RELATION

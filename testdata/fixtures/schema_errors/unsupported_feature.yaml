@@ -1,0 +1,8 @@
+# E_UNSUPPORTED_FEATURE: Caveats are recognised and refused, not a generic parse error.
+schema: |-
+  caveat ip_allowed(ip ipaddress) {
+      ip.in_cidr('10.0.0.0/8')
+  }
+  definition user {}
+expectErrors:
+  - E_UNSUPPORTED_FEATURE

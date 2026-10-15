@@ -1,0 +1,37 @@
+# `.all()` over 0, 1 and many related objects. Over none it is ∅ (false), not "everyone".
+schema: |-
+  definition user {}
+
+  definition group {
+      relation member: user
+  }
+
+  definition document {
+      relation approver_group: group
+      relation viewer: user
+      permission approved = approver_group.all(member)
+  }
+
+relationships: |-
+  document:none#viewer@user:anne
+  document:one#approver_group@group:g1
+  document:many#approver_group@group:g1
+  document:many#approver_group@group:g2
+  document:many#approver_group@group:g3
+  group:g1#member@user:anne
+  group:g2#member@user:anne
+  group:g2#member@user:bob
+  group:g3#member@user:anne
+  group:g3#member@user:bob
+
+# approved(none) = ∅; approved(one) = {anne}; approved(many) = {anne} ∩ {anne, bob} ∩
+# {anne, bob} = {anne}.
+assertions:
+  assertTrue:
+    - document:one#approved@user:anne
+    - document:many#approved@user:anne
+  assertFalse:
+    - document:none#approved@user:anne
+    - document:one#approved@user:bob
+    - document:many#approved@user:bob
+    - document:many#approved@user:carol

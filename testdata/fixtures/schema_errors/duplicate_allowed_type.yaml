@@ -1,0 +1,8 @@
+# E_DUPLICATE_ALLOWED_TYPE: The same allowed type listed twice.
+schema: |-
+  definition user {}
+  definition doc {
+      relation viewer: user | user
+  }
+expectErrors:
+  - E_DUPLICATE_ALLOWED_TYPE

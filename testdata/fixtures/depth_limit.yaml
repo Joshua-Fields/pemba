@@ -1,0 +1,98 @@
+# A chain of 60 folders, f59 → f58 → ... → f00, deeper than the default max_depth of 50.
+# Depth counting (OQ-019 (b)): the root node is depth 1 and each nested eval adds one, and
+# `max_depth = 50` allows 50 nested nodes. From folder fk, `view` reaches f00#view at depth
+# k + 1 and f00#viewer at depth k + 2. So f48 (f00#viewer at 50) answers; f49 (51) does not.
+# Uses the warden `expectCheckErrors:` extension (docs/07-testing.md §3.2).
+schema: |-
+  definition user {}
+
+  definition folder {
+      relation parent: folder
+      relation viewer: user
+      permission view = viewer + parent->view
+  }
+
+  definition document {
+      relation parent: folder
+      permission view = parent->view
+  }
+
+relationships: |-
+  folder:f01#parent@folder:f00
+  folder:f02#parent@folder:f01
+  folder:f03#parent@folder:f02
+  folder:f04#parent@folder:f03
+  folder:f05#parent@folder:f04
+  folder:f06#parent@folder:f05
+  folder:f07#parent@folder:f06
+  folder:f08#parent@folder:f07
+  folder:f09#parent@folder:f08
+  folder:f10#parent@folder:f09
+  folder:f11#parent@folder:f10
+  folder:f12#parent@folder:f11
+  folder:f13#parent@folder:f12
+  folder:f14#parent@folder:f13
+  folder:f15#parent@folder:f14
+  folder:f16#parent@folder:f15
+  folder:f17#parent@folder:f16
+  folder:f18#parent@folder:f17
+  folder:f19#parent@folder:f18
+  folder:f20#parent@folder:f19
+  folder:f21#parent@folder:f20
+  folder:f22#parent@folder:f21
+  folder:f23#parent@folder:f22
+  folder:f24#parent@folder:f23
+  folder:f25#parent@folder:f24
+  folder:f26#parent@folder:f25
+  folder:f27#parent@folder:f26
+  folder:f28#parent@folder:f27
+  folder:f29#parent@folder:f28
+  folder:f30#parent@folder:f29
+  folder:f31#parent@folder:f30
+  folder:f32#parent@folder:f31
+  folder:f33#parent@folder:f32
+  folder:f34#parent@folder:f33
+  folder:f35#parent@folder:f34
+  folder:f36#parent@folder:f35
+  folder:f37#parent@folder:f36
+  folder:f38#parent@folder:f37
+  folder:f39#parent@folder:f38
+  folder:f40#parent@folder:f39
+  folder:f41#parent@folder:f40
+  folder:f42#parent@folder:f41
+  folder:f43#parent@folder:f42
+  folder:f44#parent@folder:f43
+  folder:f45#parent@folder:f44
+  folder:f46#parent@folder:f45
+  folder:f47#parent@folder:f46
+  folder:f48#parent@folder:f47
+  folder:f49#parent@folder:f48
+  folder:f50#parent@folder:f49
+  folder:f51#parent@folder:f50
+  folder:f52#parent@folder:f51
+  folder:f53#parent@folder:f52
+  folder:f54#parent@folder:f53
+  folder:f55#parent@folder:f54
+  folder:f56#parent@folder:f55
+  folder:f57#parent@folder:f56
+  folder:f58#parent@folder:f57
+  folder:f59#parent@folder:f58
+  folder:f00#viewer@user:root
+  folder:f59#viewer@user:near
+  document:deep#parent@folder:f59
+
+assertions:
+  assertTrue:
+    - folder:f05#view@user:root
+    - folder:f48#view@user:root
+    # Found at depth 3 (deep#view, f59#view, f59#viewer) before the chain is walked.
+    - document:deep#view@user:near
+  assertFalse:
+    # f30 → f00 is 31 folders; nobody is anywhere on it.
+    - folder:f30#view@user:near
+
+expectCheckErrors:
+  folder:f49#view@user:root: MAX_DEPTH_EXCEEDED
+  document:deep#view@user:root: MAX_DEPTH_EXCEEDED
+  # A `false` needs the whole chain walked too.
+  folder:f59#view@user:nobody: MAX_DEPTH_EXCEEDED

@@ -1,0 +1,5 @@
+# E_IDENT_FORMAT: Type names need at least three characters.
+schema: |-
+  definition ab {}
+expectErrors:
+  - E_IDENT_FORMAT

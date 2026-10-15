@@ -1,0 +1,50 @@
+# `parent->view` recursion through a chain of 10 folders: f9 → f8 → ... → f0.
+schema: |-
+  definition user {}
+
+  definition folder {
+      relation parent: folder
+      relation viewer: user
+      permission view = viewer + parent->view
+  }
+
+  definition document {
+      relation parent: folder
+      relation viewer: user
+      permission view = viewer + parent->view
+  }
+
+relationships: |-
+  folder:f1#parent@folder:f0
+  folder:f2#parent@folder:f1
+  folder:f3#parent@folder:f2
+  folder:f4#parent@folder:f3
+  folder:f5#parent@folder:f4
+  folder:f6#parent@folder:f5
+  folder:f7#parent@folder:f6
+  folder:f8#parent@folder:f7
+  folder:f9#parent@folder:f8
+  folder:f0#viewer@user:root_viewer
+  folder:f5#viewer@user:mid
+  document:deep#parent@folder:f9
+  document:deep#viewer@user:direct
+  document:top#parent@folder:f0
+
+# view(fk) = {root_viewer} for k < 5, {root_viewer, mid} for k ≥ 5.
+# view(deep) = view(f9) ∪ {direct}; view(top) = view(f0).
+assertions:
+  assertTrue:
+    - document:deep#view@user:root_viewer
+    - document:deep#view@user:mid
+    - document:deep#view@user:direct
+    - folder:f9#view@user:root_viewer
+    - folder:f5#view@user:mid
+    - folder:f7#view@user:mid
+    - document:top#view@user:root_viewer
+  assertFalse:
+    - folder:f4#view@user:mid
+    - folder:f0#view@user:mid
+    - document:top#view@user:mid
+    - document:top#view@user:direct
+    - folder:f9#view@user:direct
+    - document:deep#view@user:stranger

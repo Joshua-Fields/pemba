@@ -1,0 +1,42 @@
+# Prefixed type names (`docs/document`, `iam/user`) are distinct from unprefixed ones.
+schema: |-
+  definition user {}
+
+  definition iam/user {}
+
+  definition iam/group {
+      relation member: iam/user | iam/group#member
+  }
+
+  definition docs/folder {
+      relation viewer: iam/user | iam/group#member
+      permission view = viewer
+  }
+
+  definition docs/document {
+      relation parent: docs/folder
+      relation viewer: iam/user | user
+      permission view = viewer + parent->view
+  }
+
+relationships: |-
+  iam/group:eng#member@iam/user:anne
+  docs/folder:root#viewer@iam/group:eng#member
+  docs/document:readme#parent@docs/folder:root
+  docs/document:readme#viewer@iam/user:bob
+  docs/document:other#viewer@user:anne
+
+# view(root) = {iam/user:anne}; view(readme) = {iam/user:bob, iam/user:anne};
+# view(other) = {user:anne}.
+assertions:
+  assertTrue:
+    - docs/document:readme#view@iam/user:anne
+    - docs/document:readme#view@iam/user:bob
+    - docs/folder:root#view@iam/user:anne
+    - docs/document:other#view@user:anne
+    - iam/group:eng#member@iam/user:anne
+  assertFalse:
+    - docs/document:readme#view@user:anne
+    - docs/document:other#view@iam/user:anne
+    - docs/folder:root#view@iam/user:bob
+    - docs/document:readme#view@user:bob

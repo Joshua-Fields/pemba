@@ -297,6 +297,13 @@ Use `clap` (derive). Output colours via `anstream`/`owo-colors`, disabled when n
 `schema validate` writes diagnostics (with the file path in the location line) and a
 summary to stderr, and `<file>: ok` / `<file>: ok with N warnings` to stdout on success.
 
+`test` takes files and directories (searched recursively for `.yaml` / `.yml`), runs each
+fixture on every store kind the runner supports (memory only until M2), prints
+`ok    <file> [<store>] (<n> checked)` or `FAIL  <file> [<store>]` followed by one line per
+failure (`  <file>: <location> \`<assertion>\`: <message>`) to stdout, warnings for skipped
+keys to stderr, and a summary line. Paths are printed with `/` separators on every
+platform, so output is identical on Windows. An unreadable file is exit 2.
+
 `schema fmt` is **experimental**: it drops non-doc comments; it does not modify files.
 It prints the canonical form to stdout. Because plain `//` / `/* */` comments are dropped,
 `--check` fails on any file containing them (OQ-013; a comment-preserving formatter is
@@ -309,5 +316,5 @@ Exit codes for every subcommand:
 | Code | Meaning |
 |---|---|
 | 0 | success (warnings alone do not fail `validate`) |
-| 1 | input rejected: schema errors, or `fmt --check` found a non-canonical file |
+| 1 | input rejected: schema errors, `fmt --check` found a non-canonical file, or a `test` fixture failed (including a fixture that is not valid YAML or uses an unknown key) |
 | 2 | usage or I/O error: bad arguments, unreadable file, unwritable output |

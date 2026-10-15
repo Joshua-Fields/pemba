@@ -1,0 +1,9 @@
+# E_UNKNOWN_MEMBER: A permission referring to an undefined member.
+schema: |-
+  definition user {}
+  definition doc {
+      relation viewer: user
+      permission view = viewr
+  }
+expectErrors:
+  - E_UNKNOWN_MEMBER
