@@ -81,18 +81,26 @@ it is resolved.
 ## OQ-010 — Doc comments that attach to nothing
 - Raised in: T0.3 (`docs/03-schema-language.md` §2)
 - Blocking: no
-- Current choice: a doc comment before `}` or end of file, or inside a member (e.g. within an
-  expression), is discarded like a plain comment; consecutive doc comments before one node are
-  joined with `\n`. Losing documentation is not a correctness risk, and rejecting would refuse
-  schemas SpiceDB accepts (ADR-004)
-- Resolve by: human review; revisit when the pretty printer (T0.5) needs to round-trip comments
-- Resolution: (fill in)
+- Current choice: see Resolution
+- Resolve by: human review
+- Resolution: resolved in T0.4 by the human. A doc comment before `}`, at end of file, or
+  inside a member is reported as the warning `W_DANGLING_DOC_COMMENT` (not an error, so
+  schemas SpiceDB accepts still compile, ADR-004). The parser records these in
+  `ast::Schema::dangling_docs`; consecutive doc comments before one node are still joined
+  with `\n`. Spec `03` §2 and §5 updated.
 
 ## OQ-011 — Whitespace inside type references
 - Raised in: T0.3 (`docs/03-schema-language.md` §2–3)
 - Blocking: no
-- Current choice: whitespace is rejected around `/` in a type name (`docs / document` →
-  `E_UNEXPECTED_TOKEN`), conservative. Whitespace around `#` and `:` in allowed types
-  (`group # member`, `user : *`) is accepted, as the grammar treats them as separate tokens
-- Resolve by: differential test in T3.4 (does SpiceDB accept each form?)
-- Resolution: (fill in)
+- Current choice: see Resolution
+- Resolve by: human review
+- Resolution: resolved in T0.4 by the human. Whitespace (or a comment) around `#` and `:`
+  in a type reference is rejected with `E_UNEXPECTED_TOKEN`, as around `/` in a type name:
+  `group # member`, `group #member`, `user : *` and `user: *` all fail with a fix-it
+  (`write \`group#member\``). Reasoning: ADR-004 makes our language a strict subset of
+  SpiceDB's, so every schema we accept must parse in SpiceDB. We have not confirmed that
+  SpiceDB accepts the spaced forms, and the compact forms are the only ones its
+  documentation uses, so accepting only those keeps us inside the subset whatever SpiceDB
+  does. Loosening later is backwards compatible; tightening would not be. The `:` after a
+  relation name (`relation viewer : user`) is not part of a type reference and stays free.
+  Spec `03` §2 updated.

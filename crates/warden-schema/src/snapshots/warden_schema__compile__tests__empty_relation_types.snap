@@ -1,0 +1,11 @@
+---
+source: crates/warden-schema/src/compile.rs
+expression: rendered
+---
+error[E_EMPTY_RELATION_TYPES]: relation `viewer` allows no subject types
+ --> 2:14
+  |
+2 |     relation viewer:
+  |              ^^^^^^
+  |
+  = help: list at least one type, e.g. `relation viewer: user`

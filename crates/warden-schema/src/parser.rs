@@ -14,7 +14,12 @@ use crate::diagnostic::{ErrorCode, SchemaError};
 use crate::lexer::{Keyword, Token, TokenKind, lex};
 use crate::span::Span;
 
-type PResult<T> = Result<T, SchemaError>;
+/// Boxed so every `Ok` value is not padded to the size of a diagnostic.
+type PResult<T> = Result<T, Box<SchemaError>>;
+
+fn fail<T>(err: SchemaError) -> PResult<T> {
+    Err(Box::new(err))
+}
 
 const SEMICOLON_HINT: &str = "remove ';' — the schema language does not use semicolons";
 
@@ -28,6 +33,10 @@ const SEMICOLON_HINT: &str = "remove ';' — the schema language does not use se
 /// Returns the first lexical or syntax error: `E_UNEXPECTED_CHAR`,
 /// `E_UNTERMINATED_COMMENT`, `E_UNEXPECTED_TOKEN`, `E_AMBIGUOUS_OPERATORS`,
 /// `E_ARROW_CHAIN` or `E_UNSUPPORTED_FEATURE`.
+#[expect(
+    clippy::result_large_err,
+    reason = "public API returns the diagnostic by value; parsing a schema is a cold path"
+)]
 pub fn parse(source: &str) -> Result<Schema, SchemaError> {
     let (tokens, lex_error) = lex(source);
     Parser {
@@ -35,8 +44,10 @@ pub fn parse(source: &str) -> Result<Schema, SchemaError> {
         tokens,
         pos: 0,
         lex_error,
+        dangling: Vec::new(),
     }
     .schema()
+    .map_err(|e| *e)
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -71,6 +82,8 @@ struct Parser<'s> {
     /// Index of the next unconsumed token, which may be a doc comment.
     pos: usize,
     lex_error: Option<SchemaError>,
+    /// Doc comments that attach to nothing, reported as `W_DANGLING_DOC_COMMENT`.
+    dangling: Vec<DocComment>,
 }
 
 impl<'s> Parser<'s> {
@@ -117,7 +130,7 @@ impl<'s> Parser<'s> {
     fn peek(&self) -> PResult<Token> {
         let tok = self.token_at(0);
         if tok.kind == TokenKind::Error {
-            return Err(self.lex_error.clone().unwrap_or_else(|| {
+            return fail(self.lex_error.clone().unwrap_or_else(|| {
                 self.error(ErrorCode::UnexpectedChar, "invalid input", tok.span, None)
             }));
         }
@@ -127,7 +140,17 @@ impl<'s> Parser<'s> {
     fn bump(&mut self) -> PResult<Token> {
         let tok = self.peek()?;
         if tok.kind != TokenKind::Eof {
-            self.pos = self.index_at(0) + 1;
+            let index = self.index_at(0);
+            // Doc comments stepped over here sit inside a node, where they document nothing.
+            for skipped in self.tokens.get(self.pos..index).unwrap_or_default() {
+                if skipped.kind == TokenKind::Doc {
+                    self.dangling.push(DocComment {
+                        text: doc_text(self.text(skipped.span)),
+                        span: skipped.span,
+                    });
+                }
+            }
+            self.pos = index + 1;
         }
         Ok(tok)
     }
@@ -143,7 +166,7 @@ impl<'s> Parser<'s> {
     fn expect(&mut self, kind: TokenKind, expected: &str) -> PResult<Token> {
         let tok = self.peek()?;
         if tok.kind != kind {
-            return Err(self.unexpected(tok, expected));
+            return fail(self.unexpected(tok, expected));
         }
         self.bump()
     }
@@ -215,7 +238,7 @@ impl<'s> Parser<'s> {
             || (matches!(tok.kind, TokenKind::Keyword(_))
                 && follow.contains(&self.token_at(1).kind));
         if !is_name {
-            return Err(self.unexpected(tok, expected));
+            return fail(self.unexpected(tok, expected));
         }
         self.bump()?;
         Ok(self.make_ident(tok))
@@ -228,20 +251,9 @@ impl<'s> Parser<'s> {
             let slash = self.bump()?;
             let segment = self.peek()?;
             if segment.kind != TokenKind::Ident {
-                return Err(self.unexpected(segment, "a type name segment after `/`"));
+                return fail(self.unexpected(segment, "a type name segment after `/`"));
             }
-            if slash.span.start != span.end || segment.span.start != slash.span.end {
-                return Err(self.error(
-                    ErrorCode::UnexpectedToken,
-                    "whitespace is not allowed inside a type name",
-                    span.to(segment.span),
-                    Some(format!(
-                        "write `{}/{}`",
-                        self.text(span),
-                        self.text(segment.span)
-                    )),
-                ));
-            }
+            self.reject_gaps(span, slash.span, segment.span, "type name")?;
             self.bump()?;
             span = span.to(segment.span);
         }
@@ -249,6 +261,25 @@ impl<'s> Parser<'s> {
             name: self.text(span).to_owned(),
             span,
         })
+    }
+
+    /// Type names and type references are single words in SpiceDB's grammar, so no
+    /// whitespace (or comment) may separate `left`, `sep` and `right` (OQ-011).
+    fn reject_gaps(&self, left: Span, sep: Span, right: Span, what: &str) -> PResult<()> {
+        if sep.start == left.end && right.start == sep.end {
+            return Ok(());
+        }
+        fail(self.error(
+            ErrorCode::UnexpectedToken,
+            format!("whitespace is not allowed inside a {what}"),
+            left.to(right),
+            Some(format!(
+                "write `{}{}{}`",
+                self.text(left),
+                self.text(sep),
+                self.text(right)
+            )),
+        ))
     }
 
     // ---- top level ----
@@ -262,10 +293,18 @@ impl<'s> Parser<'s> {
                 TokenKind::Keyword(Keyword::Definition) => {
                     definitions.push(self.definition(doc)?);
                 }
-                TokenKind::Keyword(Keyword::Caveat) => return Err(self.caveat_definition(tok)),
-                TokenKind::Keyword(Keyword::Use) => return Err(self.use_directive(tok)),
-                TokenKind::Eof => return Ok(Schema { definitions }),
-                _ => return Err(self.unexpected(tok, "`definition`")),
+                TokenKind::Keyword(Keyword::Caveat) => return fail(self.caveat_definition(tok)),
+                TokenKind::Keyword(Keyword::Use) => return fail(self.use_directive(tok)),
+                TokenKind::Eof => {
+                    self.dangling.extend(doc);
+                    let mut dangling_docs = std::mem::take(&mut self.dangling);
+                    dangling_docs.sort_by_key(|d| d.span.start);
+                    return Ok(Schema {
+                        definitions,
+                        dangling_docs,
+                    });
+                }
+                _ => return fail(self.unexpected(tok, "`definition`")),
             }
         }
     }
@@ -327,10 +366,11 @@ impl<'s> Parser<'s> {
                 TokenKind::Keyword(Keyword::Permission) => {
                     members.push(Member::Permission(self.permission(doc)?));
                 }
-                // A doc comment with nothing after it in the body documents nothing and
-                // is dropped (OPEN_QUESTIONS OQ-010).
-                TokenKind::RBrace => break self.bump()?,
-                _ => return Err(self.unexpected(tok, "`relation`, `permission` or `}`")),
+                TokenKind::RBrace => {
+                    self.dangling.extend(doc);
+                    break self.bump()?;
+                }
+                _ => return fail(self.unexpected(tok, "`relation`, `permission` or `}`")),
             }
         };
         Ok(Definition {
@@ -364,13 +404,14 @@ impl<'s> Parser<'s> {
         let type_name = self.type_name("a subject type")?;
         let (kind, end) = match self.peek()?.kind {
             TokenKind::Hash => {
-                self.bump()?;
+                let hash = self.bump()?;
                 let rel = self.ident("a relation name after `#`")?;
+                self.reject_gaps(type_name.span, hash.span, rel.span, "type reference")?;
                 let end = rel.span;
                 (AllowedKind::SubjectSet(rel), end)
             }
             TokenKind::Colon => {
-                self.bump()?;
+                let colon = self.bump()?;
                 let tok = self.peek()?;
                 if tok.kind != TokenKind::Star {
                     let mut err = self.unexpected(tok, "`*` after `:`");
@@ -379,9 +420,10 @@ impl<'s> Parser<'s> {
                          a wildcard (`user:*`), never a specific object"
                             .to_owned(),
                     );
-                    return Err(err);
+                    return fail(err);
                 }
                 self.bump()?;
+                self.reject_gaps(type_name.span, colon.span, tok.span, "type reference")?;
                 if self.peek()?.kind == TokenKind::Hash {
                     let hash = self.peek()?;
                     let rel = self.token_at(1);
@@ -390,7 +432,7 @@ impl<'s> Parser<'s> {
                     } else {
                         hash.span
                     };
-                    return Err(self.error(
+                    return fail(self.error(
                         ErrorCode::UnexpectedToken,
                         "a wildcard cannot have a subject relation",
                         span,
@@ -408,7 +450,7 @@ impl<'s> Parser<'s> {
         let span = type_name.span.to(end);
         let next = self.peek()?;
         if next.kind == TokenKind::Keyword(Keyword::With) {
-            return Err(self.with_clause(next));
+            return fail(self.with_clause(next));
         }
         Ok(AllowedType {
             type_name,
@@ -462,7 +504,7 @@ impl<'s> Parser<'s> {
         let name = self.member_name("a permission name", &[TokenKind::Eq, TokenKind::Colon])?;
         let next = self.peek()?;
         if next.kind == TokenKind::Colon {
-            return Err(self.type_annotation(next, &name));
+            return fail(self.type_annotation(next, &name));
         }
         self.expect(TokenKind::Eq, "`=` after the permission name")?;
         let expr = self.expr()?;
@@ -511,7 +553,7 @@ impl<'s> Parser<'s> {
             return Ok(first);
         };
         if let Some(k) = rest.iter().position(|&(o, _, _)| o != op) {
-            return Err(self.ambiguous(&first, &rest, k));
+            return fail(self.ambiguous(&first, &rest, k));
         }
         if op == BinOp::Exclusion {
             return Ok(rest.into_iter().fold(first, |base, (_, _, sub)| Expr {
@@ -581,6 +623,7 @@ impl<'s> Parser<'s> {
                 "add parentheses to say which grouping you mean, either\n    {group_left}\nor\n    {group_right}"
             )),
         )
+        .with_note(spicedb_reading(left_op, right_op, &group_left, &group_right))
     }
 
     fn term(&mut self) -> PResult<Expr> {
@@ -612,17 +655,17 @@ impl<'s> Parser<'s> {
                     }),
                 }
             }
-            TokenKind::Keyword(Keyword::SelfKw) => Err(self.unsupported(
+            TokenKind::Keyword(Keyword::SelfKw) => fail(self.unsupported(
                 "the `self` keyword is not supported".to_owned(),
                 tok.span,
                 "grant access through a relation instead",
             )),
-            TokenKind::Keyword(Keyword::Nil) => Err(self.unsupported(
+            TokenKind::Keyword(Keyword::Nil) => fail(self.unsupported(
                 "`nil` is not supported".to_owned(),
                 tok.span,
                 "remove the permission, or define it from a relation that is never written",
             )),
-            _ => Err(self.unexpected(tok, "a relation or permission name or `(`")),
+            _ => fail(self.unexpected(tok, "a relation or permission name or `(`")),
         }
     }
 
@@ -634,7 +677,7 @@ impl<'s> Parser<'s> {
             "any" => ArrowMode::Any,
             "all" => ArrowMode::All,
             other if self.token_at(0).kind != TokenKind::LParen => {
-                return Err(self.unsupported(
+                return fail(self.unsupported(
                     format!(
                         "`{}.{other}` is not supported: `.` only introduces the arrow functions \
                          `.any()` and `.all()`",
@@ -645,7 +688,7 @@ impl<'s> Parser<'s> {
                 ));
             }
             other => {
-                return Err(self.unsupported(
+                return fail(self.unsupported(
                     format!(
                         "arrow function `.{other}()` is not supported; only `.any()` and `.all()` are"
                     ),
@@ -666,7 +709,7 @@ impl<'s> Parser<'s> {
                 "`.{}()` takes a single relation or permission name",
                 func.name
             ));
-            return Err(err);
+            return fail(err);
         }
         let close = self.bump()?;
         let span = tupleset.span.to(close.span);
@@ -725,7 +768,7 @@ impl<'s> Parser<'s> {
                      at it"
                 .to_owned(),
         };
-        Err(self.error(
+        fail(self.error(
             ErrorCode::ArrowChain,
             "arrows cannot be chained: the right side of an arrow must be a single relation \
              or permission name",
@@ -733,6 +776,26 @@ impl<'s> Parser<'s> {
             Some(help),
         ))
     }
+}
+
+/// How SpiceDB would group a mix of `left` then `right`, when we know: its documentation
+/// gives union higher precedence than intersection and exclusion
+/// (<https://authzed.com/docs/spicedb/concepts/schema>), but does not document how `&` and
+/// `-` relate to each other, so for that mix we say nothing rather than guess.
+fn spicedb_reading(
+    left: BinOp,
+    right: BinOp,
+    group_left: &str,
+    group_right: &str,
+) -> Option<String> {
+    let reading = match (left, right) {
+        (BinOp::Union, _) => group_left,
+        (_, BinOp::Union) => group_right,
+        _ => return None,
+    };
+    Some(format!(
+        "SpiceDB gives `+` higher precedence than `&` and `-`, so it would read this as `{reading}`"
+    ))
 }
 
 fn arrow(tupleset: Ident, computed: Ident, mode: ArrowMode, span: Span) -> Expr {

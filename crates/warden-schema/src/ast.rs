@@ -13,6 +13,9 @@ use crate::span::Span;
 pub struct Schema {
     /// Definitions in source order.
     pub definitions: Vec<Definition>,
+    /// Doc comments with nothing to attach to (before `}`, at end of input, or inside a
+    /// member), in source order. Compilation reports each as `W_DANGLING_DOC_COMMENT`.
+    pub dangling_docs: Vec<DocComment>,
 }
 
 /// A `/** ... */` comment attached to the node that follows it.

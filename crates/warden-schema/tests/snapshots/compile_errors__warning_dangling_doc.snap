@@ -1,0 +1,27 @@
+---
+source: crates/warden-schema/tests/compile_errors.rs
+description: "definition user {}\ndefinition doc {\n    relation owner: user\n    permission view = owner /** inside */ + owner\n    /** before close */\n}\n/** at end */\n"
+---
+warning[W_DANGLING_DOC_COMMENT]: doc comment is not attached to a definition, relation or permission
+ --> 4:29
+  |
+4 |     permission view = owner /** inside */ + owner
+  |                             ^^^^^^^^^^^^^
+  |
+  = help: a doc comment documents the item directly below it; move it there, or use `//` for a plain comment
+
+warning[W_DANGLING_DOC_COMMENT]: doc comment is not attached to a definition, relation or permission
+ --> 5:5
+  |
+5 |     /** before close */
+  |     ^^^^^^^^^^^^^^^^^^^
+  |
+  = help: a doc comment documents the item directly below it; move it there, or use `//` for a plain comment
+
+warning[W_DANGLING_DOC_COMMENT]: doc comment is not attached to a definition, relation or permission
+ --> 7:1
+  |
+7 | /** at end */
+  | ^^^^^^^^^^^^^
+  |
+  = help: a doc comment documents the item directly below it; move it there, or use `//` for a plain comment

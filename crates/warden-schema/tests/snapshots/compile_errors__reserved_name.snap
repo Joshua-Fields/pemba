@@ -1,0 +1,29 @@
+---
+source: crates/warden-schema/tests/compile_errors.rs
+description: "definition user {}\ndefinition doc {\n    relation nil: user\n    relation any: user\n    permission self = any\n}"
+---
+error[E_RESERVED_NAME]: `nil` is a reserved word and cannot name a relation
+ --> 3:14
+  |
+3 |     relation nil: user
+  |              ^^^
+  |
+  = help: reserved words are `definition`, `relation`, `permission`, `self`, `nil`, `caveat`, `use`, `with`, `any`, `all`
+
+error[E_RESERVED_NAME]: `any` is a reserved word and cannot name a relation
+ --> 4:14
+  |
+4 |     relation any: user
+  |              ^^^
+  |
+  = help: reserved words are `definition`, `relation`, `permission`, `self`, `nil`, `caveat`, `use`, `with`, `any`, `all`
+
+error[E_RESERVED_NAME]: `self` is a reserved word and cannot name a permission
+ --> 5:16
+  |
+5 |     permission self = any
+  |                ^^^^
+  |
+  = help: reserved words are `definition`, `relation`, `permission`, `self`, `nil`, `caveat`, `use`, `with`, `any`, `all`
+
+error: schema rejected with 3 errors

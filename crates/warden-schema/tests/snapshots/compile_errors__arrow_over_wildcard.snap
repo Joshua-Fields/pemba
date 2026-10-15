@@ -1,0 +1,13 @@
+---
+source: crates/warden-schema/tests/compile_errors.rs
+description: "definition folder {\n    relation parent: folder | folder:*\n    permission view = parent->view\n}"
+---
+error[E_ARROW_OVER_WILDCARD]: arrow over `parent`, which allows the wildcard `folder:*`
+ --> 3:23
+  |
+3 |     permission view = parent->view
+  |                       ^^^^^^
+  |
+  = help: an arrow cannot walk a wildcard; move `folder:*` to a separate relation and keep `parent` for concrete `folder` objects
+
+error: schema rejected with 1 error

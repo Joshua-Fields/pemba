@@ -1,0 +1,11 @@
+---
+source: crates/warden-schema/tests/parse_errors.rs
+description: "definition doc {\n    relation viewer: user : *\n}"
+---
+error[E_UNEXPECTED_TOKEN]: whitespace is not allowed inside a type reference
+ --> 2:22
+  |
+2 |     relation viewer: user : *
+  |                      ^^^^^^^^
+  |
+  = help: write `user:*`

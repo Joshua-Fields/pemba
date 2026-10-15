@@ -55,11 +55,13 @@ definition document {
 - Unterminated block comment → `E_UNTERMINATED_COMMENT`.
 - Any other character → `E_UNEXPECTED_CHAR`.
 - Doc comments: `/**/` is an empty plain comment, not a doc comment. Consecutive doc
-  comments before one node are joined with `\n`. A doc comment followed by nothing it can
-  attach to (before `}` or end of file), or one inside a member, is discarded like a plain
-  comment (OQ-010).
-- Type names are written without whitespace around `/` (`docs/document`); `docs / document`
-  is `E_UNEXPECTED_TOKEN` (OQ-011).
+  comments before one node are joined with `\n`. A doc comment with nothing to attach to
+  (before `}`, at end of file, or inside a member) is kept out of the tree and reported as
+  the warning `W_DANGLING_DOC_COMMENT` (OQ-010).
+- Type names and type references are written without whitespace or comments around `/`,
+  `#` and `:` (`docs/document`, `group#member`, `user:*`). `docs / document`,
+  `group # member` and `user : *` are `E_UNEXPECTED_TOKEN` (OQ-011). The `:` after a
+  relation name is not part of a type reference and may be spaced freely.
 
 ## 3. Grammar (EBNF)
 
@@ -148,6 +150,12 @@ exclusion: `a + b & c` is `(a + b) & c`. To avoid silent surprises we enforce:
 - `a + (b & c)` ✅
 - Arrows/`.any`/`.all` are terms, so `a + b->c` ✅.
 
+The `E_AMBIGUOUS_OPERATORS` diagnostic carries a fix-it with both parenthesisations. When
+one of the mixed operators is `+`, it also carries a note saying how SpiceDB would read the
+input: SpiceDB documents union as binding tighter than `&` and `-`, so `a + b & c` is
+`(a + b) & c` there. The relative precedence of `&` and `-` is not documented, so a
+`&`/`-` mix gets no note.
+
 Flatten nested same-operator unions/intersections in the IR (`Union[Union[a,b],c]` →
 `Union[a,b,c]`). Never flatten exclusion.
 
@@ -177,8 +185,18 @@ Run after parsing; collect **all** errors (do not stop at the first), sorted by 
 Warnings (returned, not fatal):
 - `W_WILDCARD_ON_WRITE_LIKE_PERMISSION`: a wildcard relation flows into a permission whose
   name matches `edit|write|delete|admin|manage|owner` (heuristic; mirrors SpiceDB's advice
-  to only use wildcards for read permissions).
-- `W_UNUSED_RELATION`: relation referenced by no permission and no arrow (informational).
+  to only use wildcards for read permissions). "Matches" is a substring match (`can_edit`,
+  `editor`). A wildcard flows through relations (directly or via a subject set
+  `t#r` whose `r` it reaches), computed references, arrow targets, any operand of a union,
+  every operand of an intersection, and the base of an exclusion; never through an excluded
+  operand.
+- `W_UNUSED_RELATION`: relation referenced by no permission, no arrow (as tupleset or
+  target) and no subject set `t#r` (informational).
+- `W_DANGLING_DOC_COMMENT`: a doc comment with nothing to attach to (§2).
+
+Semantic warnings (`W_WILDCARD_...`, `W_UNUSED_...`) are computed on the IR, so they are
+only reported when compilation succeeds; `W_DANGLING_DOC_COMMENT` is also returned
+alongside errors.
 
 Cycle detection for `E_DIRECT_CYCLE`: build a graph whose nodes are `(type, permission)` and
 whose edges are `Computed(x)` references to *permissions* on the same type; any cycle is an
@@ -192,8 +210,16 @@ pub struct CompiledSchema {
     pub types: Vec<TypeDef>,                      // indexed by TypeId
     type_by_name: HashMap<Arc<str>, TypeId>,
     pub source: Arc<str>,                         // original text, for storage/round-trip
-    pub hash: [u8; 32],                           // sha-256 of normalised source
+    pub hash: [u8; 32],                           // sha-256 of normalised source (T0.5)
+    used_by: HashMap<(TypeId, RelId), Vec<(TypeId, RelId)>>,  // derived indexes, below
+    arrows_into: HashMap<(TypeId, RelId), Vec<(TypeId, RelId, RelId)>>,
+    subject_set_uses: HashMap<(TypeId, RelId), Vec<(TypeId, RelId)>>,
 }
+// Accessors: type_id(&str) -> Option<TypeId>, type_def(TypeId) -> Option<&TypeDef>,
+// used_by / arrows_into / subject_set_uses(TypeId, RelId) -> &[...] (empty if none).
+// TypeDef: member_id(&str) -> Option<RelId>, member(RelId) -> Option<&Member>.
+pub struct TypeId(usize);   // .index(); only produced by compile
+pub struct RelId(usize);    // .index(); position in its type's members
 
 pub struct TypeDef {
     pub id: TypeId,
@@ -228,7 +254,8 @@ pub struct PermissionDef {
 
 pub enum Expr {
     Computed(RelId),                               // relation or permission on same type
-    Arrow { tupleset: RelId, computed: Arc<str>, mode: ArrowMode },
+    Arrow { tupleset: RelId, computed: Arc<str>, mode: ArrowMode,
+            targets: BTreeMap<TypeId, RelId> },    // per-arrow target map, see below
     Union(Vec<Expr>),
     Intersection(Vec<Expr>),
     Exclusion { base: Box<Expr>, sub: Box<Expr> },
@@ -236,8 +263,14 @@ pub enum Expr {
 pub enum ArrowMode { Any, All }
 ```
 
-`Arrow.computed` is a name (not a `RelId`) because it resolves per related type; precompute
-a per-arrow `HashMap<TypeId, RelId>` for the hot path.
+`Arrow.computed` is a name (not a `RelId`) because it resolves per related type; the
+per-arrow `targets` map precomputes it for the hot path: one entry per type allowed on the
+tupleset (as object or subject set) that has `computed`. Related objects of other types
+contribute ∅. (`BTreeMap` rather than `HashMap` so the IR has a deterministic `Debug`
+form; lookups are on a handful of entries.)
+
+Index lists are sorted and deduplicated. The `hash` field is produced by the pretty printer's
+normalisation and lands with T0.5.
 
 Derived indexes computed at compile time (used by lookups, `docs/04-evaluation.md` §5):
 - `used_by[(type, rel)]` → list of `(type, permission)` whose expression contains
@@ -263,9 +296,20 @@ pub struct SchemaError {
     pub span: Span,               // byte range
     pub line: u32, pub col: u32,  // 1-based, computed from span (col counts characters)
     pub source_line: String,      // text of line `line`, so Display needs no source
+    pub note: Option<String>,     // extra context, e.g. how SpiceDB would read it (§4.3)
     pub help: Option<String>,     // fix-it hint
 }
+
+pub struct SchemaErrors {         // returned by compile: errors (never empty) + warnings,
+    pub errors: Vec<SchemaError>, // each sorted by span
+    pub warnings: Vec<SchemaError>,
+}
+
+pub fn compile(source: &str) -> Result<Compiled, SchemaErrors>;
+pub struct Compiled { pub schema: CompiledSchema, pub warnings: Vec<SchemaError> }
 ```
+Warnings use the same `SchemaError` type; `ErrorCode::is_warning()` is true for `W_` codes,
+and `Display` then says `warning[W_...]` instead of `error[E_...]`.
 `Display` renders rustc-style with a source excerpt and caret. Tests snapshot the rendered
 output (`insta`).
 

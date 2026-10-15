@@ -58,6 +58,8 @@ AC:
 Refs: `03` §9, `06` §3.
 AC:
 - Canonical printing; round-trip property test.
+- `CompiledSchema::hash` (sha-256 of the normalised source, `03` §6), deferred from T0.4
+  because it depends on the normaliser.
 - `warden-cli` binary with `schema validate` and `schema fmt [--check]`; correct exit codes.
 
 ---

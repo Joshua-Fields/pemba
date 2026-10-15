@@ -91,7 +91,7 @@ pub(crate) fn lex(src: &str) -> (Vec<Token>, Option<SchemaError>) {
                     while chars.next_if(|&(i, _)| i < end).is_some() {}
                     is_doc.then_some((TokenKind::Doc, end))
                 }
-                Err(err) => return fail(tokens, err),
+                Err(err) => return fail(tokens, *err),
             },
             '/' => single(TokenKind::Slash),
             '-' if next == Some('>') => {
@@ -149,14 +149,14 @@ fn fail(mut tokens: Vec<Token>, err: SchemaError) -> (Vec<Token>, Option<SchemaE
 
 /// Finds the end of the `/*` comment opening at `start`; returns whether it is a doc
 /// comment and the byte offset just past its `*/`.
-fn block_comment(src: &str, start: usize) -> Result<(bool, usize), SchemaError> {
+fn block_comment(src: &str, start: usize) -> Result<(bool, usize), Box<SchemaError>> {
     let after_open = start + 2;
     let rest = src.get(after_open..).unwrap_or_default();
     // `/**/` is an empty plain comment, not a doc comment.
     let is_doc = rest.starts_with('*') && !rest.starts_with("*/");
     match rest.find("*/") {
         Some(close) => Ok((is_doc, after_open + close + 2)),
-        None => Err(SchemaError::new(
+        None => Err(Box::new(SchemaError::new(
             ErrorCode::UnterminatedComment,
             if is_doc {
                 "unterminated doc comment"
@@ -166,7 +166,7 @@ fn block_comment(src: &str, start: usize) -> Result<(bool, usize), SchemaError> 
             Span::new(start, start + if is_doc { 3 } else { 2 }),
             Some("add `*/` to close the comment (comments do not nest)".to_owned()),
             src,
-        )),
+        ))),
     }
 }
 

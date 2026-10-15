@@ -1,0 +1,13 @@
+---
+source: crates/warden-schema/tests/compile_errors.rs
+description: "definition user {\n    relation aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa: user\n}"
+---
+error[E_IDENT_FORMAT]: relation name `aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa` must be at most 64 characters
+ --> 2:78
+  |
+2 |     relation aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa: user
+  |                                                                              ^
+  |
+  = help: identifiers are 3 to 64 characters of `a-z`, `0-9` and `_`, start with a letter or `_`, and end with a letter or digit
+
+error: schema rejected with 1 error

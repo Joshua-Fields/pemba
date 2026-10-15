@@ -1,0 +1,21 @@
+---
+source: crates/warden-schema/tests/compile_errors.rs
+description: "definition user {}\ndefinition doc {\n    relation viewer: user\n    permission view = viewr + parnt->view\n}"
+---
+error[E_UNKNOWN_MEMBER]: `viewr` is not a relation or permission on `doc`
+ --> 4:23
+  |
+4 |     permission view = viewr + parnt->view
+  |                       ^^^^^
+  |
+  = help: did you mean `viewer`?
+
+error[E_UNKNOWN_MEMBER]: `parnt` is not a relation or permission on `doc`
+ --> 4:31
+  |
+4 |     permission view = viewr + parnt->view
+  |                               ^^^^^
+  |
+  = help: define `parnt` as a relation or permission on `doc`
+
+error: schema rejected with 2 errors
