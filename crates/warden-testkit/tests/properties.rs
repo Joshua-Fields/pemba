@@ -54,6 +54,26 @@ fn unlimited() -> EngineConfig {
     }
 }
 
+/// The one engine error a check over generated data may return (T3.4b).
+const AMBIGUOUS: &str = "AMBIGUOUS_WILDCARD_EXCLUSION";
+
+/// Whether an engine error with `code` on `check(resource, member, subject)` is accepted:
+/// only `AMBIGUOUS_WILDCARD_EXCLUSION`, and only where the oracle shows the case applies
+/// (`docs/07-testing.md` §2.3). Every other error, and this one anywhere else, is a
+/// failure.
+fn ambiguity_accepted(
+    oracle: &Reference,
+    resource: &ObjectRef,
+    member: &RelName,
+    subject: &SubjectRef,
+    code: &str,
+) -> bool {
+    code == AMBIGUOUS
+        && oracle
+            .ambiguous_wildcard_exclusion(resource, member, subject)
+            .unwrap()
+}
+
 /// Resolves a raw query against the oracle's universe.
 fn query(
     schema: &CompiledSchema,
@@ -143,6 +163,7 @@ fn engine_agrees_with_reference(case: &Case) -> Result<(), TestCaseError> {
                 member,
                 subject
             ),
+            Err(e) if ambiguity_accepted(&oracle, resource, member, subject, e.code()) => {}
             Err(e) => {
                 return Err(TestCaseError::fail(format!(
                     "check({resource}#{member}@{subject}) failed: {e}"
@@ -174,6 +195,7 @@ fn engine_agrees_with_reference(case: &Case) -> Result<(), TestCaseError> {
                 member,
                 subject
             ),
+            Err(e) if ambiguity_accepted(&oracle, resource, member, subject, e.code()) => {}
             Err(e) => {
                 return Err(TestCaseError::fail(format!(
                     "check_bulk item {resource}#{member}@{subject} failed: {e}"
@@ -441,9 +463,11 @@ mod prop4 {
     use std::collections::BTreeSet;
 
     use proptest::prelude::*;
-    use warden_core::model::{Consistency, Relationship, Revision, WriteOp, WriteRequest};
+    use warden_core::model::{
+        Consistency, ObjectRef, RelName, Relationship, Revision, SubjectRef, WriteOp, WriteRequest,
+    };
     use warden_core::store::WritableStore;
-    use warden_core::{CheckRequest, Engine};
+    use warden_core::{CheckRequest, CheckResponse, Engine, Error};
     use warden_store_memory::MemoryStore;
     use warden_testkit::generate::{self, Case};
     use warden_testkit::reference::Reference;
@@ -610,30 +634,45 @@ mod prop4 {
                     ("sqlite", sqlite.check(request)),
                 ];
                 for (store, got) in got {
-                    match got {
-                        Ok(resp) => {
-                            prop_assert_eq!(resp.revision, rev);
-                            prop_assert_eq!(
-                                resp.allowed,
-                                want,
-                                "{}: check({}#{}@{}) at {}",
-                                store,
-                                resource,
-                                member,
-                                subject,
-                                rev
-                            );
-                        }
-                        Err(e) => {
-                            return Err(TestCaseError::fail(format!(
-                                "{store}: check({resource}#{member}@{subject}) at {rev} failed: {e}"
-                            )));
-                        }
-                    }
+                    let query = (resource, member, subject);
+                    historical_check_matches(&oracle, store, query, rev, want, got)?;
                 }
             }
         }
         Ok(())
+    }
+
+    /// One store's `check` at `Exact(rev)` against the oracle's `want` (property 4).
+    fn historical_check_matches(
+        oracle: &Reference,
+        store: &str,
+        (resource, member, subject): (&ObjectRef, &RelName, &SubjectRef),
+        rev: Revision,
+        want: bool,
+        got: Result<CheckResponse, Error>,
+    ) -> Result<(), TestCaseError> {
+        match got {
+            Ok(resp) => {
+                prop_assert_eq!(resp.revision, rev);
+                prop_assert_eq!(
+                    resp.allowed,
+                    want,
+                    "{}: check({}#{}@{}) at {}",
+                    store,
+                    resource,
+                    member,
+                    subject,
+                    rev
+                );
+                Ok(())
+            }
+            Err(e) if super::ambiguity_accepted(oracle, resource, member, subject, e.code()) => {
+                Ok(())
+            }
+            Err(e) => Err(TestCaseError::fail(format!(
+                "{store}: check({resource}#{member}@{subject}) at {rev} failed: {e}"
+            ))),
+        }
     }
 
     /// Guards against the GC plan doing nothing: histories must often collect.
@@ -778,7 +817,7 @@ mod prop2 {
         for _ in 0..1000 {
             let resp = engine
                 .lookup_resources(req.clone())
-                .map_err(|e| e.to_string())?;
+                .map_err(|e| format!("{}: {e}", e.code()))?;
             if let Some(l) = limit
                 && resp.resource_ids.len() > l as usize
             {
@@ -836,6 +875,22 @@ mod prop2 {
                 ("memory", pages(&memory, resource, member, subject, limit)),
                 ("sqlite", pages(&sqlite, resource, member, subject, limit)),
             ] {
+                // A page fails as a whole when any candidate's check does (§5.2), so the
+                // error is accepted if the oracle shows it applies to any object of the
+                // type (07 §2.3).
+                if let Err(e) = &got
+                    && e.starts_with(&format!("{}:", super::AMBIGUOUS))
+                    && universe
+                        .iter()
+                        .filter(|o| o.object_type == resource.object_type)
+                        .any(|o| {
+                            oracle
+                                .ambiguous_wildcard_exclusion(o, member, subject)
+                                .unwrap()
+                        })
+                {
+                    continue;
+                }
                 let got = got.map_err(|e| {
                     TestCaseError::fail(format!(
                         "{store}: lookup_resources({}#{member}@{subject}) failed: {e}",
@@ -934,6 +989,62 @@ fn generated_lookups_are_varied() {
         empty > 200 && several > 200 && fresh_same_object > 100,
         "{stats}"
     );
+}
+
+/// Guards against the `AMBIGUOUS_WILDCARD_EXCLUSION` acceptance in property 1 testing
+/// little: generated cases must often reach the error (and so also catch its removal,
+/// T3.4b's mutation check), and the oracle must often show the case applies where the
+/// engine still answers (short-circuiting past the wildcard).
+#[test]
+fn generated_ambiguity_is_exercised() {
+    let (mut errors, mut answered_while_possible) = (0, 0);
+    for mode in [SubSides::Acyclic, SubSides::Recursive] {
+        for case in sample(generate::case_with(mode), 1500) {
+            let src = case.schema.source();
+            let schema = compile(&src);
+            let oracle = Reference::new(&schema, &case.tuples).unwrap();
+            let engine = Engine::builder()
+                .store(MemoryStore::new())
+                .config(unlimited())
+                .build()
+                .unwrap();
+            engine.write_schema(&src).unwrap();
+            if !case.tuples.is_empty() {
+                engine
+                    .write(WriteRequest {
+                        ops: case.tuples.iter().cloned().map(WriteOp::Touch).collect(),
+                        preconditions: Vec::new(),
+                    })
+                    .unwrap();
+            }
+            let universe = oracle.universe();
+            for &q in &case.queries {
+                let (resource, member, subject) = query(&schema, &oracle, &universe, q);
+                let possible = oracle
+                    .ambiguous_wildcard_exclusion(&resource, &member, &subject)
+                    .unwrap();
+                let got = engine.check(CheckRequest {
+                    resource: resource.clone(),
+                    permission: member.clone(),
+                    subject: subject.clone(),
+                    consistency: Consistency::Latest,
+                });
+                match got {
+                    Err(e) if e.code() == AMBIGUOUS => {
+                        assert!(possible, "check({resource}#{member}@{subject}): {e}");
+                        errors += 1;
+                    }
+                    Ok(_) if possible => answered_while_possible += 1,
+                    Ok(_) => {}
+                    Err(e) => panic!("check({resource}#{member}@{subject}): {e}"),
+                }
+            }
+        }
+    }
+    let stats = format!("errors {errors}, answered where possible {answered_while_possible}");
+    eprintln!("{stats}");
+    // Deterministic samples: 25 and 242 when T3.4b landed.
+    assert!(errors >= 10 && answered_while_possible >= 50, "{stats}");
 }
 
 // ---- property 3: lookup_subjects ----
@@ -1379,19 +1490,28 @@ mod schema_change {
                 for &q in &case.queries {
                     let (resource, member, subject) = query(&schema2, &oracle, &universe, q);
                     let want = oracle.check(&resource, &member, &subject).unwrap();
-                    let got = engine
-                        .check(CheckRequest {
-                            resource: resource.clone(),
-                            permission: member.clone(),
-                            subject: subject.clone(),
-                            consistency: Consistency::Latest,
-                        })
-                        .map_err(|e| {
-                            TestCaseError::fail(format!(
+                    let got = engine.check(CheckRequest {
+                        resource: resource.clone(),
+                        permission: member.clone(),
+                        subject: subject.clone(),
+                        consistency: Consistency::Latest,
+                    });
+                    match got {
+                        Ok(got) => prop_assert_eq!(got.allowed, want),
+                        Err(e)
+                            if super::ambiguity_accepted(
+                                &oracle,
+                                &resource,
+                                &member,
+                                &subject,
+                                e.code(),
+                            ) => {}
+                        Err(e) => {
+                            return Err(TestCaseError::fail(format!(
                                 "check({resource}#{member}@{subject}) at head: {e}"
-                            ))
-                        })?;
-                    prop_assert_eq!(got.allowed, want);
+                            )));
+                        }
+                    }
                 }
                 Ok(true)
             }

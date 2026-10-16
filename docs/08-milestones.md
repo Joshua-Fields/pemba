@@ -245,6 +245,20 @@ AC:
   changed (e.g. `.all` over zero objects, self membership, arrow over wildcard).
 - CI job (manual trigger + weekly) running it in Docker.
 
+### T3.4b KD-3 fails closed: a wildcard on a subtracted side vs a subject-set subject
+Refs: `04` §2, §3.3; `07` §2.3; `crates/warden-difftest/KNOWN_DIFFERENCES.md` KD-3.
+AC:
+- A `check` or `lookup_resources` whose subject is a subject set of type `t`, and whose
+  evaluation reaches a stored `t:*` under the subtracted side of an exclusion, returns the
+  new error `AMBIGUOUS_WILDCARD_EXCLUSION` instead of an answer. The grant side is
+  unchanged: a wildcard never matches a subject set.
+- Rationale in `04` §2 and §3.3: warden and SpiceDB disagree there. An error can later
+  become an answer without breaking callers; an answer cannot change silently.
+- The oracle and properties 1 and 2 accept the error only where the oracle shows the case
+  applies; the condition is specified in `07` §2.3. Mutation check: removing the error
+  makes a test fail.
+- Python exception mapping (`AmbiguousWildcardExclusionError`) and the stubs.
+
 ### T3.5 Benchmarks
 Refs: `07` §7.
 AC:

@@ -49,6 +49,16 @@ For object `o`, member `m`, subject `s`, at revision `R`, `S(o, m)` is the set o
 | `Arrow{t, p, Any}` | ∪ over objects `x` stored on `o#t` (subject relation ignored, wildcards skipped) of `S(x, p)` (∅ if `x`'s type lacks `p`) |
 | `Arrow{t, p, All}` | ∩ over the same objects; ∅ if there are none |
 
+Additional rule — **wildcards and subject sets**: a stored wildcard `t:*` contributes
+objects of type `t` only, never a subject set `t:x#r`. SpiceDB matches the subject set as
+well (KD-3, `crates/warden-difftest/KNOWN_DIFFERENCES.md`). Where that wildcard sits on a
+granting path, warden's answer is the stricter one. Where it sits under the subtracted side
+of an exclusion, warden's would be the more permissive one, so `check` (and
+`lookup_resources`, whose candidates are checked) fails with
+`AmbiguousWildcardExclusion` instead of answering (§3.3 step 2a, T3.4b). The reason is
+that an error can later become an answer without breaking callers, but an answer cannot
+change silently.
+
 Additional rule — **self membership**: a subject set `o#m` is always a member of `S(o, m)`.
 So `check(group:eng, member, group:eng#member) = true`. (Zanzibar semantics; verify
 against SpiceDB in differential tests.)
@@ -115,6 +125,12 @@ Order matters for performance, not correctness:
    read is at a revision below the current schema's (`05` §7: only there can a stale
    wildcard exist), and a hit → `Err(StaleRelationship)`, since ignoring it would shrink
    `S(o, r)`. (Wildcards never match subject *sets*.)
+2a. **Ambiguous wildcard (T3.4b)**: only if the subject is a subject set `t:x#y`, evaluation
+   is under the subtracted side of at least one exclusion (any number, not parity), and
+   `t:*` is an allowed type on `r`. If `o#r@t:*` exists → `Err(AmbiguousWildcardExclusion
+   { wildcard, subject })`. Off a subtracted side the wildcard is not consulted (step 2).
+   Memoised node values computed outside a subtracted side are not reused under one, so a
+   value settled on a granting path cannot hide this error (`Memo`).
 3. **Subject-set fan-out** — read visible tuples `o#r@x:*#y` (i.e. subject_relation
    non-empty), and for each stored subject set `x:id#y` in store order: if `x#y` is not an
    allowed type of `r` (left behind by a schema change, or `x`/`y` no longer defined) →

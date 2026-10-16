@@ -10,7 +10,7 @@ Compared against SpiceDB **1.56.2** (`spicedb serve-testing`, HTTP gateway), 202
 
 | Run | Cases | Compared | Questions | Explained mismatches | Unexplained |
 |---|---|---|---|---|---|
-| Fixtures | 18 | 18 | 23 577 | KD-1: 85; KD-3: 3 | 0 |
+| Fixtures | 18 | 18 | 23 621 | KD-1: 85; KD-3: 4 | 0 |
 | Generated | 665 | 500 | 499 517 | KD-2: 165 cases not compared; KD-3: 1 656 | 0 |
 
 Fixtures that expect schema or write errors (`schema_errors/`) are not run here. warden
@@ -86,9 +86,9 @@ warden's own property tests (`07` §2) have none of these caps.
     doc:d#viewer@grp:*
     check doc:d#viewer@grp:g#member   -> warden false, SpiceDB true
     ```
-  - **Subtracted side:** warden `true`, SpiceDB `false`. The wildcard on the subtracted
-    side of an exclusion removes nothing for warden, so warden allows what SpiceDB
-    denies.
+  - **Subtracted side:** before T3.4b warden said `true` and SpiceDB `false`: the wildcard
+    on the subtracted side removed nothing for warden, so warden allowed what SpiceDB
+    denied. warden now fails with `AMBIGUOUS_WILDCARD_EXCLUSION`.
     ```
     definition user {}
     definition grp { relation member: user }
@@ -100,14 +100,17 @@ warden's own property tests (`07` §2) have none of these caps.
 
     doc:d#viewer@grp:g#member
     doc:d#banned@grp:*
-    check doc:d#view@grp:g#member     -> warden true, SpiceDB false
+    check doc:d#view@grp:g#member     -> warden AMBIGUOUS_WILDCARD_EXCLUSION (was true), SpiceDB false
     ```
   Both repros are the fixture `testdata/fixtures/wildcard_subject_set.yaml`.
-- **Seen in:** 1 656 generated questions and the 3 in `wildcard_subject_set.yaml`, every
-  one recognised by the re-ask.
+- **Seen in:** 1 656 generated questions and 4 in `wildcard_subject_set.yaml`, every one
+  recognised by the re-ask (the same counts before and after T3.4b: the subtracted-side ones
+  changed from warden `true` to the error).
 - **Decision:** the grant side stays as it is: a wildcard never matches a subject set.
-  The subtracted side is the fail-open direction. Next task, T3.4b: replace that answer
-  with the error `AMBIGUOUS_WILDCARD_EXCLUSION` (OQ-037 (c)).
+  The subtracted side was the fail-open direction. Since T3.4b warden refuses to answer
+  there with `AMBIGUOUS_WILDCARD_EXCLUSION` (`04` §3.3). The detector therefore accepts
+  only warden `false` / SpiceDB `true`, and warden `AMBIGUOUS_WILDCARD_EXCLUSION` against
+  any SpiceDB answer. warden `true` against SpiceDB `false` is no longer explained.
 
 ## KD-4: the depth limit, near 50
 

@@ -107,6 +107,25 @@ since T1.4c bounded check cost, OQ-021). Runs at a raised `PROPTEST_CASES` (defa
 5. Memory store and SQLite store return identical results for identical op sequences.
 6. Schema pretty-print round-trip: `compile(print(ir)) == ir`.
 
+**The one accepted error (T3.4b).** Properties 1, 2, 4 and the schema-change property
+treat every engine error as a failure, except `AMBIGUOUS_WILDCARD_EXCLUSION` where the
+oracle shows the case applies (`Reference::ambiguous_wildcard_exclusion`). For
+`check(o, m, s)` the condition `A(o, m, s)` is: `s` is a subject set `x#r` with `x` of type
+`t`, and the evaluation graph has a path from node `o#m` to a relation node `o'#r'` holding
+a stored `o'#r'@t:*` that crosses the subtracted side of at least one exclusion. The graph
+has an edge from a permission node to every member its expression names on the same object,
+and through an arrow to the target member of every object stored on the tupleset. A
+relation node has an edge to `x#y` for every stored subject set `x#y`. Edges are followed
+whatever the engine would short-circuit, so `A` over-approximates what it reaches:
+- error and `A` false → failure;
+- error and `A` true → accepted;
+- an answer → must equal `reference.check`, whatever `A` is.
+For `lookup_resources(T, m, s)` the error is accepted iff `A(o, m, s)` holds for some `o`
+of type `T` in the universe (a page fails as a whole, `04` §5.2); otherwise the ids must
+match. `generated_ambiguity_is_exercised` keeps this from passing vacuously. On fixed
+samples, at least 10 generated checks must fail with the error and at least 50 must answer
+where `A` holds; removing the error fails it, as does `wildcard_subject_set.yaml`.
+
 Failing cases are shrunk by proptest; persist regressions in `proptest-regressions/`
 (committed).
 
