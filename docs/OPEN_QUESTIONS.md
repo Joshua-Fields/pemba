@@ -842,6 +842,10 @@ it is resolved.
   Python API never had (consistency is the `at_least` / `at_exactly` keywords, §2.2), so
   it could not run verbatim. The import was removed; the example is now in the README and
   runs in CI (`tests/test_readme_example.py`), which also checks the two copies match.
+- Resolution: (a) resolved by the human on 2026-10-16 (after T3.2b): accepted. The
+  same-file check is not cached by `id(conn)`, because CPython reuses the `id()` of a
+  collected object; it runs on every foreign write. (b)–(e) stand as the current choice.
+
 ## OQ-035 — Release pipeline details decided in T3.3
 - Raised in: T3.3 (ADR-014, `docs/09-repo-and-tooling.md` §1, §4, OQ-024)
 - Blocking: no
