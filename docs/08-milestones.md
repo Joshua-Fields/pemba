@@ -203,7 +203,24 @@ AC:
 - GIL released for engine calls; exception hierarchy mapped by `Error::code()`.
 - pytest suite per `07` §6 (except foreign txn) passes.
 
-### T3.2 Foreign transaction mode (headline feature)
+### T3.2a Python SQLite store (single SQLite copy)
+Refs: ADR-006 (amended, OQ-032), `05` §4.3–§4.4, `06` §2.
+AC:
+- `warden-store-pysqlite`: every warden statement (reads, native writes, migrations, GC,
+  schema writes) runs on Python `sqlite3` connections the engine owns, reusing
+  `SqlDialect` / `WriteTxn` / `ReadStore`; `Engine.sqlite()` uses it.
+- `warden-py` depends on neither rusqlite nor a bundled SQLite; CI fails if the built
+  extension or the release wheel contains SQLite symbols.
+- Same-snapshot rules as T2.3 and GC order as T2.6.
+- `MIN_SQLITE_VERSION` derived from the SQL features used; `Engine.sqlite()` refuses an
+  older `sqlite3` with a `StorageError` naming both versions; CI job on the oldest
+  claimed Python/SQLite combination.
+- The two-copies probe is a permanent regression test that passes.
+- Conformance suite and property 5 (memory ≡ `PySqliteStore`) pass.
+- `06` §2 and the README say the engine shares CPython's SQLite and which libraries are
+  safe in-process.
+
+### T3.2b Foreign transaction mode (headline feature)
 Refs: `05` §10, ADR-006.
 AC:
 - `engine.write(..., conn=sqlite3_conn)` via `PyDbApiTxn`.

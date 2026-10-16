@@ -1,4 +1,4 @@
-"""Every method of ``docs/06-api.md`` §2.2 except foreign transactions (T3.2)."""
+"""Every method of ``docs/06-api.md`` §2.2 except foreign transactions (T3.2b)."""
 
 from __future__ import annotations
 

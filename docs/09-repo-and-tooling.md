@@ -17,13 +17,15 @@ warden/
 │   ├── warden-schema/          # lexer, parser, validator, IR, printer. No I/O.
 │   ├── warden-core/            # model types, store traits, write logic, evaluator, Engine
 │   ├── warden-store-memory/
-│   ├── warden-store-sqlite/
+│   ├── warden-sqlite-common/   # driver-free SQLite: SQL text, migration runner, row decoding
 │   │   └── migrations/         # 0001_init.sql, ...
+│   ├── warden-store-sqlite/    # rusqlite (bundled SQLite), for Rust
+│   ├── warden-store-pysqlite/  # CPython's sqlite3, for warden-py (ADR-006, publish = false)
 │   ├── warden/                 # facade: re-exports core + stores behind features
 │   ├── warden-cli/             # binary `warden`
 │   ├── warden-testkit/         # reference evaluator, generators, fixture runner, conformance suite (publish = false)
 │   ├── warden-difftest/        # SpiceDB differential tests (publish = false)
-│   └── warden-py/              # PyO3 bindings + python/warden/*.py, *.pyi, tests/
+│   └── warden-py/              # PyO3 bindings + python/warden/*.py, *.pyi, tests/, ci/
 ├── testdata/
 │   └── fixtures/               # YAML fixtures (docs/07 §3), regressions/
 ├── benches/                    # criterion benches, spicedb/ comparison scripts, RESULTS.md
@@ -32,7 +34,9 @@ warden/
 ```
 
 Dependency direction (no cycles, enforced by review):
-`schema` ← `core` ← `store-*` ← `warden` ← `cli`, `py`; `testkit` depends on `core` + stores
+`schema` ← `core` ← `sqlite-common` ← `store-*` ← `warden` ← `cli`, `py`; `py` uses
+`warden` without its `sqlite` feature plus `store-pysqlite`, and must never link rusqlite
+(CI checks the built extension); `testkit` depends on `core` + stores
 (dev-dependency elsewhere, except `cli`, whose `warden test` runs the fixture runner, until
 T3.3 moves the fixture format and runner into a small publishable crate: OQ-024).
 

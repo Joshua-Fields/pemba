@@ -15,6 +15,8 @@ warden-schema = { path = "crates/warden-schema", version = "0.0.0" }
 warden-core = { path = "crates/warden-core", version = "0.0.0" }
 warden-store-memory = { path = "crates/warden-store-memory", version = "0.0.0" }
 warden-store-sqlite = { path = "crates/warden-store-sqlite", version = "0.0.0" }
+warden-sqlite-common = { path = "crates/warden-sqlite-common", version = "0.0.0" }
+warden-store-pysqlite = { path = "crates/warden-store-pysqlite", version = "0.0.0" }
 warden = { path = "crates/warden", version = "0.0.0", default-features = false }
 warden-testkit = { path = "crates/warden-testkit", version = "0.0.0" }
 

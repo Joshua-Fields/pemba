@@ -1,4 +1,4 @@
-//! [`WriteTxn`] over a `rusqlite` transaction, and the SQLite [`SqlDialect`].
+//! [`WriteTxn`] over a `rusqlite` transaction.
 //!
 //! The same adapter serves the store's own connection (inside `BEGIN IMMEDIATE`) and a
 //! caller's transaction passed to `Engine::write_in`, so both run the one write algorithm
@@ -6,7 +6,7 @@
 
 use rusqlite::types::ValueRef;
 use rusqlite::{Connection, Transaction};
-use warden_core::store::{SqlDialect, SqlValue, StoreError, WriteTxn};
+use warden_core::store::{SqlValue, StoreError, WriteTxn};
 
 use crate::store_err;
 
@@ -112,25 +112,5 @@ impl WriteTxn for Autocommit<'_> {
 
     fn last_insert_id(&mut self) -> Result<i64, StoreError> {
         Ok(self.0.last_insert_rowid())
-    }
-}
-
-/// SQLite statement text: `?` placeholders, unprefixed table names.
-#[derive(Debug)]
-pub(crate) struct SqliteDialect;
-
-impl SqlDialect for SqliteDialect {
-    fn placeholder(&self, _n: usize) -> String {
-        // Plain `?` (bound in order) rather than `?n`, as `docs/05-storage.md` §2 says: it
-        // is what Python's `sqlite3` qmark style expects for the foreign path too.
-        "?".to_owned()
-    }
-
-    fn table(&self, name: &str) -> String {
-        name.to_owned()
-    }
-
-    fn row_id(&self) -> &'static str {
-        "rowid"
     }
 }

@@ -5,6 +5,7 @@ from collections.abc import Iterable, Iterator, Mapping, Sequence
 from typing import Any, final, overload
 
 __all__ = [
+    "MIN_SQLITE_VERSION",
     "CheckResult",
     "ConsistencyError",
     "DeleteResult",
@@ -29,6 +30,9 @@ __all__ = [
     "WardenError",
     "WriteConflictError",
 ]
+
+MIN_SQLITE_VERSION: str
+"""Oldest SQLite (as ``sqlite3.sqlite_version`` reports it) ``Engine.sqlite()`` accepts."""
 
 class Revision(int): ...
 

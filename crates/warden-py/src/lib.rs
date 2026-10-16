@@ -1,8 +1,10 @@
 //! Python bindings for warden (`docs/06-api.md` §2), built by maturin as `warden._warden`.
 //!
-//! Every engine call runs inside [`Python::detach`], so other Python threads keep running
-//! while it reads or writes. The pure-Python half of the package (`python/warden/`) holds
-//! the exception classes, `Revision` and the type stubs.
+//! `Engine.sqlite()` runs on CPython's own `sqlite3` module (`warden-store-pysqlite`), so
+//! the process has one SQLite library and the app's connections cannot break the engine's
+//! locks (ADR-006, OQ-032). Its requests run one at a time holding the GIL; memory-engine
+//! calls release the GIL. The pure-Python half of the package (`python/warden/`) holds the
+//! exception classes, `Revision` and the type stubs.
 //!
 //! `unsafe_code` is allowed in this crate only because PyO3's macros expand to `unsafe`
 //! blocks; no `unsafe` is written by hand here.
@@ -12,7 +14,7 @@ mod types;
 
 use std::collections::VecDeque;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use pyo3::exceptions::{PyNotImplementedError, PyTypeError, PyValueError};
@@ -24,8 +26,9 @@ use warden::model::{
 };
 use warden::{
     CheckItem, CheckRequest, EngineConfig, LookupResourcesRequest, LookupSubjectsRequest,
-    MemoryStore, ReadRelationshipsRequest, SqliteConfig, SqliteStore,
+    MemoryStore, ReadRelationshipsRequest,
 };
+use warden_store_pysqlite::{PySqliteConfig, PySqliteStore};
 
 use crate::errors::{IntoPy, parse_err};
 use crate::types::{
@@ -35,16 +38,37 @@ use crate::types::{
 
 /// The engine over whichever store it was opened with.
 enum Inner {
-    Sqlite(warden::Engine<SqliteStore>),
+    Sqlite(SqliteEngine),
     Memory(warden::Engine<MemoryStore>),
 }
 
-/// Runs `$body` with `$e` bound to the concrete engine.
-macro_rules! with_engine {
-    ($inner:expr, $e:ident => $body:expr) => {
+/// An engine over CPython's own `sqlite3` (OQ-032), and the lock that serialises its
+/// requests.
+struct SqliteEngine {
+    engine: warden::Engine<PySqliteStore>,
+    /// Taken without the GIL, then held with it for the whole request. Every statement
+    /// is a Python call, so a request holds the GIL anyway; holding it throughout spares
+    /// the per-statement hand-offs, which convoy badly under threads (OQ-032: 190 checks/s
+    /// at 8 threads). Unserialised, a thread holding the GIL could wait on the store's
+    /// writer while the writer's holder waits on the GIL.
+    serial: Mutex<()>,
+}
+
+/// Runs `$body` with `$e` bound to the concrete engine: a memory engine with the GIL
+/// released, a SQLite engine one request at a time with the GIL held (see
+/// [`SqliteEngine::serial`]).
+macro_rules! run {
+    ($py:expr, $inner:expr, $e:ident => $body:expr) => {
         match &*$inner {
-            Inner::Sqlite($e) => $body,
-            Inner::Memory($e) => $body,
+            Inner::Sqlite(s) => {
+                let $e = &s.engine;
+                $py.detach(|| {
+                    // A `()` lock: a panic elsewhere leaves nothing inconsistent behind.
+                    let _one = s.serial.lock().unwrap_or_else(PoisonError::into_inner);
+                    Python::attach(|_| $body)
+                })
+            }
+            Inner::Memory($e) => $py.detach(|| $body),
         }
     };
 }
@@ -178,13 +202,13 @@ impl Engine {
         auto_migrate: bool,
         max_depth: u32,
     ) -> PyResult<Self> {
-        let mut cfg = SqliteConfig::default();
+        let mut cfg = PySqliteConfig::default();
         cfg.reader_pool = reader_pool;
         cfg.busy_timeout = Duration::from_millis(busy_timeout_ms);
         cfg.auto_migrate = auto_migrate;
-        let engine = py
-            .detach(|| {
-                let store = SqliteStore::open(path, cfg)?;
+        // With the GIL held: every statement is a `sqlite3` call (see `SqliteEngine`).
+        let engine = PySqliteStore::open(path, cfg)
+            .and_then(|store| {
                 warden::Engine::builder()
                     .store(store)
                     .config(config(max_depth))
@@ -192,7 +216,10 @@ impl Engine {
             })
             .py(py)?;
         Ok(Self {
-            inner: Arc::new(Inner::Sqlite(engine)),
+            inner: Arc::new(Inner::Sqlite(SqliteEngine {
+                engine,
+                serial: Mutex::new(()),
+            })),
         })
     }
 
@@ -211,15 +238,12 @@ impl Engine {
     }
 
     fn write_schema(&self, py: Python<'_>, source: &str) -> PyResult<u64> {
-        let r = py
-            .detach(|| with_engine!(self.inner, e => e.write_schema(source)))
-            .py(py)?;
+        let r = run!(py, self.inner, e => e.write_schema(source)).py(py)?;
         Ok(r.version)
     }
 
     fn read_schema(&self, py: Python<'_>) -> PyResult<Option<String>> {
-        py.detach(|| with_engine!(self.inner, e => e.read_schema()))
-            .py(py)
+        run!(py, self.inner, e => e.read_schema()).py(py)
     }
 
     /// Compiles `source` without a store; errors and warnings, never raises.
@@ -254,7 +278,7 @@ impl Engine {
     ) -> PyResult<Bound<'py, PyAny>> {
         if conn.is_some() || allow_autocommit {
             return Err(PyNotImplementedError::new_err(
-                "foreign-transaction writes (conn=) are not implemented yet (T3.2)",
+                "foreign-transaction writes (conn=) are not implemented yet (T3.2b)",
             ));
         }
         let mut req = WriteRequest::default();
@@ -276,9 +300,7 @@ impl Engine {
                 req.preconditions.push(p.get().inner.clone());
             }
         }
-        let rev = py
-            .detach(|| with_engine!(self.inner, e => e.write(req)))
-            .py(py)?;
+        let rev = run!(py, self.inner, e => e.write(req)).py(py)?;
         revision(py, rev)
     }
 
@@ -303,7 +325,7 @@ impl Engine {
             subject_id,
             subject_relation,
         )?;
-        py.detach(|| with_engine!(self.inner, e => e.delete_relationships(f, limit)))
+        run!(py, self.inner, e => e.delete_relationships(f, limit))
             .py(py)
             .map(DeleteResult::from)
     }
@@ -317,9 +339,7 @@ impl Engine {
         at_exactly: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<bool> {
         let req = Self::check_request(args, at_least, at_exactly)?;
-        let r = py
-            .detach(|| with_engine!(self.inner, e => e.check(req)))
-            .py(py)?;
+        let r = run!(py, self.inner, e => e.check(req)).py(py)?;
         Ok(r.allowed)
     }
 
@@ -335,7 +355,7 @@ impl Engine {
     ) -> PyResult<CheckResult> {
         let args = PyTuple::new(py, [resource, permission, subject])?;
         let req = Self::check_request(&args, at_least, at_exactly)?;
-        py.detach(|| with_engine!(self.inner, e => e.check(req)))
+        run!(py, self.inner, e => e.check(req))
             .py(py)
             .map(CheckResult::from)
     }
@@ -354,9 +374,7 @@ impl Engine {
             .iter()
             .map(|(r, p, s)| check_item(r, p, s))
             .collect::<PyResult<Vec<_>>>()?;
-        let results = py
-            .detach(|| with_engine!(self.inner, e => e.check_bulk(items, c)))
-            .py(py)?;
+        let results = run!(py, self.inner, e => e.check_bulk(items, c)).py(py)?;
         results
             .into_iter()
             .map(|r| match r {
@@ -387,7 +405,7 @@ impl Engine {
         req.consistency = consistency(at_least, at_exactly)?;
         req.limit = limit;
         req.cursor = cursor.map(parse::<ObjectId>).transpose()?;
-        py.detach(|| with_engine!(self.inner, e => e.lookup_resources(req)))
+        run!(py, self.inner, e => e.lookup_resources(req))
             .py(py)
             .map(LookupResult::from)
     }
@@ -431,7 +449,7 @@ impl Engine {
             parse::<TypeName>(subject_type)?,
         );
         req.consistency = consistency(at_least, at_exactly)?;
-        py.detach(|| with_engine!(self.inner, e => e.lookup_subjects(req)))
+        run!(py, self.inner, e => e.lookup_subjects(req))
             .py(py)
             .map(SubjectsResult::from)
     }
@@ -459,22 +477,18 @@ impl Engine {
             subject_relation,
         )?);
         req.consistency = consistency(at_least, at_exactly)?;
-        let all = py
-            .detach(|| {
-                let mut all = Vec::new();
-                loop {
-                    let page = with_engine!(self.inner, e => e.read_relationships(req.clone()))?;
-                    all.extend(page.relationships);
-                    match page.next_cursor {
-                        None => return Ok(all),
-                        cursor => {
-                            req.consistency = Consistency::Exact(page.revision);
-                            req.cursor = cursor;
-                        }
-                    }
+        let mut all = Vec::new();
+        loop {
+            let page = run!(py, self.inner, e => e.read_relationships(req.clone())).py(py)?;
+            all.extend(page.relationships);
+            match page.next_cursor {
+                None => break,
+                cursor => {
+                    req.consistency = Consistency::Exact(page.revision);
+                    req.cursor = cursor;
                 }
-            })
-            .py(py)?;
+            }
+        }
         Ok(all
             .into_iter()
             .map(|inner| Relationship { inner })
@@ -482,15 +496,13 @@ impl Engine {
     }
 
     fn head_revision<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
-        let rev = py
-            .detach(|| with_engine!(self.inner, e => e.head_revision()))
-            .py(py)?;
+        let rev = run!(py, self.inner, e => e.head_revision()).py(py)?;
         revision(py, rev)
     }
 
     fn gc(&self, py: Python<'_>, keep_from: &Bound<'_, PyAny>) -> PyResult<GcStats> {
         let keep_from = rev_arg("keep_from", keep_from)?;
-        py.detach(|| with_engine!(self.inner, e => e.gc(keep_from)))
+        run!(py, self.inner, e => e.gc(keep_from))
             .py(py)
             .map(GcStats::from)
     }
@@ -516,9 +528,7 @@ impl ResourceIter {
         while self.buffer.is_empty() && !self.done {
             let req = self.req.clone();
             let inner = Arc::clone(&self.inner);
-            let page = py
-                .detach(|| with_engine!(inner, e => e.lookup_resources(req)))
-                .py(py)?;
+            let page = run!(py, inner, e => e.lookup_resources(req)).py(py)?;
             self.req.consistency = Consistency::Exact(page.revision);
             self.done = page.next_cursor.is_none();
             self.req.cursor = page.next_cursor;
@@ -549,6 +559,8 @@ fn _warden(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<GcStats>()?;
     m.add_class::<DeleteResult>()?;
     m.add("ERROR_CODES", warden::Error::CODES.to_vec())?;
+    let (a, b, c) = warden_sqlite_common::MIN_SQLITE_VERSION;
+    m.add("MIN_SQLITE_VERSION", format!("{a}.{b}.{c}"))?;
     m.add_function(wrap_pyfunction!(_exception_class_name, m)?)?;
     Ok(())
 }

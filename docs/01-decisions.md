@@ -68,6 +68,30 @@ inserts/updates) is implemented once in Rust, generic over a small `WriteTxn` tr
 The caller owns commit/rollback in foreign mode; returned revision is only valid after commit.
 Reads always use the engine's own connections.
 
+**Amendment (T3.2a, OQ-032): one SQLite library per process.** *Context:* in Python the
+engine's `rusqlite` connections (bundled SQLite) and the app's `sqlite3` connections were
+two SQLite copies in one process. On POSIX, a `close()` by either copy drops every
+`fcntl` lock the other holds on the file, and can checkpoint and delete the WAL under it.
+The T3.2 probe lost a committed transaction this way on Linux and macOS
+(<https://www.sqlite.org/howtocorrupt.html> §2.2–2.3). *Decision:* "the engine's own
+connections" means connections **of the SQLite library the host already uses**.
+(1) In Python, `Engine.sqlite()` uses `warden-store-pysqlite`. Every statement (reads,
+native writes, migrations, GC, schema writes) runs on Python `sqlite3` connections the
+engine opens and owns, through the same `WriteTxn` / `SqlDialect` / `ReadStore` traits,
+so all authorisation logic stays in Rust. Requests on such an engine are serialised and
+hold the GIL for their whole duration. `warden-py` does not depend on rusqlite, and CI
+fails if the extension contains SQLite. (2) In Rust, a caller's transaction for
+`Engine::write_in` must come from `warden_store_sqlite::rusqlite`. Cargo's
+`links = "sqlite3"` already forbids a second `libsqlite3-sys`; a dependency that compiles
+its own SQLite is unsupported. (3) Rejected: linking the extension against the
+interpreter's SQLite (option B). It is impossible for manylinux wheels, python.org macOS
+and python-build-standalone without hand-written `unsafe`, and no version string can
+detect a mismatch. *Consequences:* a Python check costs about 100 µs single-threaded,
+and SQLite engine requests do not run in parallel (OQ-032 has the numbers). CPython's
+SQLite must be at least `MIN_SQLITE_VERSION` (`docs/05-storage.md` §4.3). Anything in
+the process that opens the database with its own SQLite (`apsw`, other bundled builds)
+is unsupported.
+
 ## ADR-007 — LookupResources = candidate generation + check filter
 
 **Context.** Exact reverse evaluation through intersections and exclusions is complex and

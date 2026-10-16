@@ -18,9 +18,10 @@
 #![forbid(unsafe_code)]
 
 mod migrate;
+#[cfg(test)]
+mod plans;
 mod pool;
 mod read;
-mod sql;
 #[cfg(test)]
 mod tests;
 mod txn;
@@ -28,73 +29,26 @@ mod txn;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, PoisonError};
-use std::time::Duration;
 
 use rusqlite::{Connection, ErrorCode, OpenFlags, TransactionBehavior};
 use warden_core::Error;
 use warden_core::model::{RelationshipFilter, Revision, WriteRequest};
 use warden_core::store::{
-    DeleteResult, ReadStore, SchemaCheck, SqlDialect, SqlStore, SqlValue, StoreError, StoredSchema,
+    DeleteResult, ReadStore, SchemaCheck, SqlDialect, SqlStore, StoreError, StoredSchema,
     WritableStore, WriteTxn,
 };
+use warden_sqlite_common::{SqliteDialect, canonical_main_file};
 
-pub use migrate::STORAGE_VERSION;
 /// The `rusqlite` this crate is built against: [`SqliteTxn`] takes its `Transaction`, so
 /// open caller connections through this re-export to be sure the versions match.
 pub use rusqlite;
 pub use txn::SqliteTxn;
+pub use warden_sqlite_common::migrate::STORAGE_VERSION;
+pub use warden_sqlite_common::{SqliteConfig, Synchronous};
 
 /// Prepared statements kept per connection: the fixed reads and writes, the twelve
 /// `read_reverse` shapes and the common `read_relationships` / precondition shapes.
 const STATEMENT_CACHE: usize = 128;
-
-/// `PRAGMA synchronous` level (`docs/05-storage.md` §4).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-#[non_exhaustive]
-pub enum Synchronous {
-    /// `NORMAL`: safe with WAL; a power loss can roll back the last commits but never
-    /// corrupts the database.
-    #[default]
-    Normal,
-    /// `FULL`: every commit is durable before it returns.
-    Full,
-}
-
-impl Synchronous {
-    fn as_sql(self) -> &'static str {
-        match self {
-            Self::Normal => "NORMAL",
-            Self::Full => "FULL",
-        }
-    }
-}
-
-/// How [`SqliteStore::open`] sets up its connections. `Default` gives the spec defaults.
-#[derive(Clone, Debug, PartialEq, Eq)]
-#[non_exhaustive]
-pub struct SqliteConfig {
-    /// Read-only connections in the reader pool; at least 1. Default 4.
-    pub reader_pool: usize,
-    /// How long a connection waits on a lock before failing. Default 5 s.
-    pub busy_timeout: Duration,
-    /// `PRAGMA synchronous`. Default [`Synchronous::Normal`].
-    pub synchronous: Synchronous,
-    /// Whether [`SqliteStore::open`] migrates the database to [`STORAGE_VERSION`].
-    /// Default `true`; `false` is recommended in production, with migrations run as an
-    /// explicit deploy step through [`SqliteStore::migrate`].
-    pub auto_migrate: bool,
-}
-
-impl Default for SqliteConfig {
-    fn default() -> Self {
-        Self {
-            reader_pool: 4,
-            busy_timeout: Duration::from_secs(5),
-            synchronous: Synchronous::Normal,
-            auto_migrate: true,
-        }
-    }
-}
 
 /// A relationship store in a SQLite database file.
 #[derive(Debug)]
@@ -213,7 +167,7 @@ impl SqliteStore {
 impl WritableStore for SqliteStore {
     fn write(&self, req: &WriteRequest, schema_version: Option<u64>) -> Result<Revision, Error> {
         let rev = self.with_write_txn(&mut |txn| {
-            warden_core::write::write(txn, &txn::SqliteDialect, req, schema_version)
+            warden_core::write::write(txn, &SqliteDialect, req, schema_version)
         })?;
         self.cache.observe_head(rev);
         Ok(rev)
@@ -226,7 +180,7 @@ impl WritableStore for SqliteStore {
         check: SchemaCheck<'_>,
     ) -> Result<StoredSchema, Error> {
         let stored = self.with_write_txn(&mut |txn| {
-            warden_core::write::write_schema(txn, &txn::SqliteDialect, source, hash, check)
+            warden_core::write::write_schema(txn, &SqliteDialect, source, hash, check)
         })?;
         self.cache.observe_head(stored.created_rev);
         Ok(stored)
@@ -238,7 +192,7 @@ impl WritableStore for SqliteStore {
         limit: usize,
     ) -> Result<DeleteResult, Error> {
         let result = self.with_write_txn(&mut |txn| {
-            warden_core::write::delete_matching(txn, &txn::SqliteDialect, filter, limit)
+            warden_core::write::delete_matching(txn, &SqliteDialect, filter, limit)
         })?;
         self.cache.observe_head(result.revision);
         Ok(result)
@@ -247,16 +201,14 @@ impl WritableStore for SqliteStore {
     /// Its own `BEGIN IMMEDIATE` transaction, committed before any row is removed.
     fn raise_gc_horizon(&self, keep_from: Revision) -> Result<Revision, Error> {
         let horizon = self.with_write_txn(&mut |txn| {
-            warden_core::write::raise_gc_horizon(txn, &txn::SqliteDialect, keep_from)
+            warden_core::write::raise_gc_horizon(txn, &SqliteDialect, keep_from)
         })?;
         self.cache.horizon.fetch_max(horizon.0, Ordering::AcqRel);
         Ok(horizon)
     }
 
     fn gc_batch(&self, max_rows: usize) -> Result<u64, Error> {
-        self.with_write_txn(&mut |txn| {
-            warden_core::write::gc_batch(txn, &txn::SqliteDialect, max_rows)
-        })
+        self.with_write_txn(&mut |txn| warden_core::write::gc_batch(txn, &SqliteDialect, max_rows))
     }
 }
 
@@ -279,7 +231,7 @@ impl SqlStore for SqliteStore {
     }
 
     fn dialect(&self) -> &dyn SqlDialect {
-        &txn::SqliteDialect
+        &SqliteDialect
     }
 
     /// Compares the transaction's `main` database file with this store's, both
@@ -290,19 +242,6 @@ impl SqlStore for SqliteStore {
             _ => Err(Error::ForeignConnectionMismatch),
         }
     }
-}
-
-/// The canonical path of the connection's `main` database file; `None` for a database
-/// without one (in-memory or temporary) or a path that cannot be resolved.
-fn canonical_main_file(txn: &mut dyn WriteTxn) -> Result<Option<PathBuf>, Error> {
-    let rows = txn.query("PRAGMA database_list", &[])?;
-    let file = rows.iter().find_map(|row| match row.as_slice() {
-        [_, SqlValue::Text(name), SqlValue::Text(file)] if name == "main" => Some(file.clone()),
-        _ => None,
-    });
-    Ok(file
-        .filter(|f| !f.is_empty())
-        .and_then(|f| std::fs::canonicalize(f).ok()))
 }
 
 /// Applies the per-connection pragmas of `docs/05-storage.md` §4.

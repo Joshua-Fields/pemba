@@ -973,6 +973,8 @@ dependencies = [
  "pyo3",
  "warden",
  "warden-schema",
+ "warden-sqlite-common",
+ "warden-store-pysqlite",
 ]
 
 [[package]]
@@ -986,10 +988,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "warden-sqlite-common"
+version = "0.0.0"
+dependencies = [
+ "warden-core",
+]
+
+[[package]]
 name = "warden-store-memory"
 version = "0.0.0"
 dependencies = [
  "warden-core",
+ "warden-testkit",
+]
+
+[[package]]
+name = "warden-store-pysqlite"
+version = "0.0.0"
+dependencies = [
+ "proptest",
+ "pyo3",
+ "warden-core",
+ "warden-sqlite-common",
+ "warden-store-memory",
  "warden-testkit",
 ]
 
@@ -999,6 +1020,7 @@ version = "0.0.0"
 dependencies = [
  "rusqlite",
  "warden-core",
+ "warden-sqlite-common",
  "warden-testkit",
 ]
 
