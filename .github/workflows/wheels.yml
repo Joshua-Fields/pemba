@@ -2,17 +2,16 @@ name: wheels
 
 # abi3 wheels for every ADR-014 platform (docs/09-repo-and-tooling.md §4), each one
 # installed and tested on its own platform. Publishing to PyPI is a manual human step:
-# this workflow only uploads the wheels as build artifacts.
+# this workflow only uploads the wheels as build artifacts. Not run on PRs: the macOS jobs
+# are billed at 10x, and ci.yml already builds and tests the extension on all three OSes.
 on:
   push:
     tags: ["v*"]
   workflow_dispatch:
-  pull_request:
-    paths:
-      - ".github/workflows/wheels.yml"
-      - "crates/warden-py/Cargo.toml"
-      - "crates/warden-py/pyproject.toml"
-      - "crates/warden-py/ci/**"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
 
 permissions:
   contents: read
