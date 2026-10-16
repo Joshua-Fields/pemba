@@ -18,14 +18,38 @@ const LOCKED: i64 = 6;
 #[derive(Debug)]
 pub struct PyTxn<'a> {
     conn: &'a Py<PyAny>,
+    /// The application's connection, not one the store opened: driver errors other than
+    /// unique violations and conflicts are [`StoreError::Foreign`] (`docs/05-storage.md`
+    /// §10).
+    foreign: bool,
 }
 
 impl<'a> PyTxn<'a> {
-    /// Wraps a connection. It should be in a transaction the caller controls (opened with
-    /// `isolation_level=None` and an explicit `BEGIN`), or the statements autocommit one by
-    /// one.
+    /// Wraps a connection the store owns. It should be in a transaction the caller
+    /// controls (opened with `isolation_level=None` and an explicit `BEGIN`), or the
+    /// statements autocommit one by one.
     pub fn new(conn: &'a Py<PyAny>) -> Self {
-        Self { conn }
+        Self {
+            conn,
+            foreign: false,
+        }
+    }
+
+    /// Wraps an application's connection for a foreign-transaction write
+    /// (`docs/05-storage.md` §10). As [`new`](Self::new), except that its other driver
+    /// errors are reported as [`StoreError::Foreign`].
+    pub fn foreign(conn: &'a Py<PyAny>) -> Self {
+        Self {
+            conn,
+            foreign: true,
+        }
+    }
+
+    fn err(&self, py: Python<'_>, e: &PyErr) -> StoreError {
+        match store_err(py, e) {
+            StoreError::Backend { message } if self.foreign => StoreError::Foreign { message },
+            other => other,
+        }
     }
 }
 
@@ -98,7 +122,7 @@ impl WriteTxn for PyTxn<'_> {
             // `rowcount` is -1 for statements that change no rows.
             run()
                 .map(|n| u64::try_from(n).unwrap_or(0))
-                .map_err(|e| store_err(py, &e))
+                .map_err(|e| self.err(py, &e))
         })
     }
 
@@ -109,16 +133,16 @@ impl WriteTxn for PyTxn<'_> {
                 .bind(py)
                 .call_method1(
                     "execute",
-                    (sql, params(py, values).map_err(|e| store_err(py, &e))?),
+                    (sql, params(py, values).map_err(|e| self.err(py, &e))?),
                 )
                 .and_then(|cursor| cursor.call_method0("fetchall"))
-                .map_err(|e| store_err(py, &e))?;
+                .map_err(|e| self.err(py, &e))?;
             let mut out = Vec::new();
-            for row in rows.try_iter().map_err(|e| store_err(py, &e))? {
-                let row = row.map_err(|e| store_err(py, &e))?;
+            for row in rows.try_iter().map_err(|e| self.err(py, &e))? {
+                let row = row.map_err(|e| self.err(py, &e))?;
                 let mut values = Vec::new();
-                for (i, v) in row.try_iter().map_err(|e| store_err(py, &e))?.enumerate() {
-                    values.push(value(i, &v.map_err(|e| store_err(py, &e))?)?);
+                for (i, v) in row.try_iter().map_err(|e| self.err(py, &e))?.enumerate() {
+                    values.push(value(i, &v.map_err(|e| self.err(py, &e))?)?);
                 }
                 out.push(values);
             }

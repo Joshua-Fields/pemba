@@ -808,3 +808,38 @@ it is resolved.
   raising turned the exception into `SystemError`.
 - Resolve by: human review
 - Resolution: (fill in)
+
+## OQ-034 — Foreign-transaction details decided in T3.2b
+- Raised in: T3.2b (`docs/05-storage.md` §10, `docs/06-api.md` §2.1–§2.2)
+- Blocking: no
+- Current choice:
+  (a) The same-file check is **not cached by `id(conn)`**, contrary to `05` §10 as first
+  written. CPython reuses the `id()` of a collected object, so a new connection to
+  another file could inherit a dropped connection's "verified" entry and the write would
+  land in a database the engine never reads. The check (`PRAGMA database_list` on the
+  app's connection plus one path canonicalisation) runs inside `Engine::write_in` on
+  every write. Cheap next to the write itself, which is several statements plus the
+  app's commit. If it ever matters, a cache keyed by a weak reference to the connection
+  would be safe. `test_a_reused_connection_object_is_checked_every_time` pins this.
+  (b) `conn` must be a `sqlite3.Connection` (a subclass is fine); anything else is a
+  `TypeError`. That is stricter than "a DB-API 2.0 connection", but every other Python
+  SQLite driver either brings its own SQLite (unsafe, `06` §2.5) or wraps `sqlite3`
+  (pass its underlying connection, e.g. SQLAlchemy's `connection.driver_connection`).
+  `conn=` on a memory engine, or `allow_autocommit=True` without `conn`, is a
+  `ValueError`.
+  (c) The autocommit guard is `conn.in_transaction is False`, whatever
+  `isolation_level` is. A connection in `sqlite3`'s legacy mode (`isolation_level=""`
+  or `"DEFERRED"`) with no open transaction would otherwise run the write in its own
+  transaction (the write's `SAVEPOINT` opens one and its `RELEASE` commits it), not
+  atomically with app data. With `allow_autocommit=True` that is exactly what happens.
+  (d) Errors from the app's connection: unique violations and conflicts map as on the
+  engine's own connections (`ALREADY_EXISTS`, `TRANSACTION_CONFLICT`, including
+  `SQLITE_BUSY_SNAPSHOT` from a stale deferred snapshot); every other driver error is
+  `StoreError::Foreign` (`StorageError`, `STORE_ERROR`, message "foreign connection
+  error: ...").
+  (e) Spec fix: the `06` §2.1 example imported `Consistency` from `warden`, which the
+  Python API never had (consistency is the `at_least` / `at_exactly` keywords, §2.2), so
+  it could not run verbatim. The import was removed; the example is now in the README and
+  runs in CI (`tests/test_readme_example.py`), which also checks the two copies match.
+- Resolve by: human review
+- Resolution: (fill in)
