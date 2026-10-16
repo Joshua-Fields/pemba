@@ -8,9 +8,10 @@ on:
 permissions:
   contents: read
 
+# A newer push to the same PR cancels the older run; runs on main always finish.
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   CARGO_TERM_COLOR: always
@@ -127,9 +128,10 @@ jobs:
           pytest -q
 
   prop1:
+    # Properties 1 to 5 and schema change at >= 1 000 cases each, on every PR (Linux only).
     name: property 1, 1000 cases
     runs-on: ubuntu-latest
-    # ~1 s locally since T1.4c bounded check cost (OQ-021); the cap catches a regression to
+    # ~1 min since T1.4c bounded check cost (OQ-021); the cap catches a regression to
     # exponential cost instead of letting it run for the default six hours.
     timeout-minutes: 15
     steps:

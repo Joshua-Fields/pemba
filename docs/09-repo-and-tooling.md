@@ -103,23 +103,35 @@ Other conventions:
 
 ## 4. CI workflows
 
-- `ci.yml` (push/PR): fmt, clippy, test (ubuntu, macos, windows; property 1 at 64 cases
-  plus saved regression seeds), property 1 at ≥ 1 000 cases (`prop1` job, ubuntu,
-  `--ignored` in `warden-testkit`'s `properties` test), `cargo deny check`,
-  `cargo doc`, Python tests (`maturin develop`, `pytest`, `mypy --strict` on the tests and
-  sample) on ubuntu, macos and windows, coverage report (ubuntu).
-- `wheels.yml` (tag + manual, and PRs touching it or the Python packaging):
-  maturin-action builds one abi3 (`cp311-abi3`) wheel per ADR-014 platform (manylinux
-  2_17 x86_64 and aarch64, macOS arm64 and x86_64, Windows x86_64), checks it contains no
-  SQLite (`ci/check_no_sqlite.py`), then installs each wheel on its platform (aarch64
-  under QEMU, macOS x86_64 under Rosetta 2) with CPython 3.11 and 3.14 and runs the whole
-  pytest suite against it. Wheels are uploaded as artifacts only.
-- `ci.yml` `publish` job: `cargo publish --workspace --dry-run` for every publishable
-  crate. Publishing to PyPI/crates.io is a manual human step.
-- `proptest.yml` (manual): the same property 1 run at a larger `PROPTEST_CASES` (an
-  input), for soaking. Test builds use `opt-level = 3` for `warden-core`, `warden-testkit`,
+Every workflow has a concurrency group per workflow and ref. On pull requests a newer
+push cancels the older run (`cancel-in-progress` only for `pull_request` events); runs on
+main, tags, schedules and manual dispatches always finish. Only `ci.yml` runs on every PR
+(the wheel builds and SpiceDB runs are slow and change rarely).
+
+The repository is public. Never commit secrets (tokens, keys, `.env`, credentials in test
+data). CI must not print secrets: pass them through `secrets.*` into `env`, never echo
+them, never `set -x` around them, and do not expose them to workflows triggered from forks.
+
+- `ci.yml` (push to main, PR): fmt, clippy, test (ubuntu, macos, windows; property 1 at 64
+  cases plus saved regression seeds), properties 1 to 5 and schema change at ≥ 1 000 cases
+  each (`prop1` job, ubuntu only, `--ignored` in `warden-testkit`'s `properties` test),
+  `cargo deny check`, `cargo doc`, Python tests (`maturin develop`, `pytest`,
+  `mypy --strict` on the tests and sample) on ubuntu, macos and windows, the oldest supported combination (Rocky Linux 8: CPython 3.11, SQLite
+  3.26.0, `python-oldest`), and `cargo publish --workspace --dry-run` for every
+  publishable crate (`publish`). Publishing to PyPI/crates.io is a manual human step.
+- `wheels.yml` (`v*` tags + manual only, not PRs): maturin-action builds one abi3
+  (`cp311-abi3`) wheel per ADR-014 platform (manylinux 2_17 x86_64 and aarch64, macOS
+  arm64 and x86_64, Windows x86_64), checks it contains no SQLite
+  (`ci/check_no_sqlite.py`), then installs each wheel on its platform (aarch64 under QEMU,
+  macOS x86_64 under Rosetta 2) with CPython 3.11 and 3.14 and runs the whole pytest suite
+  against it. Wheels are uploaded as artifacts only. Run it by hand after changing the
+  Python packaging (`pyproject.toml`, `warden-py/Cargo.toml`, `ci/`).
+- `proptest.yml` (weekly + manual): the same property tests at a raised
+  `PROPTEST_CASES` (10 000 on the weekly run; an input on a manual run), for soaking.
+  Test builds use `opt-level = 3` for `warden-core`, `warden-testkit`,
   `warden-store-memory` and `warden-schema` (`[profile.test.package.*]`).
-- `difftest.yml` (manual + weekly): SpiceDB in Docker, `cargo test -p warden-difftest -- --ignored`.
+- `difftest.yml` (weekly + manual): SpiceDB in Docker, `cargo test -p warden-difftest -- --ignored`.
+- `oq032-probe.yml` (manual, and PRs touching the probe): the T3.2 SQLite-copies probe.
 - `fuzz.yml` (manual): nightly toolchain, each target for a fixed time.
 - Weekly: `cargo-mutants` on `warden-core::eval` and `warden-schema` validator.
 

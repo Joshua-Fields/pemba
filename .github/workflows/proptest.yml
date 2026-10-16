@@ -1,17 +1,22 @@
 name: Property tests (full)
 
-# Manual runs at a larger case count. ci.yml already runs property 1 at 1 000 cases on
-# every push to main and every pull request (its `prop1` job); use this to soak it at
-# PROPTEST_CASES well above that.
+# Soak runs of the property tests at a raised PROPTEST_CASES, weekly and on demand.
+# ci.yml's `prop1` job already runs the same tests at 1 000 cases on every push and PR.
 on:
+  schedule:
+    - cron: "23 4 * * 1"
   workflow_dispatch:
     inputs:
       cases:
-        description: "PROPTEST_CASES (at least 1000)"
-        default: "1000"
+        description: "PROPTEST_CASES (above ci.yml's 1000)"
+        default: "10000"
 
 permissions:
   contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
 
 env:
   CARGO_TERM_COLOR: always
@@ -19,14 +24,17 @@ env:
 
 jobs:
   prop1:
-    name: property 1, full case count
+    name: properties, raised case count
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v5
       - uses: Swatinem/rust-cache@v2
       # Only the properties binary: warden-difftest's ignored tests need SpiceDB
-      # (difftest.yml).
+      # (difftest.yml). `prop1_*_full`, `prop4_*_full` (historical reads, both stores, ~8 s)
+      # `prop5_*_full` (memory ≡ SQLite, ~25 s), `prop2_*_full` (lookup_resources, both
+      # stores, ~8 s), `prop3_*_full` (lookup_subjects, both stores, ~8 s) and
+      # `schema_change_*_full` run at least 1 000 cases each; `prop4_*_full` includes GC.
       - run: cargo test -p warden-testkit --test properties -- --ignored
         env:
-          PROPTEST_CASES: ${{ inputs.cases }}
+          PROPTEST_CASES: ${{ inputs.cases || '10000' }}

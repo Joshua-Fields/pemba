@@ -86,9 +86,10 @@ at a non-least fixed point or never stops (OQ-020).
 ### 2.3 Properties (each 1 000+ cases, `PROPTEST_CASES` env to raise locally)
 
 Property 1 runs 64 cases (plus saved regression seeds) in plain `cargo test`; its 1 000+
-case variant is `#[ignore]`d and runs in ci.yml's `prop1` job on every push to main and
-every pull request (~1 s since T1.4c bounded check cost, OQ-021); the manual
-`proptest.yml` workflow runs it at a larger `PROPTEST_CASES`.
+case variant is `#[ignore]`d and runs, with the other full-count properties, in ci.yml's
+`prop1` job on every push to main and every pull request (Linux only, about a minute
+since T1.4c bounded check cost, OQ-021). Runs at a raised `PROPTEST_CASES` (default
+10 000) are weekly and manual only (`proptest.yml`).
 
 1. `engine.check == reference.check` for memory store and SQLite store.
 2. `engine.lookup_resources` (all pages concatenated) == `{ o : reference.check(o, m, s) }`.
