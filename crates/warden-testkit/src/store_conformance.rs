@@ -9,6 +9,7 @@
 
 use std::fmt::Display;
 use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::sync::Barrier;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use warden_core::Error;
@@ -1095,16 +1096,24 @@ fn concurrent_writer_and_readers(s: &dyn WritableStore) {
     };
 
     let done = AtomicBool::new(false);
+    // Every reader is running before the first write, and each reads at least once before
+    // looking at `done`: on a fast store (memory) the writer could otherwise finish all
+    // batches before a reader thread was ever scheduled ("reader never ran").
+    let start = Barrier::new(READERS + 1);
     std::thread::scope(|scope| {
         let readers: Vec<_> = (0..READERS)
             .map(|_| {
                 scope.spawn(|| {
+                    start.wait();
                     let mut reads = 0u32;
-                    while !done.load(Ordering::Acquire) {
+                    loop {
                         let h = head(s);
                         check_rev(h);
                         check_rev(Revision(base + (h.0 - base) / 2));
                         reads += 1;
+                        if done.load(Ordering::Acquire) {
+                            break;
+                        }
                     }
                     reads
                 })
@@ -1112,6 +1121,7 @@ fn concurrent_writer_and_readers(s: &dyn WritableStore) {
             .collect();
 
         let guard = Done(&done);
+        start.wait();
         for k in 1..=BATCHES {
             let mut ops: Vec<WriteOp> = gen_tuples(k)
                 .iter()
