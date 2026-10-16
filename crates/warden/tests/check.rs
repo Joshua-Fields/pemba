@@ -1573,3 +1573,105 @@ fn check_bulk_cycle_errors_do_not_poison_other_items() {
     assert!(out[1].as_ref().unwrap());
     assert!(matches!(out[2], Err(Error::NonMonotonicCycle { .. })));
 }
+
+// ---------------------------------------------------------------------------------------
+// A wildcard on a subtracted side vs a subject-set subject (T3.4b, 04 §3.3, KD-3)
+// ---------------------------------------------------------------------------------------
+
+const AMBIGUOUS_SCHEMA: &str = "\
+definition user {}
+
+definition grp {
+    relation member: user
+}
+
+definition page {
+    relation viewer: grp#member
+    relation banned: grp:*
+    permission banned_too = banned
+    permission view = viewer - banned
+    permission view_twice = viewer - (viewer - banned)
+}
+";
+
+const AMBIGUOUS_DATA: &[&str] = &[
+    "page:p#viewer@grp:g#member",
+    "page:p#banned@grp:*",
+    "page:q#banned@grp:*",
+];
+
+#[test]
+fn wildcard_on_subtracted_side_is_ambiguous_for_a_subject_set() {
+    let e = engine(AMBIGUOUS_SCHEMA, AMBIGUOUS_DATA);
+    match check(&e, "page:p#view@grp:g#member") {
+        Err(Error::AmbiguousWildcardExclusion { wildcard, subject }) => {
+            assert_eq!(wildcard, "page:p#banned@grp:*");
+            assert_eq!(subject, "grp:g#member");
+        }
+        other => panic!("expected AmbiguousWildcardExclusion, got {other:?}"),
+    }
+    // Under two subtracted sides too: any subtracted side counts, not parity.
+    assert!(matches!(
+        check(&e, "page:p#view_twice@grp:g#member"),
+        Err(Error::AmbiguousWildcardExclusion { .. })
+    ));
+}
+
+#[test]
+fn wildcard_vs_subject_set_is_unchanged_where_not_subtracted() {
+    let e = engine(AMBIGUOUS_SCHEMA, AMBIGUOUS_DATA);
+    // Grant side: a wildcard never matches a subject set.
+    assert_denied(&e, "page:p#banned@grp:g#member");
+    assert_denied(&e, "page:p#banned_too@grp:g#member");
+    // The base is empty, so the subtracted side is never evaluated.
+    assert_denied(&e, "page:q#view@grp:g#member");
+    // Object subjects: the wildcard bans every grp object.
+    assert_allowed(&e, "page:p#banned@grp:g");
+    assert_denied(&e, "page:p#view@grp:g");
+}
+
+/// `banned` evaluated on a grant path first, then under a subtracted side, sharing one
+/// memo: the first `false` must not answer the second (`Memo` keeps them apart).
+#[test]
+fn check_bulk_memo_does_not_hide_the_ambiguity() {
+    let e = engine(AMBIGUOUS_SCHEMA, AMBIGUOUS_DATA);
+    let out = e
+        .check_bulk(
+            vec![
+                item("page:p#banned_too@grp:g#member"),
+                item("page:p#view@grp:g#member"),
+                item("page:p#viewer@grp:g#member"),
+            ],
+            Consistency::Latest,
+        )
+        .unwrap();
+    assert!(!out[0].as_ref().unwrap());
+    assert!(matches!(
+        out[1],
+        Err(Error::AmbiguousWildcardExclusion { .. })
+    ));
+    assert!(out[2].as_ref().unwrap());
+}
+
+#[test]
+fn lookup_resources_fails_closed_on_the_ambiguity() {
+    let e = engine(AMBIGUOUS_SCHEMA, AMBIGUOUS_DATA);
+    let got = e.lookup_resources(warden::LookupResourcesRequest::new(
+        "page".parse().unwrap(),
+        "view".parse().unwrap(),
+        "grp:g#member".parse().unwrap(),
+    ));
+    assert!(
+        matches!(got, Err(Error::AmbiguousWildcardExclusion { .. })),
+        "{got:?}"
+    );
+    // On the grant side it answers.
+    let got = e
+        .lookup_resources(warden::LookupResourcesRequest::new(
+            "page".parse().unwrap(),
+            "banned_too".parse().unwrap(),
+            "grp:g#member".parse().unwrap(),
+        ))
+        .unwrap();
+    assert_eq!(got.resource_ids, Vec::new());
+}

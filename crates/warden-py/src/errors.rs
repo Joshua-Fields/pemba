@@ -29,6 +29,7 @@ pub(crate) fn class_name(code: &str) -> Option<&'static str> {
         | "LOOKUP_TOO_LARGE"
         | "NON_MONOTONIC_CYCLE" => "EvaluationLimitError",
         "STALE_RELATIONSHIP" => "StaleRelationshipError",
+        "AMBIGUOUS_WILDCARD_EXCLUSION" => "AmbiguousWildcardExclusionError",
         "ALREADY_EXISTS" | "PRECONDITION_FAILED" | "DUPLICATE_IN_BATCH" => "WriteConflictError",
         "STORE_ERROR"
         | "NOT_MIGRATED"
@@ -65,6 +66,10 @@ pub(crate) fn exception<'py>(py: Python<'py>, err: &Error) -> PyResult<Bound<'py
             details.set_item("reason", code.as_str())?;
         }
         Error::StaleRelationship { tuple, .. } => details.set_item("relationship", tuple)?,
+        Error::AmbiguousWildcardExclusion { wildcard, subject } => {
+            details.set_item("relationship", wildcard)?;
+            details.set_item("subject", subject)?;
+        }
         Error::PreconditionFailed { index } => details.set_item("index", index)?,
         Error::Store(e) => details.set_item("retryable", e.is_retryable())?,
         _ => {}

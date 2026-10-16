@@ -29,6 +29,7 @@ EXPECTED: dict[str, type[warden.WardenError]] = {
     "LOOKUP_TOO_LARGE": warden.EvaluationLimitError,
     "NON_MONOTONIC_CYCLE": warden.EvaluationLimitError,
     "STALE_RELATIONSHIP": warden.StaleRelationshipError,
+    "AMBIGUOUS_WILDCARD_EXCLUSION": warden.AmbiguousWildcardExclusionError,
     "ALREADY_EXISTS": warden.WriteConflictError,
     "PRECONDITION_FAILED": warden.WriteConflictError,
     "DUPLICATE_IN_BATCH": warden.WriteConflictError,
@@ -158,6 +159,40 @@ def test_stale_relationship(make_engine: Callable[..., warden.Engine]) -> None:
     )
     assert isinstance(err, warden.StaleRelationshipError)
     assert err.relationship == "document:d#banned@user:*"
+
+
+AMBIGUOUS_SCHEMA = """
+definition user {}
+definition grp {
+    relation member: user
+}
+definition page {
+    relation viewer: grp#member
+    relation banned: grp:*
+    permission view = viewer - banned
+}
+"""
+
+
+def test_ambiguous_wildcard_exclusion(make_engine: Callable[..., warden.Engine]) -> None:
+    e = make_engine()
+    e.write_schema(AMBIGUOUS_SCHEMA)
+    e.write(touch=["page:p#viewer@grp:g#member", "page:p#banned@grp:*"])
+    err = raises(
+        "AMBIGUOUS_WILDCARD_EXCLUSION", lambda: e.check("page:p#view@grp:g#member")
+    )
+    assert isinstance(err, warden.AmbiguousWildcardExclusionError)
+    assert err.relationship == "page:p#banned@grp:*"
+    assert err.subject == "grp:g#member"
+    assert err.retryable is False
+    # An object subject is unaffected: the wildcard bans every grp object.
+    assert e.check("page:p#view@grp:g") is False
+    # In check_bulk the error belongs to its item.
+    out = e.check_bulk(
+        [("page:p", "view", "grp:g#member"), ("page:p", "viewer", "grp:g#member")]
+    )
+    assert isinstance(out[0], warden.AmbiguousWildcardExclusionError)
+    assert out[1] is True
 
 
 def test_not_migrated(tmp_path: Path) -> None:

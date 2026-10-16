@@ -21,10 +21,11 @@ pub const WILDCARD_SCHEMA: &str = "KD-2 schema: wildcard reached through subject
 
 /// `KD-3`: a wildcard `t:*` matches a subject-set subject `t:x#r` in SpiceDB; in warden it
 /// matches only objects of type `t` (`docs/04-evaluation.md` §3.3). On a granting path
-/// warden says `false` where SpiceDB says `true`; beneath an exclusion's subtracted side
-/// the wildcard removes nothing for warden, so warden says `true` where SpiceDB says
-/// `false`. Recognised in both directions by asking both engines again without the case's
-/// `t:*` tuples: they must then agree.
+/// warden says `false` where SpiceDB says `true`. Under an exclusion's subtracted side
+/// warden would say `true` where SpiceDB says `false`, so since T3.4b it fails with
+/// `AMBIGUOUS_WILDCARD_EXCLUSION` instead. Recognised in those two shapes only (warden
+/// `true` against SpiceDB `false` is no longer one) by asking both engines again without
+/// the case's `t:*` tuples: they must then agree.
 pub const WILDCARD_SUBJECT_SET: &str = "KD-3 wildcard vs subject-set subject";
 
 /// `KD-4`: near the depth limit (50 in both) one engine answers and the other fails with
@@ -81,13 +82,14 @@ pub(crate) fn explain(
     {
         return Some(DEPTH_ACCOUNTING);
     }
-    if let (
-        Question::Check(_, _, SubjectRef::Set { object, .. }),
-        Answer::Allowed(w),
-        Answer::Allowed(s),
-    ) = (question, warden, spicedb)
+    let kd3_shape = match (warden, spicedb) {
+        (Answer::Allowed(false), Answer::Allowed(true)) => true,
+        (Answer::Error(e), Answer::Allowed(_)) => e.starts_with("AMBIGUOUS_WILDCARD_EXCLUSION"),
+        _ => false,
+    };
+    if let Question::Check(_, _, SubjectRef::Set { object, .. }) = question
+        && kd3_shape
     {
-        debug_assert_ne!(w, s, "explain is only called on mismatches");
         let ty = &object.object_type;
         let has_wildcard = case.tuples.iter().any(
             |t| matches!(&t.subject, SubjectRef::Wildcard { object_type } if object_type == ty),
@@ -230,7 +232,7 @@ mod tests {
     /// re-ask without `grp:*` tuples returns `reasked`.
     fn kd3(
         tuples: &[&str],
-        warden: bool,
+        warden: &Answer,
         spicedb: bool,
         reasked: Option<&(Answer, Answer)>,
     ) -> Option<&'static str> {
@@ -248,7 +250,7 @@ mod tests {
             &mut without,
             &case(tuples),
             &q,
-            &Answer::Allowed(warden),
+            warden,
             &Answer::Allowed(spicedb),
         );
         if found.is_some() {
@@ -261,28 +263,36 @@ mod tests {
     fn wildcard_vs_subject_set_both_directions() {
         let tuples = ["doc:d#banned@grp:*", "doc:d#viewer@grp:g#member"];
         let agree = Some((Answer::Allowed(true), Answer::Allowed(true)));
+        let ambiguous = Answer::Error(
+            "AMBIGUOUS_WILDCARD_EXCLUSION: ambiguous: wildcard doc:d#banned@grp:* ...".to_owned(),
+        );
+        let (yes, no) = (Answer::Allowed(true), Answer::Allowed(false));
         // Grant side: SpiceDB lets the wildcard match the subject set.
         assert_eq!(
-            kd3(&tuples, false, true, agree.as_ref()),
+            kd3(&tuples, &no, true, agree.as_ref()),
             Some(WILDCARD_SUBJECT_SET)
         );
-        // Subtracted side: SpiceDB's wildcard excludes the subject set, warden's does not.
+        // Subtracted side: SpiceDB's wildcard excludes the subject set; warden refuses.
         assert_eq!(
-            kd3(&tuples, true, false, agree.as_ref()),
+            kd3(&tuples, &ambiguous, false, agree.as_ref()),
             Some(WILDCARD_SUBJECT_SET)
         );
+        // warden allowing where SpiceDB denies is what T3.4b removed: unexplained.
+        assert_eq!(kd3(&tuples, &yes, false, agree.as_ref()), None);
+        // Some other warden error: unexplained.
+        let other = Answer::Error("MAX_DEPTH_EXCEEDED: ...".to_owned());
+        assert_eq!(kd3(&tuples, &other, false, agree.as_ref()), None);
         // Still disagreeing without the wildcard: something else, unexplained.
-        let disagree = Some((Answer::Allowed(true), Answer::Allowed(false)));
-        assert_eq!(kd3(&tuples, true, false, disagree.as_ref()), None);
+        let disagree = Some((Answer::Allowed(false), Answer::Allowed(true)));
+        assert_eq!(kd3(&tuples, &no, true, disagree.as_ref()), None);
         // The re-ask could not be made: unexplained.
-        assert_eq!(kd3(&tuples, true, false, None), None);
+        assert_eq!(kd3(&tuples, &no, true, None), None);
         // No wildcard of the subject set's type: unexplained.
-        let agree = Some((Answer::Allowed(true), Answer::Allowed(true)));
         assert_eq!(
             kd3(
                 &["doc:d#banned@usr:*", "doc:d#viewer@grp:g#member"],
+                &no,
                 true,
-                false,
                 agree.as_ref()
             ),
             None

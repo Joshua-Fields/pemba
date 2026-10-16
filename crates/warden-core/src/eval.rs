@@ -113,7 +113,44 @@ pub(crate) struct NodeKey {
 
 /// Settled node values (least fixed point) for one subject at one revision. Safe to share between
 /// checks with the same subject and revision (`check_bulk`, lookups).
-pub(crate) type Memo = HashMap<NodeKey, bool>;
+///
+/// For a subject-set subject, a node's value is the same wherever it is evaluated, but
+/// whether evaluating it must fail is not: under the subtracted side of an exclusion a
+/// stored wildcard of the subject's type is an error (`AMBIGUOUS_WILDCARD_EXCLUSION`,
+/// `docs/04-evaluation.md` §3.3), elsewhere it is not consulted. So values computed under a
+/// subtracted side are kept apart: they serve any later lookup, while values computed
+/// outside one serve only lookups outside one, never hiding that error.
+#[derive(Debug, Default)]
+pub(crate) struct Memo {
+    /// Values computed outside any subtracted side.
+    plain: HashMap<NodeKey, bool>,
+    /// Values computed under at least one subtracted side, for a subject-set subject.
+    negated: HashMap<NodeKey, bool>,
+}
+
+impl Memo {
+    pub(crate) fn new() -> Self {
+        Self::default()
+    }
+
+    /// The settled value usable outside any subtracted side.
+    pub(crate) fn get(&self, key: &NodeKey) -> Option<&bool> {
+        self.plain.get(key).or_else(|| self.negated.get(key))
+    }
+
+    /// The settled value usable under a subtracted side.
+    fn get_negated(&self, key: &NodeKey) -> Option<&bool> {
+        self.negated.get(key)
+    }
+
+    fn side_mut(&mut self, negated: bool) -> &mut HashMap<NodeKey, bool> {
+        if negated {
+            &mut self.negated
+        } else {
+            &mut self.plain
+        }
+    }
+}
 
 #[allow(clippy::struct_field_names, reason = "each field is a `max_*` limit")]
 /// Limits the evaluator enforces (`docs/04-evaluation.md` §3.5, §3.7).
@@ -312,7 +349,13 @@ impl<'a> Evaluator<'a> {
             path.push(self.name(key));
             return Err(Error::MaxDepthExceeded { path });
         }
-        if let Some(&value) = self.memo.get(key) {
+        let negated = self.negated();
+        let memoised = if negated {
+            self.memo.get_negated(key)
+        } else {
+            self.memo.get(key)
+        };
+        if let Some(&value) = memoised {
             self.stats.memo_hits += 1;
             return Ok(Outcome { value, low: None });
         }
@@ -346,7 +389,9 @@ impl<'a> Evaluator<'a> {
                 }
             };
             self.cycle.pop_frame();
-            match self.cycle.finish(key, p, out?, self.memo) {
+            // A region never spans a subtracted side (that cycle is an error), so every
+            // node it settles was evaluated with the same `negated`.
+            match self.cycle.finish(key, p, out?, self.memo.side_mut(negated)) {
                 Finish::Done(out) => {
                     if out.low.is_none() && passes > 1 {
                         self.stats.cycle_passes += passes;
@@ -356,6 +401,12 @@ impl<'a> Evaluator<'a> {
                 Finish::Rerun => {}
             }
         }
+    }
+
+    /// Whether evaluation is under the subtracted side of an exclusion, for a subject-set
+    /// subject: only there does it differ from evaluation elsewhere ([`Memo`]).
+    fn negated(&self) -> bool {
+        self.subject.set.is_some() && self.cycle.negated()
     }
 
     fn non_monotonic(&self, i: usize, key: &NodeKey) -> Error {
@@ -386,6 +437,29 @@ impl<'a> Evaluator<'a> {
                 return Err(stale(self.schema, key, &exact));
             }
             return Ok(Outcome::TRUE);
+        }
+
+        // A wildcard `t:*` never matches a subject set `t:x#r` (below), but SpiceDB matches
+        // it. On a granting path that only makes warden say `false` where SpiceDB says
+        // `true`; under a subtracted side warden would say `true` where SpiceDB says `false`,
+        // so the answer is ambiguous and evaluation fails closed (KD-3, T3.4b).
+        if let Some(set) = &self.subject.set
+            && self.negated()
+            && allowed.contains(&AllowedSubject::Wildcard(set.ty))
+        {
+            let wildcard = Relationship {
+                resource: resource.clone(),
+                relation: relation.clone(),
+                subject: SubjectRef::Wildcard {
+                    object_type: self.object_ref(set).object_type,
+                },
+            };
+            if self.exists(&wildcard)? {
+                return Err(Error::AmbiguousWildcardExclusion {
+                    wildcard: wildcard.to_string(),
+                    subject: self.subject.reference.to_string(),
+                });
+            }
         }
 
         // Wildcards match objects only, never subject sets. One the schema no longer

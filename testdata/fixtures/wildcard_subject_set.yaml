@@ -1,8 +1,9 @@
 # A stored wildcard `t:*` matches objects of type `t`, never a subject set `t:x#r`
 # (docs/04-evaluation.md §3.3). SpiceDB matches the subject set too: KD-3 in
-# crates/warden-difftest/KNOWN_DIFFERENCES.md. The differential test sees both directions
-# here: on the grant side warden says false where SpiceDB says true; on the subtracted
-# side of an exclusion warden says true where SpiceDB says false.
+# crates/warden-difftest/KNOWN_DIFFERENCES.md. On the grant side warden says false where
+# SpiceDB says true. On the subtracted side of an exclusion warden would say true where
+# SpiceDB says false, so it fails with AMBIGUOUS_WILDCARD_EXCLUSION instead (T3.4b,
+# docs/04-evaluation.md §3.3).
 schema: |-
   definition user {}
 
@@ -25,15 +26,21 @@ relationships: |-
   doc:d#viewer@grp:*
   page:p#viewer@grp:g#member
   page:p#banned@grp:*
+  page:q#banned@grp:*
 
 assertions:
   assertTrue:
     - doc:d#viewer@grp:g
     - doc:d#viewer@grp:anyone
-    # Subtracted side: the wildcard bans every grp object, not the subject set.
-    - page:p#view@grp:g#member
   assertFalse:
     # Grant side: the wildcard does not match the subject set.
     - doc:d#viewer@grp:g#member
     # Only the subject set grp:g#member is a viewer, not the object grp:g.
     - page:p#view@grp:g
+    # No viewer: the exclusion's base is empty, so its subtracted side is never reached.
+    - page:q#view@grp:g#member
+
+expectCheckErrors:
+  # Subtracted side: grp:* bans every grp object; whether it bans the subject set is
+  # ambiguous (SpiceDB: yes).
+  page:p#view@grp:g#member: AMBIGUOUS_WILDCARD_EXCLUSION

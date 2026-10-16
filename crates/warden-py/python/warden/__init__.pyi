@@ -24,6 +24,7 @@ __all__ = [
     "SchemaChangeOrphansError",
     "SchemaError",
     "StaleRelationshipError",
+    "AmbiguousWildcardExclusionError",
     "StorageError",
     "SubjectsResult",
     "TransactionConflictError",
@@ -346,6 +347,10 @@ class EvaluationLimitError(WardenError): ...
 
 class StaleRelationshipError(WardenError):
     relationship: str
+
+class AmbiguousWildcardExclusionError(WardenError):
+    relationship: str
+    subject: str
 
 class WriteConflictError(WardenError): ...
 class StorageError(WardenError): ...

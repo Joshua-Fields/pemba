@@ -937,7 +937,14 @@ it is resolved.
   acyclic data. Cyclic and larger data are compared only through the fixtures.
   (c) KD-3: a wildcard never matches a subject set (`04` §3.3), unchanged on the grant side.
   On the subtracted side warden allowed what SpiceDB denies. Decided by the human on
-  2026-10-16: fail closed with a new error (T3.4b).
+  2026-10-16: fail closed with a new error. Done in T3.4b
+  (`AMBIGUOUS_WILDCARD_EXCLUSION`, `04` §3.3).
+  (f) T3.4b details: "under a subtracted side" means at least one, not an odd number. Under
+  two subtracted sides the wildcard is back on a granting path, where warden's answer is
+  the stricter one, but the error is still raised: it is the simpler rule and fails closed.
+  The probe runs after the exact-tuple hit (if the subject set itself is stored, the
+  answer is `true` either way). It runs only for relations whose schema allows `t:*`; a
+  stale `t:*` below the schema's revision is not probed for subject sets, as before.
   (d) KD-4 (depth limit near 50) was seen once and not reproduced; SpiceDB's answer there
   depends on timing. warden's behaviour is kept and pinned by `depth_limit.yaml`.
   (e) `difftest.yml` pins `authzed/spicedb:v1.56.2`. Moving to a new SpiceDB release is a

@@ -85,6 +85,18 @@ class StaleRelationshipError(WardenError):
     relationship: str
 
 
+class AmbiguousWildcardExclusionError(WardenError):
+    """A subject-set check reached a stored wildcard on an exclusion's subtracted side.
+
+    warden's wildcards never match subject sets and SpiceDB's do, so whether
+    ``relationship`` (e.g. ``doc:d#banned@group:*``) excludes ``subject`` (e.g.
+    ``group:eng#member``) is not defined; warden refuses rather than allow.
+    """
+
+    relationship: str
+    subject: str
+
+
 class WriteConflictError(WardenError):
     """A write's preconditions, ``create`` uniqueness or batch uniqueness failed."""
 

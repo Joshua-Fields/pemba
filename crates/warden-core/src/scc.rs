@@ -182,6 +182,11 @@ impl<V: Lattice> Scc<V> {
         self.neg_depth -= 1;
     }
 
+    /// Whether evaluation is under at least one subtracted side.
+    pub(crate) fn negated(&self) -> bool {
+        self.neg_depth > 0
+    }
+
     /// `key`'s value if it is on the SCC stack (in progress, or finished this pass);
     /// `None` if it is not, and must be evaluated.
     ///

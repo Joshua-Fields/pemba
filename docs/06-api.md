@@ -162,7 +162,7 @@ where `check` short-circuits past the stale tuple after finding a match and succ
 `check_bulk` returns `Err` for the whole call on `NoSchema`, consistency errors, `Store`,
 and `RevisionExpired` raised mid-call by GC; every other error (`InvalidRequest`,
 `MaxDepthExceeded`, `NonMonotonicCycle`, `FanoutExceeded`, `ReadLimitExceeded`,
-`StaleRelationship`) belongs to
+`StaleRelationship`, `AmbiguousWildcardExclusion`) belongs to
 its item (OQ-019).
 
 `write` checks, in order: batch size, schema present, op validation (`02` §6), precondition
@@ -270,6 +270,7 @@ pub enum Error {
     FanoutExceeded { node: String, max: usize },
     ReadLimitExceeded { max: u64 },               // more than max_check_reads store reads (04 §3.6)
     StaleRelationship { tuple: String, relation: String }, // stored tuple the schema no longer allows (04 §3.3)
+    AmbiguousWildcardExclusion { wildcard: String, subject: String }, // t:* under a subtracted side vs a subject-set subject (04 §3.3, T3.4b)
     LookupTooLarge { max: usize },
     NotMigrated,
     StorageVersionTooNew { found: u32, supported: u32 },
@@ -287,7 +288,8 @@ Every variant has a stable machine code (`Error::code() -> &'static str`, e.g.
 `FANOUT_EXCEEDED`, `READ_LIMIT_EXCEEDED`, `STALE_RELATIONSHIP`, `NOT_MIGRATED`,
 `STORAGE_VERSION_TOO_NEW`, `FOREIGN_CONNECTION_MISMATCH`, `LOOKUP_TOO_LARGE` (T2.4),
 `SCHEMA_CHANGE_ORPHANS` (T2.6), `TRANSACTION_CONFLICT` (T3.1: `Store(StoreError::Conflict)`,
-split from `STORE_ERROR` so the code alone tells a caller to retry the whole transaction);
+split from `STORE_ERROR` so the code alone tells a caller to retry the whole transaction),
+`AMBIGUOUS_WILDCARD_EXCLUSION` (T3.4b);
 variants added later use their name in SCREAMING_SNAKE case. Runtime codes never carry the
 `E_` prefix, which belongs to schema diagnostics (`ErrorCode`). `Error::CODES` lists every
 code `code()` can return.
@@ -448,6 +450,8 @@ WardenError(Exception)               .code: str  (Rust Error::code()), .retryabl
 ├── EvaluationLimitError             MAX_DEPTH_EXCEEDED, FANOUT_EXCEEDED, READ_LIMIT_EXCEEDED,
 │                                    LOOKUP_TOO_LARGE, NON_MONOTONIC_CYCLE
 ├── StaleRelationshipError           STALE_RELATIONSHIP; .relationship: str
+├── AmbiguousWildcardExclusionError  AMBIGUOUS_WILDCARD_EXCLUSION; .relationship: str (the
+│                                    stored t:*), .subject: str (04 §3.3, T3.4b)
 ├── WriteConflictError               ALREADY_EXISTS, PRECONDITION_FAILED, DUPLICATE_IN_BATCH
 └── StorageError                     STORE_ERROR, NOT_MIGRATED, STORAGE_VERSION_TOO_NEW,
     │                                FOREIGN_CONNECTION_MISMATCH

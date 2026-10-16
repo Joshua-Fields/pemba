@@ -102,6 +102,8 @@ pub struct Reference {
     universe: BTreeMap<TypeId, BTreeSet<ObjectId>>,
     /// `S(o, m)` for every object in the universe and every member of its type.
     sets: BTreeMap<Node, BTreeSet<Subject>>,
+    /// The tuples, resolved, by the node they are stored on.
+    stored: BTreeMap<Node, Vec<Stored>>,
 }
 
 impl Reference {
@@ -167,10 +169,12 @@ impl Reference {
             schema: schema.clone(),
             universe,
             sets: BTreeMap::new(),
+            stored: BTreeMap::new(),
         };
         for component in &order {
             oracle.evaluate_component(component, &stored)?;
         }
+        oracle.stored = stored;
         Ok(oracle)
     }
 
@@ -206,6 +210,104 @@ impl Reference {
             }
         };
         Ok(self.set(&node)?.contains(&subject))
+    }
+
+    /// Whether `check(resource, member, subject)` may fail with
+    /// `AMBIGUOUS_WILDCARD_EXCLUSION` (`docs/04-evaluation.md` §3.3, `docs/07-testing.md`
+    /// §2.3): `subject` is a subject set `x#r` with `x` of type `t`, and the evaluation
+    /// graph has a path from `resource#member` that crosses the subtracted side of at
+    /// least one exclusion and reaches a relation node holding a stored `t:*`.
+    ///
+    /// The graph's edges are those any evaluation could follow, whatever it
+    /// short-circuits: a permission node to every member its expression names on the same
+    /// object, and through an arrow to the target member of every object stored on the
+    /// tupleset; a relation node to `x#y` for every stored subject set `x#y`. This is an
+    /// over-approximation of what the engine reaches, so the engine failing where this is
+    /// `false` is a bug, and where it is `true` the engine may fail or answer (and its
+    /// answer must then still be [`check`](Self::check)'s).
+    ///
+    /// # Errors
+    ///
+    /// As [`check`](Self::check).
+    pub fn ambiguous_wildcard_exclusion(
+        &self,
+        resource: &ObjectRef,
+        member: &RelName,
+        subject: &SubjectRef,
+    ) -> Result<bool, ReferenceError> {
+        let root = self.query_node(resource, member)?;
+        let ty = match subject {
+            SubjectRef::Set { object, relation } => self.query_node(object, relation)?.0,
+            SubjectRef::Object(o) => {
+                let ty = self.query_type(&o.object_type)?;
+                self.in_universe(ty, o)?;
+                return Ok(false);
+            }
+            SubjectRef::Wildcard { .. } => {
+                return Err(invalid_query(format!("wildcard subject `{subject}`")));
+            }
+        };
+        let mut seen: BTreeSet<(Node, bool)> = BTreeSet::new();
+        let mut todo = vec![(root, false)];
+        while let Some((node, negated)) = todo.pop() {
+            if !seen.insert((node.clone(), negated)) {
+                continue;
+            }
+            let (t, id, rel) = &node;
+            match self.member(*t, *rel)? {
+                Member::Relation(_) => {
+                    for s in self.stored.get(&node).into_iter().flatten() {
+                        match s {
+                            Stored::Wildcard(w) if negated && *w == ty => return Ok(true),
+                            Stored::Set(t2, i2, r2) => todo.push(((*t2, i2.clone(), *r2), negated)),
+                            Stored::Object(..) | Stored::Wildcard(_) => {}
+                        }
+                    }
+                }
+                Member::Permission(p) => self.expr_edges(*t, id, &p.expr, negated, &mut todo),
+            }
+        }
+        Ok(false)
+    }
+
+    /// The nodes `expr` on `ty:id` names, each with whether it sits under a subtracted
+    /// side (for [`ambiguous_wildcard_exclusion`](Self::ambiguous_wildcard_exclusion)).
+    fn expr_edges(
+        &self,
+        ty: TypeId,
+        id: &ObjectId,
+        expr: &Expr,
+        negated: bool,
+        out: &mut Vec<(Node, bool)>,
+    ) {
+        match expr {
+            Expr::Computed(r) => out.push(((ty, id.clone(), *r), negated)),
+            Expr::Union(xs) | Expr::Intersection(xs) => {
+                for x in xs {
+                    self.expr_edges(ty, id, x, negated, out);
+                }
+            }
+            Expr::Exclusion { base, sub } => {
+                self.expr_edges(ty, id, base, negated, out);
+                self.expr_edges(ty, id, sub, true, out);
+            }
+            Expr::Arrow {
+                tupleset, targets, ..
+            } => {
+                for s in self
+                    .stored
+                    .get(&(ty, id.clone(), *tupleset))
+                    .into_iter()
+                    .flatten()
+                {
+                    if let Stored::Object(t, i) | Stored::Set(t, i, _) = s
+                        && let Some(p) = targets.get(t)
+                    {
+                        out.push(((*t, i.clone(), *p), negated));
+                    }
+                }
+            }
+        }
     }
 
     /// Every subject in `S(resource, member)`, in a fixed order.
