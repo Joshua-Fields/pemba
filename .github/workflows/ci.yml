@@ -142,6 +142,16 @@ jobs:
       # `schema_change_*_full` run at least 1 000 cases each; `prop4_*_full` includes GC.
       - run: cargo test -p warden-testkit --test properties -- --ignored
 
+  publish:
+    # Every publishable crate packages and builds from its .crate alone (T3.3). Never
+    # uploads: publishing is a manual human step.
+    name: cargo publish --dry-run
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo publish --workspace --dry-run --locked
+
   deny:
     name: cargo-deny
     runs-on: ubuntu-latest

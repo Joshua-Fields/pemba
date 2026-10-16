@@ -1,0 +1,136 @@
+name: wheels
+
+# abi3 wheels for every ADR-014 platform (docs/09-repo-and-tooling.md §4), each one
+# installed and tested on its own platform. Publishing to PyPI is a manual human step:
+# this workflow only uploads the wheels as build artifacts.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/workflows/wheels.yml"
+      - "crates/warden-py/Cargo.toml"
+      - "crates/warden-py/pyproject.toml"
+      - "crates/warden-py/ci/**"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: build (${{ matrix.platform }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { platform: linux-x86_64, os: ubuntu-latest, target: x86_64, manylinux: "2_17" }
+          - { platform: linux-aarch64, os: ubuntu-latest, target: aarch64, manylinux: "2_17" }
+          - { platform: macos-arm64, os: macos-latest, target: aarch64 }
+          - { platform: macos-x86_64, os: macos-latest, target: x86_64 }
+          - { platform: windows-x86_64, os: windows-latest, target: x64 }
+    steps:
+      - uses: actions/checkout@v5
+      - uses: PyO3/maturin-action@v1
+        with:
+          maturin-version: "1.15.0"
+          target: ${{ matrix.target }}
+          manylinux: ${{ matrix.manylinux || 'auto' }}
+          working-directory: crates/warden-py
+          args: --release --out dist
+      - name: one abi3 wheel, no SQLite inside (ADR-006, OQ-032)
+        shell: bash
+        working-directory: crates/warden-py
+        run: |
+          ls dist
+          [ "$(ls dist/*.whl | wc -l)" -eq 1 ]
+          case "$(ls dist/*.whl)" in *-cp311-abi3-*) ;; *) echo "not an abi3 (cp311) wheel"; exit 1;; esac
+          python3 -c "import sys, zipfile; z = zipfile.ZipFile(sys.argv[1]); [open(n.rsplit('/', 1)[-1], 'wb').write(z.read(n)) for n in z.namelist() if '_warden' in n]" dist/*.whl
+          python3 ci/check_no_sqlite.py _warden.*
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheel-${{ matrix.platform }}
+          path: crates/warden-py/dist/*.whl
+          if-no-files-found: error
+
+  smoke:
+    # Install the wheel (not a dev build) and run the whole pytest suite against it, on
+    # the abi3 floor and on the newest CPython.
+    name: smoke (${{ matrix.platform }}, Python ${{ matrix.python }})
+    needs: build
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [linux-x86_64, macos-arm64, macos-x86_64, windows-x86_64]
+        python: ["3.11", "3.14"]
+        include:
+          - { platform: linux-x86_64, os: ubuntu-latest, arch: x64, machine: x86_64 }
+          - { platform: macos-arm64, os: macos-latest, arch: arm64, machine: arm64 }
+          # The python.org universal2 CPython forced to its x86_64 half (Rosetta 2) on an
+          # Apple-silicon runner: without `arch -x86_64` it runs as arm64.
+          - { platform: macos-x86_64, os: macos-latest, arch: x64, machine: x86_64, run: "arch -x86_64" }
+          - { platform: windows-x86_64, os: windows-latest, arch: x64, machine: AMD64 }
+    defaults:
+      run:
+        shell: bash
+        working-directory: crates/warden-py
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python }}
+          architecture: ${{ matrix.arch }}
+      - uses: actions/download-artifact@v5
+        with:
+          name: wheel-${{ matrix.platform }}
+          path: crates/warden-py/dist
+      - name: install the wheel, test it
+        env:
+          RUN: ${{ matrix.run }}
+        run: |
+          $RUN python -m venv .venv
+          if [ -d .venv/Scripts ]; then source .venv/Scripts/activate; else source .venv/bin/activate; fi
+          $RUN python -c "import platform, sqlite3, sys; print(sys.version, platform.machine(), sqlite3.sqlite_version); assert platform.machine() == '${{ matrix.machine }}'"
+          $RUN python -m pip install pytest==9.1.1
+          $RUN python -m pip install --no-index --find-links dist warden
+          # The installed package, not the source tree.
+          $RUN python -c "import warden, sys; assert 'site-packages' in warden.__file__, warden.__file__; print(warden.__file__)"
+          $RUN python ci/check_no_sqlite.py
+          $RUN python -m pytest -q
+
+  smoke-aarch64:
+    # No arm64 Linux runner is assumed: the manylinux aarch64 wheel runs under QEMU.
+    name: smoke (linux-aarch64, Python ${{ matrix.python }})
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.14"]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+      - uses: actions/download-artifact@v5
+        with:
+          name: wheel-linux-aarch64
+          path: crates/warden-py/dist
+      - name: install the wheel, test it (arm64 container)
+        run: |
+          docker run --rm --platform linux/arm64 -v "$PWD:/src" -w /src/crates/warden-py \
+            python:${{ matrix.python }}-slim-bookworm sh -euxc '
+              python -c "import platform, sqlite3, sys; print(sys.version, platform.machine(), sqlite3.sqlite_version)"
+              python -m venv /tmp/venv
+              . /tmp/venv/bin/activate
+              pip install pytest==9.1.1
+              pip install --no-index --find-links dist warden
+              python -c "import warden; assert \"site-packages\" in warden.__file__, warden.__file__"
+              python ci/check_no_sqlite.py
+              pytest -q -p no:cacheprovider
+            '

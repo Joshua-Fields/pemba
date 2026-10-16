@@ -56,8 +56,7 @@ fn failing_assertion_exits_1_and_names_file_and_assertion() {
     assert_eq!(
         stdout(&out),
         "FAIL  f.yaml [memory]\n  f.yaml: assertTrue `doc:a#viewer@user:bob`: expected true, but \
-         engine says false; reference evaluator says false\n\n1 of 1 fixture run failed with \
-         1 failure\n"
+         engine says false\n\n1 of 1 fixture run failed with 1 failure\n"
     );
 }
 
