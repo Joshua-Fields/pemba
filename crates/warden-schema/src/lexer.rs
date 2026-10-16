@@ -73,6 +73,15 @@ pub(crate) struct Token {
 /// with an `Error` token at the error's position; the parser reports the lexical error
 /// only if it gets that far, so an earlier syntax error wins.
 pub(crate) fn lex(src: &str) -> (Vec<Token>, Option<SchemaError>) {
+    lex_with_comments(src, &mut Vec::new())
+}
+
+/// As [`lex`], also pushing the span of every plain comment (`// ...` without its line
+/// break, and `/* ... */`) to `comments`, in source order. Doc comments are tokens.
+pub(crate) fn lex_with_comments(
+    src: &str,
+    comments: &mut Vec<Span>,
+) -> (Vec<Token>, Option<SchemaError>) {
     let mut tokens = Vec::new();
     let mut last_end = 0;
     let mut chars = src.char_indices().peekable();
@@ -83,12 +92,19 @@ pub(crate) fn lex(src: &str) -> (Vec<Token>, Option<SchemaError>) {
         let token = match c {
             ' ' | '\t' | '\r' | '\n' => None,
             '/' if next == Some('/') => {
-                while chars.next_if(|&(_, c)| c != '\n').is_some() {}
+                let mut end = start + 1;
+                while let Some((i, c)) = chars.next_if(|&(_, c)| c != '\n') {
+                    end = i + c.len_utf8();
+                }
+                comments.push(Span::new(start, end));
                 None
             }
             '/' if next == Some('*') => match block_comment(src, start) {
                 Ok((is_doc, end)) => {
                     while chars.next_if(|&(i, _)| i < end).is_some() {}
+                    if !is_doc {
+                        comments.push(Span::new(start, end));
+                    }
                     is_doc.then_some((TokenKind::Doc, end))
                 }
                 Err(err) => return fail(tokens, *err),
@@ -248,6 +264,16 @@ mod tests {
         // `->` must be written without a gap; a lone `>` is not a token.
         assert_eq!(lex("a- >b").1.map(|e| e.span), Some(Span::new(3, 4)));
         assert_eq!(kinds("a/*x*/->b"), [Ident, Arrow, Ident, Eof]);
+    }
+
+    #[test]
+    fn plain_comment_spans() {
+        let src = "a // b\r\n/* c */ d /** e */ /**/ //\n";
+        let mut comments = Vec::new();
+        let (_, err) = lex_with_comments(src, &mut comments);
+        assert!(err.is_none());
+        let texts: Vec<&str> = comments.iter().map(|s| &src[s.start..s.end]).collect();
+        assert_eq!(texts, ["// b\r", "/* c */", "/**/", "//"]);
     }
 
     #[test]

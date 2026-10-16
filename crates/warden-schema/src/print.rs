@@ -4,7 +4,12 @@
 //! comments: plain `//` and `/* */` comments, dangling doc comments, spacing and redundant
 //! parentheses are all dropped. The output is also the "normalised source" that
 //! [`CompiledSchema::hash`] digests.
+//!
+//! The comment-preserving formatter ([`crate::format`]) prints through the same functions
+//! with [`Trivia`]: the comments to put around each definition and member. With no trivia
+//! the output is exactly the canonical form.
 
+use std::collections::HashMap;
 use std::fmt::Write as _;
 
 use sha2::{Digest, Sha256};
@@ -22,14 +27,93 @@ impl CompiledSchema {
     /// Compiling the output gives back this schema, except that `source` is the printed
     /// text and member [`RelId`]s follow the canonical member order.
     pub fn to_canonical_string(&self) -> String {
-        let mut out = String::new();
-        for (i, ty) in self.types.iter().enumerate() {
-            if i > 0 {
-                out.push('\n');
-            }
-            print_type(self, ty, &mut out);
+        print_with(self, &Trivia::default())
+    }
+}
+
+/// Comments to print around the schema's items, keyed by type and member name.
+#[derive(Debug, Default)]
+pub(crate) struct Trivia {
+    pub(crate) types: HashMap<String, TypeTrivia>,
+    /// After the last definition.
+    pub(crate) file_end: Vec<TopComment>,
+}
+
+/// Comments around one definition.
+#[derive(Debug, Default)]
+pub(crate) struct TypeTrivia {
+    /// Own lines before the definition (and its doc comment).
+    pub(crate) leading: Vec<TopComment>,
+    /// On the `definition name {` line.
+    pub(crate) after_open: Vec<String>,
+    /// Own lines after the last member, before `}`.
+    pub(crate) body_end: Vec<String>,
+    /// On the `}` line.
+    pub(crate) after_close: Vec<String>,
+    pub(crate) members: HashMap<String, MemberTrivia>,
+}
+
+/// Comments around one member.
+#[derive(Debug, Default)]
+pub(crate) struct MemberTrivia {
+    /// Own lines before the member (and its doc comment).
+    pub(crate) leading: Vec<String>,
+    /// At the end of the member's last line.
+    pub(crate) trailing: Vec<String>,
+}
+
+/// A comment on its own line outside any definition, and whether a blank line separated
+/// it from what came before and after it in the source.
+#[derive(Debug)]
+pub(crate) struct TopComment {
+    pub(crate) text: String,
+    pub(crate) blank_before: bool,
+    pub(crate) blank_after: bool,
+}
+
+/// The schema as source text, with `trivia`'s comments in place.
+pub(crate) fn print_with(schema: &CompiledSchema, trivia: &Trivia) -> String {
+    let none = TypeTrivia::default();
+    let mut out = String::new();
+    for (i, ty) in schema.types.iter().enumerate() {
+        if i > 0 {
+            out.push('\n');
         }
-        out
+        let t = trivia.types.get(&*ty.name).unwrap_or(&none);
+        print_top_comments(&t.leading, &mut out);
+        print_type(schema, ty, t, &mut out);
+    }
+    print_top_comments(&trivia.file_end, &mut out);
+    out
+}
+
+fn print_top_comments(comments: &[TopComment], out: &mut String) {
+    for c in comments {
+        if c.blank_before && !out.is_empty() && !out.ends_with("\n\n") {
+            out.push('\n');
+        }
+        out.push_str(&c.text);
+        out.push('\n');
+        if c.blank_after {
+            out.push('\n');
+        }
+    }
+}
+
+/// `comments` after the text on the current line, then the line break.
+fn end_line(comments: &[String], out: &mut String) {
+    for c in comments {
+        out.push(' ');
+        out.push_str(c);
+    }
+    out.push('\n');
+}
+
+fn print_own_lines(comments: &[String], indent: &str, out: &mut String) {
+    for c in comments {
+        out.push_str(indent);
+        out.push_str(c);
+        out.push('\n');
     }
 }
 
@@ -38,7 +122,7 @@ pub(crate) fn canonical_hash(schema: &CompiledSchema) -> [u8; 32] {
     Sha256::digest(schema.to_canonical_string().as_bytes()).into()
 }
 
-fn print_type(schema: &CompiledSchema, ty: &TypeDef, out: &mut String) {
+fn print_type(schema: &CompiledSchema, ty: &TypeDef, trivia: &TypeTrivia, out: &mut String) {
     print_doc(ty.doc.as_deref(), "", out);
     let relations: Vec<&Member> = ty
         .members
@@ -50,11 +134,17 @@ fn print_type(schema: &CompiledSchema, ty: &TypeDef, out: &mut String) {
         .iter()
         .filter(|m| matches!(m, Member::Permission(_)))
         .collect();
-    if relations.is_empty() && permissions.is_empty() {
-        let _ = writeln!(out, "definition {} {{}}", ty.name);
+    if relations.is_empty()
+        && permissions.is_empty()
+        && trivia.after_open.is_empty()
+        && trivia.body_end.is_empty()
+    {
+        let _ = write!(out, "definition {} {{}}", ty.name);
+        end_line(&trivia.after_close, out);
         return;
     }
-    let _ = writeln!(out, "definition {} {{", ty.name);
+    let _ = write!(out, "definition {} {{", ty.name);
+    end_line(&trivia.after_open, out);
     for (group_index, group) in [relations, permissions]
         .into_iter()
         .filter(|g| !g.is_empty())
@@ -64,13 +154,24 @@ fn print_type(schema: &CompiledSchema, ty: &TypeDef, out: &mut String) {
             out.push('\n');
         }
         for member in group {
-            print_member(schema, ty, member, out);
+            let none = MemberTrivia::default();
+            let m = trivia.members.get(member.name()).unwrap_or(&none);
+            print_member(schema, ty, member, m, out);
         }
     }
-    out.push_str("}\n");
+    print_own_lines(&trivia.body_end, INDENT, out);
+    out.push('}');
+    end_line(&trivia.after_close, out);
 }
 
-fn print_member(schema: &CompiledSchema, ty: &TypeDef, member: &Member, out: &mut String) {
+fn print_member(
+    schema: &CompiledSchema,
+    ty: &TypeDef,
+    member: &Member,
+    trivia: &MemberTrivia,
+    out: &mut String,
+) {
+    print_own_lines(&trivia.leading, INDENT, out);
     print_doc(member.doc(), INDENT, out);
     match member {
         Member::Relation(r) => {
@@ -79,14 +180,14 @@ fn print_member(schema: &CompiledSchema, ty: &TypeDef, member: &Member, out: &mu
                 .iter()
                 .map(|a| allowed_subject(schema, *a))
                 .collect();
-            let _ = writeln!(out, "{INDENT}relation {}: {}", r.name, allowed.join(" | "));
+            let _ = write!(out, "{INDENT}relation {}: {}", r.name, allowed.join(" | "));
         }
         Member::Permission(p) => {
             let _ = write!(out, "{INDENT}permission {} = ", p.name);
             print_expr(ty, &p.expr, out);
-            out.push('\n');
         }
     }
+    end_line(&trivia.trailing, out);
 }
 
 fn type_name(schema: &CompiledSchema, ty: TypeId) -> &str {

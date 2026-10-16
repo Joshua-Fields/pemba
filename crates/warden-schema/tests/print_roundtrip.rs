@@ -9,8 +9,8 @@
 use std::fmt::Write as _;
 
 use proptest::prelude::*;
-use warden_schema::compile;
 use warden_schema::ir::{AllowedSubject, ArrowMode, CompiledSchema, Expr, Member, TypeDef};
+use warden_schema::{compile, format};
 
 // ---- generated schemas ----
 //
@@ -452,6 +452,66 @@ proptest! {
         // Inputs already in canonical member order keep their ids.
         if canonical_order {
             prop_assert_eq!(&reparsed.types, &ir.types);
+        }
+    }
+}
+
+/// Byte offsets of whitespace outside comments: inserting a comment there keeps the
+/// source valid and leaves every existing comment as it was.
+fn comment_spots(src: &str) -> Vec<usize> {
+    let mut spots = Vec::new();
+    let mut i = 0;
+    while let Some(c) = src[i..].chars().next() {
+        let rest = &src[i..];
+        if rest.starts_with("//") {
+            i += rest.find('\n').map_or(rest.len(), |n| n + 1);
+        } else if rest.starts_with("/*") {
+            i += rest.find("*/").map_or(rest.len(), |n| n + 2);
+        } else {
+            if c.is_whitespace() {
+                spots.push(i);
+            }
+            i += c.len_utf8();
+        }
+    }
+    spots
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(512))]
+
+    /// T3.8: comments scattered through any valid schema survive `format`, which is a
+    /// fixed point, keeps the schema (hash), and equals the canonical printer when there
+    /// are no comments.
+    #[test]
+    fn format_keeps_every_comment(
+        raw in schema_strategy(),
+        cuts in prop::collection::vec((any::<prop::sample::Index>(), any::<bool>()), 0..12),
+    ) {
+        let (src, _) = Builder { raw: &raw, out: String::new() }.build();
+        let spots = comment_spots(&src);
+        let mut picks: Vec<(usize, bool, usize)> = cuts
+            .iter()
+            .enumerate()
+            .map(|(n, (at, line))| (spots[at.index(spots.len())], *line, n))
+            .collect();
+        picks.sort_unstable_by(|a, b| b.cmp(a));
+        let mut with = src.clone();
+        for (at, line, n) in &picks {
+            let comment = if *line { format!(" // c{n}\n") } else { format!(" /* c{n} */ ") };
+            with.insert_str(*at, &comment);
+        }
+
+        let out = format(&with).map_err(|e| TestCaseError::fail(format!("{e}\n{with}")))?;
+        prop_assert_eq!(&format(&out).unwrap(), &out, "not a fixed point; input:\n{}", with);
+        prop_assert_eq!(compile_ok(&out).hash, compile_ok(&src).hash, "output:\n{}", out);
+        for n in 0..cuts.len() {
+            let found = out.matches(&format!("// c{n}\n")).count()
+                + out.matches(&format!("/* c{n} */")).count();
+            prop_assert_eq!(found, 1, "c{} in:\n{}\noutput:\n{}", n, with, out);
+        }
+        if cuts.is_empty() && !raw.plain_comments {
+            prop_assert_eq!(&out, &compile_ok(&src).to_canonical_string());
         }
     }
 }

@@ -517,12 +517,13 @@ failure (`  <file>: <location> \`<assertion>\`: <message>`) to stdout, warnings 
 keys to stderr, and a summary line. Paths are printed with `/` separators on every
 platform, so output is identical on Windows. An unreadable file is exit 2.
 
-`schema fmt` is **experimental**: it drops non-doc comments; it does not modify files.
-It prints the canonical form to stdout. Because plain `//` / `/* */` comments are dropped,
-`--check` fails on any file containing them (OQ-013; a comment-preserving formatter is
-T3.8). `--check` prints nothing on success and exits 1 with a one-line message if the file
-differs from its canonical form. A schema with errors makes `fmt` print the same
-diagnostics as `validate` and exit 1.
+`schema fmt` is **experimental**: it does not modify files. It prints
+`warden_schema::format(source)` to stdout: the canonical form with every comment kept
+(`03` §9.1, T3.8). `--check` prints nothing on success and exits 1 with a one-line message
+if the file differs from that output, so a canonical file with comments passes. A schema
+with errors makes `fmt` print the same diagnostics as `validate` and exit 1. If the
+formatter cannot show that its output keeps the schema and every comment
+(`FormatError::NotPreserved`, a bug), it prints nothing and exits 2.
 
 Exit codes for every subcommand:
 
