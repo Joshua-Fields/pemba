@@ -89,7 +89,8 @@ fn fmt_prints_canonical_form() {
     assert_eq!(code(&out), 0, "{}", stderr(&out));
     assert_eq!(
         stdout(&out),
-        "definition user {}
+        "// A valid schema written untidily.
+definition user {}
 
 definition document {
     relation owner: user
@@ -111,7 +112,7 @@ fn fmt_leaves_canonical_file_unchanged() {
 
 #[test]
 fn fmt_check_accepts_canonical_files() {
-    for file in ["spec_example.zed", "warnings_only.zed"] {
+    for file in ["spec_example.zed", "warnings_only.zed", "commented.zed"] {
         let out = warden(&["schema", "fmt", "--check", file]);
         assert_eq!(code(&out), 0, "{file}: {}", stderr(&out));
         assert_eq!(stdout(&out), "");
@@ -129,6 +130,14 @@ fn fmt_check_rejects_non_canonical_file() {
         "`not_canonical.zed` is not in canonical form; \
          `warden schema fmt not_canonical.zed` prints it\n"
     );
+}
+
+#[test]
+fn fmt_keeps_comments() {
+    let out = warden(&["schema", "fmt", "commented.zed"]);
+    assert_eq!(code(&out), 0, "{}", stderr(&out));
+    let original = std::fs::read_to_string(schemas_dir().join("commented.zed")).unwrap();
+    assert_eq!(stdout(&out), original);
 }
 
 #[test]
@@ -166,10 +175,8 @@ fn fmt_help_marks_it_experimental() {
     assert_eq!(code(&out), 0);
     let help = stdout(&out);
     assert!(help.contains("[experimental]"), "{help}");
-    assert!(
-        help.contains("drops non-doc comments; does not modify files"),
-        "{help}"
-    );
+    assert!(help.contains("does not modify files"), "{help}");
+    assert!(help.contains("every comment kept"), "{help}");
     let list = stdout(&warden(&["schema", "--help"]));
     assert!(list.contains("[experimental] Print a schema"), "{list}");
 }

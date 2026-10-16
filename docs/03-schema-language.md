@@ -353,6 +353,33 @@ Details fixed in T0.5:
 `CompiledSchema::hash` is the SHA-256 of `to_canonical_string()`, so it ignores formatting,
 plain comments and relation/permission interleaving, but changes with doc comments.
 
+### 9.1 Comment-preserving formatter (T3.8)
+
+`warden_schema::format(source) -> Result<String, FormatError>` (used by
+`warden schema fmt`) prints the canonical form above with every plain comment (`//`,
+`/* */`) and every dangling doc comment kept, verbatim except that a `//` comment loses
+trailing whitespace and line breaks become `\n`. Without such comments its output is
+exactly `to_canonical_string()`. Placement:
+- A comment after code on the same line stays at the end of that line: after a member,
+  after `definition x {`, or after `}`. Several are joined with single spaces.
+- A comment on its own line goes before the next member (inside a body) or definition (at
+  top level), before its doc comment; if nothing follows, before the body's `}` or at the
+  end of the file. Comments follow their member when canonical order moves it.
+- A comment inside a member or a definition header (between tokens of `relation x: ...`,
+  a permission expression, or `definition x {`) moves to its own line before that member
+  or definition.
+- A dangling doc comment inside a definition always goes just before `}`, since printed
+  before a member it would attach to it.
+- Blank lines: as in §9 inside bodies; outside definitions a blank line is kept before and
+  after a comment where the source had one (at least one).
+- Indentation: own-line comments inside a body get 4 spaces; continuation lines of a
+  multi-line `/* */` are kept as written.
+
+`format` is a fixed point (`format(format(s)) == format(s)`) and its output compiles to a
+schema with the same hash. It checks both before returning: the output must compile to
+the same canonical form and contain the same comments, else `FormatError::NotPreserved`
+and no output. A schema that does not compile is `FormatError::Schema`.
+
 ## 10. Schema changes against existing data
 
 `Engine::write_schema(new)` must refuse (`SCHEMA_CHANGE_ORPHANS`: the

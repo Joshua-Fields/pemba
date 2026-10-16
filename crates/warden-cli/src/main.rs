@@ -12,7 +12,7 @@ use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
 use warden_fixtures::{self as fixtures, StoreKind};
-use warden_schema::{SchemaError, compile};
+use warden_schema::{FormatError, SchemaError, compile};
 
 #[derive(Parser)]
 #[command(
@@ -51,11 +51,12 @@ enum SchemaCommand {
         /// The schema file.
         file: PathBuf,
     },
-    /// [experimental] Print a schema in canonical form.
+    /// [experimental] Print a schema in canonical form, comments kept.
     ///
-    /// Experimental: drops non-doc comments; does not modify files. The canonical form is
-    /// printed to stdout; doc comments (`/** */`) are kept, plain `//` and `/* */` comments
-    /// are not, so `--check` fails on files that contain them.
+    /// Experimental: does not modify files. The canonical form is printed to stdout with
+    /// every comment kept: a comment after code stays at the end of that line, one on its
+    /// own line stays before the item that follows it, and one inside a relation or
+    /// permission moves to the line before it.
     Fmt {
         /// The schema file.
         file: PathBuf,
@@ -167,17 +168,19 @@ fn validate(file: &Path) -> CmdResult {
 fn fmt(file: &Path, check: bool) -> CmdResult {
     let source = read(file)?;
     let path = file.display().to_string();
-    let compiled = match compile(&source) {
-        Ok(c) => c,
-        Err(e) => {
+    let formatted = match warden_schema::format(&source) {
+        Ok(f) => f,
+        Err(FormatError::Schema(e)) => {
             let mut err = io::stderr().lock();
             report_rejected(&mut err, &path, &e.errors, &e.warnings).map_err(|e| io_error(&e))?;
             return Ok(ExitCode::from(REJECTED));
         }
+        // The formatter refuses rather than print something that lost a comment: the run
+        // could not be done, like an I/O error.
+        Err(e) => return Err(format!("`{path}`: {e}")),
     };
-    let canonical = compiled.schema.to_canonical_string();
     if check {
-        if canonical == source {
+        if formatted == source {
             return Ok(ExitCode::SUCCESS);
         }
         writeln!(
@@ -188,7 +191,7 @@ fn fmt(file: &Path, check: bool) -> CmdResult {
         return Ok(ExitCode::from(REJECTED));
     }
     io::stdout()
-        .write_all(canonical.as_bytes())
+        .write_all(formatted.as_bytes())
         .map_err(|e| io_error(&e))?;
     Ok(ExitCode::SUCCESS)
 }

@@ -138,6 +138,8 @@ it is resolved.
   in its `--help` text and in `06` §3 ("drops non-doc comments; does not modify files").
   Exit code 2 is documented for usage and I/O errors. A comment-preserving formatter is
   task T3.8 in `08`, before the 0.1 gate.
+- T3.8 done: `fmt` keeps comments (`03` §9.1, OQ-036). Still marked experimental and still
+  never writes files; dropping the "experimental" label is for the human.
 
 ## OQ-014 — Store write path: typed `WritableStore`, SQL in `SqlStore`
 - Raised in: T1.1 (`docs/05-storage.md` §2–3, §9)
@@ -877,5 +879,34 @@ it is resolved.
   installed wheel on CPython 3.11 (abi3 floor) and 3.14.
   (f) manylinux 2_17 (manylinux2014) for both Linux wheels: the oldest glibc maturin and
   Rust support; the Rocky Linux 8 job (glibc 2.28) covers an old real system.
+- Resolve by: human review
+- Resolution: (fill in)
+
+## OQ-036 — Comment placement in the formatter (T3.8)
+- Raised in: T3.8 (`docs/03-schema-language.md` §9.1, `docs/06-api.md` §3, OQ-013)
+- Blocking: no
+- Current choice:
+  (a) Comments are anchored to items, not kept at byte positions: own-line comments lead
+  the next member/definition, same-line comments trail the line's member, `{` or `}`.
+  The canonical printer then reorders members and the comments go with them. A comment
+  *inside* a member or definition header (e.g. `viewer + /* x */ owner`) cannot keep its
+  place, because the printer rebuilds expressions from the IR, so it moves to its own
+  line before that member. It is never dropped.
+  (b) A dangling doc comment inside a definition is printed just before `}`, wherever it
+  was. Printing it before a member would attach it as that member's doc and change the
+  schema hash. One at top level can only be at the end of the file and stays there.
+  (c) The formatter re-compiles its output and compares the canonical form and the
+  multiset of comment texts before returning. Any difference is
+  `FormatError::NotPreserved` (CLI exit 2, nothing printed): fail closed rather than
+  print a schema that lost a comment or changed meaning. A property test inserts up to
+  12 comments at random whitespace in 512 generated schemas per run (20 000 once,
+  locally) and requires output, idempotence and every comment exactly once.
+  (d) Inside bodies, comments add no blank lines (§9's "no other blank lines" holds).
+  Outside definitions, a blank line before or after a comment in the source is kept as
+  exactly one.
+  (e) `hash` is unchanged: it still digests `to_canonical_string()`, which prints no
+  plain comments, so comments never change a stored schema's version.
+  (f) `schema fmt` keeps its "experimental" label and still only prints to stdout. A
+  `--write` flag is not added.
 - Resolve by: human review
 - Resolution: (fill in)
