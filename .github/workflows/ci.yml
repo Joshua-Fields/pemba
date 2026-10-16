@@ -98,6 +98,8 @@ jobs:
     name: python (Rocky Linux 8, Python 3.11, SQLite 3.26.0)
     runs-on: ubuntu-latest
     container: rockylinux/rockylinux:8
+    # A stalled dnf mirror once held this job for over an hour; fail fast instead.
+    timeout-minutes: 30
     defaults:
       run:
         shell: bash
@@ -105,7 +107,7 @@ jobs:
     steps:
       - name: system packages
         working-directory: /
-        run: dnf install -y --setopt=install_weak_deps=False python3.11 python3.11-pip gcc git
+        run: dnf install -y --setopt=install_weak_deps=False --setopt=timeout=60 --setopt=retries=5 python3.11 python3.11-pip gcc git
       - uses: actions/checkout@v5
       - name: Rust (version from rust-toolchain.toml)
         run: |
