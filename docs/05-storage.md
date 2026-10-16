@@ -593,7 +593,7 @@ Guard rails:
   (`PRAGMA database_list` on both, compare `file` paths after canonicalisation). Mismatch
   (including an in-memory connection) → `Err(ForeignConnectionMismatch)`. The check runs
   on **every** write, not cached by `id(conn)`: ids are reused after garbage collection,
-  so a cache could trust a connection to another file (OQ-034 (a)).
+  so a cache could trust a connection to another file (OQ-034 (a), resolved).
 - If the foreign connection has no open transaction (`conn.in_transaction` is false,
   whatever its `isolation_level`), raise `ValueError` explaining that the write would not
   be atomic with app data — unless `allow_autocommit=True` is passed, in which case the
