@@ -262,31 +262,47 @@ steps:
 ## 4. Differential testing against SpiceDB
 
 Crate `warden-difftest` (dev-only, never published). Tests are `#[ignore]` and require
-`WARDEN_SPICEDB_URL` + `WARDEN_SPICEDB_KEY`.
+`WARDEN_SPICEDB_URL` (the HTTP gateway) + `WARDEN_SPICEDB_KEY` (a token prefix). Without
+them the tests print that they did not run and pass, unless `WARDEN_DIFFTEST_REQUIRED` is
+set (CI sets it). CI: `difftest.yml`, weekly and on manual dispatch (`09` §4).
 
-Run SpiceDB (from its README):
+Run SpiceDB (pinned in `difftest.yml`; 1.56.2 when T3.4 landed):
 ```bash
-docker run --rm -p 50051:50051 -p 8443:8443 authzed/spicedb serve \
-  --http-enabled true --grpc-preshared-key "testkey"
+docker run --rm -p 8443:8443 authzed/spicedb:v1.56.2 serve-testing --http-enabled
+WARDEN_SPICEDB_URL=http://127.0.0.1:8443 WARDEN_SPICEDB_KEY=difftest \
+    cargo test -p warden-difftest -- --ignored
 ```
-(Default datastore is in-memory; confirm with `spicedb serve --help`. Alternatively
-`spicedb serve-testing` gives an isolated empty datastore per preshared key — useful for
-parallel tests, check whether it exposes HTTP.)
+`serve-testing` gives an isolated, in-memory datastore per bearer token; the harness uses
+a fresh token per case (and per throwaway probe), so cases never see each other's data.
 
-Procedure per case (fixtures + proptest-generated cases):
-1. `POST /v1/schema/write` with the same schema text.
+Procedure per case (every fixture without `expectErrors`, plus generated cases):
+1. `POST /v1/schema/write` with the same schema text, first to 12 throwaway datastores
+   (KD-2: SpiceDB's refusal of some wildcard schemas is nondeterministic), then to the
+   case's own. A refusal that KD-2 explains counts the case as not compared.
 2. `POST /v1/relationships/write` with the same tuples (`OPERATION_TOUCH`).
-3. For each query, `POST /v1/permissions/check` with full consistency (verify the exact
-   consistency field name in the HTTP API reference: https://authzed.com/docs/spicedb/api/http-api).
-4. Compare with warden. Any mismatch fails with a minimal reproduction printed as a fixture
-   YAML ready to paste into `testdata/fixtures/regressions/`.
-5. Lookups: compare as sets (SpiceDB streams lookup results; check the HTTP endpoint shape).
+3. Questions: `check` of every member of every object in the case (plus a never-written
+   `fresh` object of every type) for every object subject and every subject set in the
+   tuples, via `POST /v1/permissions/checkbulk` with `fullyConsistent`; up to 12
+   `lookup_resources` (object subjects) and 12 `lookup_subjects`, compared as sets.
+4. Compare with warden (memory store). Two errors agree (the wording differs). A mismatch
+   that a `KNOWN_DIFFERENCES.md` detector explains is counted; any other fails the run and
+   prints the case as fixture YAML ready to paste into `testdata/fixtures/regressions/`.
 
-Use a fresh preshared key (or wipe) per case for isolation. Use a blocking HTTP client
-(`ureq`) to avoid pulling tokio into the workspace.
+Generated cases come from the property-test generator (`generate::case_with`, both
+`SubSides` variants, deterministic seed) with two caps, because SpiceDB cannot run every
+generated case:
+- **No cycles in the data**: each tuple that would close a cycle between objects is dropped
+  (`without_cycles`). On cyclic data SpiceDB dispatches until its depth limit (KD-1).
+- **At most 16 relationships** per case (after cycle removal). SpiceDB does not memoise
+  across branches of one check; on the densest acyclic data one bulk check used up 2.5 GB
+  and SpiceDB ran out of memory.
+Cases are generated until at least 500 were compared (`WARDEN_DIFFTEST_CASES` raises it).
+Cyclic and larger data are compared through the fixtures. The property tests (§2) have
+neither cap.
 
-Known/expected divergences must be listed explicitly in `warden-difftest/KNOWN_DIFFERENCES.md`
-with a reason; the harness skips only listed cases.
+Known/expected divergences are listed in `crates/warden-difftest/KNOWN_DIFFERENCES.md`, each
+with a reason, a minimal repro and a detector in `src/known.rs` that needs the exact shape
+of the disagreement; the harness explains only those.
 
 ---
 

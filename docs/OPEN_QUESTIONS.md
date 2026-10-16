@@ -34,6 +34,9 @@ it is resolved.
 - Current choice: `.all()` over zero related objects evaluates to `false`; if SpiceDB differs,
   match SpiceDB and update ADR-013
 - Resolve by: differential test in T3.4
+- T3.4 evidence: SpiceDB 1.56.2 agrees (`false` over zero related objects;
+  `crates/warden-difftest/KNOWN_DIFFERENCES.md`, "Checked and agreeing"). Left for the
+  human to mark resolved.
 - Resolution: (fill in)
 
 ## OQ-005 — Self membership semantics vs SpiceDB
@@ -41,6 +44,9 @@ it is resolved.
 - Blocking: no
 - Current choice: a subject set `o#m` is always a member of `S(o, m)`
 - Resolve by: differential test in T3.4
+- T3.4 evidence: SpiceDB 1.56.2 agrees (`o#m` in `S(o, m)` with no tuples, also through
+  a permission `is_member = member`; not across objects). Left for the human to mark
+  resolved.
 - Resolution: (fill in)
 
 ## OQ-006 — Does SpiceDB accept arrows over relations that allow wildcards?
@@ -48,6 +54,9 @@ it is resolved.
 - Blocking: no
 - Current choice: reject (`E_ARROW_OVER_WILDCARD`), conservative
 - Resolve by: differential test in T3.4
+- T3.4 evidence: SpiceDB 1.56.2 refuses such a schema too ("wildcard relations cannot be
+  used on the left side of arrows", 60 of 60 writes). Left for the human to mark
+  resolved.
 - Resolution: (fill in)
 
 ## OQ-007 — Type-prefix segment rules and maximum type name length
@@ -56,6 +65,9 @@ it is resolved.
 - Current choice: every `/`-separated segment obeys the 3–64 character identifier rule; full
   type name at most 128 bytes
 - Resolve by: differential test in T3.4
+- T3.4 evidence: SpiceDB 1.56.2 accepts and refuses the same 11 probe names as warden
+  (segments of 2/3/64/65 characters, several prefixes, 128 vs 129 bytes, trailing `_`).
+  Left for the human to mark resolved.
 - Resolution: (fill in)
 
 ## OQ-008 — Performance targets
@@ -909,4 +921,26 @@ it is resolved.
   (f) `schema fmt` keeps its "experimental" label and still only prints to stdout. A
   `--write` flag is not added.
 - Resolve by: human review
+- Resolution: (fill in)
+
+## OQ-037 — Differential-test details decided in T3.4
+- Raised in: T3.4 (`docs/07-testing.md` §4, `crates/warden-difftest/KNOWN_DIFFERENCES.md`)
+- Blocking: no
+- Current choice:
+  (a) warden keeps accepting schemas where a wildcard is reached through a subject set,
+  which SpiceDB refuses (KD-2). warden's rule for them is KD-3's (a wildcard matches only
+  objects). SpiceDB's refusal is itself nondeterministic: the harness writes every schema
+  to 12 throwaway datastores and counts any refusal as KD-2. The minimal repro is in
+  `docs/upstream/spicedb-kd2.md` for the human to file.
+  (b) Generated cases are compared without cycles and with at most 16 relationships,
+  because SpiceDB exhausts its depth limit on cyclic data and ran out of memory on dense
+  acyclic data. Cyclic and larger data are compared only through the fixtures.
+  (c) KD-3: a wildcard never matches a subject set (`04` §3.3), unchanged on the grant side.
+  On the subtracted side warden allowed what SpiceDB denies. Decided by the human on
+  2026-10-16: fail closed with a new error (T3.4b).
+  (d) KD-4 (depth limit near 50) was seen once and not reproduced; SpiceDB's answer there
+  depends on timing. warden's behaviour is kept and pinned by `depth_limit.yaml`.
+  (e) `difftest.yml` pins `authzed/spicedb:v1.56.2`. Moving to a new SpiceDB release is a
+  deliberate change that re-runs the comparison and updates `KNOWN_DIFFERENCES.md`.
+- Resolve by: human review of `KNOWN_DIFFERENCES.md`
 - Resolution: (fill in)
