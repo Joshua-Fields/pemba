@@ -17,7 +17,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
-use pyo3::exceptions::{PyNotImplementedError, PyTypeError, PyValueError};
+use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyInt, PyString, PyTuple};
 use warden::model::{
@@ -28,7 +28,7 @@ use warden::{
     CheckItem, CheckRequest, EngineConfig, LookupResourcesRequest, LookupSubjectsRequest,
     MemoryStore, ReadRelationshipsRequest,
 };
-use warden_store_pysqlite::{PySqliteConfig, PySqliteStore};
+use warden_store_pysqlite::{PySqliteConfig, PySqliteStore, PyTxn};
 
 use crate::errors::{IntoPy, parse_err};
 use crate::types::{
@@ -154,6 +154,34 @@ struct Engine {
 }
 
 impl Engine {
+    /// The application connection for a foreign-transaction write (`docs/05-storage.md`
+    /// §10), after the argument checks. The same-file check runs in
+    /// [`warden::Engine::write_in`] on every write: a cache keyed by `id(conn)` would trust a
+    /// new connection that reuses a dropped one's id (OQ-034 (a)).
+    fn foreign_conn(&self, conn: &Bound<'_, PyAny>, allow_autocommit: bool) -> PyResult<Py<PyAny>> {
+        let py = conn.py();
+        if matches!(&*self.inner, Inner::Memory(_)) {
+            return Err(PyValueError::new_err(
+                "conn= needs an Engine.sqlite() engine on the same database file",
+            ));
+        }
+        let class = py.import("sqlite3")?.getattr("Connection")?;
+        if !conn.is_instance(&class)? {
+            return Err(PyTypeError::new_err(format!(
+                "conn must be a sqlite3.Connection, not {}",
+                conn.get_type().name()?
+            )));
+        }
+        if !allow_autocommit && !conn.getattr("in_transaction")?.extract::<bool>()? {
+            return Err(PyValueError::new_err(
+                "conn has no open transaction, so this write would commit on its own and not \
+                 atomically with the application's data; run BEGIN IMMEDIATE first, or pass \
+                 allow_autocommit=True",
+            ));
+        }
+        Ok(conn.clone().unbind())
+    }
+
     fn check_request(
         args: &Bound<'_, PyTuple>,
         at_least: Option<&Bound<'_, PyAny>>,
@@ -264,6 +292,13 @@ impl Engine {
         })
     }
 
+    /// Applies a batch at one new revision and returns it.
+    ///
+    /// With `conn` (a `sqlite3.Connection` to this engine's database file, inside a
+    /// transaction the application controls), the batch runs in that transaction and is
+    /// neither committed nor rolled back here: the revision becomes readable only when the
+    /// application commits, and is void if it rolls back (`docs/05-storage.md` §10).
+    /// Without an open transaction this raises `ValueError` unless `allow_autocommit=True`.
     #[pyo3(signature = (*, touch=None, create=None, delete=None, preconditions=None, conn=None, allow_autocommit=false))]
     #[allow(clippy::too_many_arguments)]
     fn write<'py>(
@@ -276,11 +311,15 @@ impl Engine {
         conn: Option<&Bound<'py, PyAny>>,
         allow_autocommit: bool,
     ) -> PyResult<Bound<'py, PyAny>> {
-        if conn.is_some() || allow_autocommit {
-            return Err(PyNotImplementedError::new_err(
-                "foreign-transaction writes (conn=) are not implemented yet (T3.2b)",
-            ));
-        }
+        let foreign = match conn {
+            Some(c) => Some(self.foreign_conn(c, allow_autocommit)?),
+            None if allow_autocommit => {
+                return Err(PyValueError::new_err(
+                    "allow_autocommit applies only to a write with conn=",
+                ));
+            }
+            None => None,
+        };
         let mut req = WriteRequest::default();
         if let Some(t) = touch {
             ops(&mut req.ops, t, WriteOp::Touch)?;
@@ -300,7 +339,15 @@ impl Engine {
                 req.preconditions.push(p.get().inner.clone());
             }
         }
-        let rev = run!(py, self.inner, e => e.write(req)).py(py)?;
+        let rev = match (&foreign, &*self.inner) {
+            (Some(conn), Inner::Sqlite(s)) => py
+                .detach(|| {
+                    let _one = s.serial.lock().unwrap_or_else(PoisonError::into_inner);
+                    Python::attach(|_| s.engine.write_in(&mut PyTxn::foreign(conn), req))
+                })
+                .py(py)?,
+            _ => run!(py, self.inner, e => e.write(req)).py(py)?,
+        };
         revision(py, rev)
     }
 

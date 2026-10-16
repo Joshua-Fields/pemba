@@ -566,29 +566,38 @@ reads outside `gc_horizon..=head` failing. Cases drive the store only through
 
 ## 10. Foreign-transaction mode (Python, SQLite)
 
-`engine.write(updates, conn=sqlite3_connection)`:
+`engine.write(updates, conn=sqlite3_connection)` (T3.2b):
 
-1. `warden-py` wraps the Python connection in a `WriteTxn` (`warden-store-pysqlite`'s
-   `PyTxn` is the adapter the native Python writes already use, T3.2a). The app's
-   connection and the engine's connections are the same SQLite library (§4.4), which is
-   what makes sharing a file in one process safe:
-   - `execute` → `cursor.execute(sql, params)`; return `cursor.rowcount`.
-   - `query` → `cursor.execute(...)` then `fetchall()`.
-   - `last_insert_id` → `cursor.lastrowid`.
-   - Map `sqlite3.IntegrityError` → `StoreError::UniqueViolation`; other DB-API errors →
-     `StoreError::Foreign{ message }`.
-2. Runs the shared write algorithm (§5) with the GIL **held** (it calls Python).
+1. `warden-py` wraps the Python connection in a `WriteTxn`: `PyTxn::foreign`, the adapter
+   the native Python writes use (T3.2a) with foreign error mapping. The app's connection
+   and the engine's connections are the same SQLite library (§4.4), which is what makes
+   sharing a file in one process safe:
+   - `execute` → `conn.execute(sql, params)`; return `cursor.rowcount`.
+   - `query` → `conn.execute(...)` then `fetchall()`.
+   - `last_insert_id` → `SELECT last_insert_rowid()` on the same connection.
+   - Errors are classified by `sqlite3.Error.sqlite_errorcode`:
+     `SQLITE_CONSTRAINT_UNIQUE` → `StoreError::UniqueViolation`; `SQLITE_BUSY_SNAPSHOT`,
+     `SQLITE_BUSY` and `SQLITE_LOCKED` → the retryable `StoreError::Conflict`; any other
+     error → `StoreError::Foreign { message }` (OQ-034 (d)).
+2. Runs `Engine::write_in`, i.e. the shared write algorithm (§5), with the GIL **held**
+   and the engine's request lock taken, like every SQLite-engine request (§4.4).
 3. Does **not** commit or roll back. Returns the revision.
 4. The caller commits. Until then, readers (engine connections) do not see the revision;
-   `AtLeast(rev)` before commit → `Err(RevisionNotYetAvailable)`.
+   `AtLeast(rev)` before commit → `Err(RevisionNotYetAvailable)` (`ConsistencyError`).
+   After a rollback the revision is void and a later write may be given the same number.
 
 Guard rails:
-- The engine must verify the foreign connection points at the **same database file**
-  (`PRAGMA database_list` on both, compare `file` paths after canonicalisation). Mismatch →
-  `Err(ForeignConnectionMismatch)`. Do this once per connection object (cache by `id(conn)`).
-- If the foreign connection is in autocommit mode (`conn.isolation_level is None` and no
-  open transaction / `conn.in_transaction == False`), raise `ValueError` explaining that the
-  write would not be atomic with app data — unless `allow_autocommit=True` is passed.
+- `conn` must be a `sqlite3.Connection` (or subclass), else `TypeError`; `conn=` on a
+  memory engine is a `ValueError` (OQ-034 (b)).
+- The engine verifies the foreign connection points at the **same database file**
+  (`PRAGMA database_list` on both, compare `file` paths after canonicalisation). Mismatch
+  (including an in-memory connection) → `Err(ForeignConnectionMismatch)`. The check runs
+  on **every** write, not cached by `id(conn)`: ids are reused after garbage collection,
+  so a cache could trust a connection to another file (OQ-034 (a)).
+- If the foreign connection has no open transaction (`conn.in_transaction` is false,
+  whatever its `isolation_level`), raise `ValueError` explaining that the write would not
+  be atomic with app data — unless `allow_autocommit=True` is passed, in which case the
+  write commits on its own (OQ-034 (c)).
 
 Postgres later: same pattern with psycopg (`%s` placeholders via dialect) and revision order
 needing a transaction-level advisory lock or an `xid8`-snapshot scheme — open question.

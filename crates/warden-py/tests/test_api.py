@@ -1,4 +1,4 @@
-"""Every method of ``docs/06-api.md`` §2.2 except foreign transactions (T3.2b)."""
+"""Every method of ``docs/06-api.md`` §2.2; foreign transactions are in ``test_foreign_txn.py``."""
 
 from __future__ import annotations
 
@@ -73,11 +73,6 @@ def test_write_ops_accept_relationship_objects(engine: warden.Engine) -> None:
 def test_write_rejects_a_bare_string(engine: warden.Engine) -> None:
     with pytest.raises(TypeError):
         engine.write(touch="document:d#viewer@user:anne")
-
-
-def test_write_conn_is_t3_2(engine: warden.Engine) -> None:
-    with pytest.raises(NotImplementedError):
-        engine.write(touch=["document:d#viewer@user:anne"], conn=object())
 
 
 def test_preconditions(engine: warden.Engine) -> None:

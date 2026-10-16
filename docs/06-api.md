@@ -305,7 +305,7 @@ longer subtracts `banned`. It is not an audit log.
 
 ```python
 import sqlite3
-from warden import Engine, Consistency
+from warden import Engine
 
 engine = Engine.sqlite("app.db")              # or Engine.memory()
 engine.write_schema(open("authz.zed").read())
@@ -349,7 +349,7 @@ class Engine:
               create: Iterable[str | Relationship] = (),
               delete: Iterable[str | Relationship] = (),
               preconditions: Iterable["Precondition"] = (),
-              conn: Any | None = None, allow_autocommit: bool = False) -> Revision: ...  # conn: T3.2b
+              conn: Any | None = None, allow_autocommit: bool = False) -> Revision: ...  # 05 §10
     def delete_relationships(self, *, resource_type: str, resource_id: str | None = None,
                              relation: str | None = None, subject_type: str | None = None,
                              subject_id: str | None = None,
@@ -423,6 +423,11 @@ Rules:
   and hold the GIL throughout, because every statement is a call into `sqlite3` (§2.5,
   OQ-033 (b)). Other Python threads still run while SQLite itself works or waits on a
   lock (`sqlite3` releases the GIL there).
+- `write(..., conn=c)` runs the batch inside `c`'s open transaction (`05` §10): `c` is a
+  `sqlite3.Connection` on the engine's database file (else `TypeError`, or
+  `StorageError` `FOREIGN_CONNECTION_MISMATCH` for another file); the caller commits or
+  rolls back, and the returned revision is readable only after commit. No open
+  transaction → `ValueError` unless `allow_autocommit=True`. Memory engine → `ValueError`.
 - `Engine` is thread-safe; share one instance per process. Not fork-safe: create it after
   forking (document for gunicorn `--preload` users).
 - Dataclass-like result types (`Relationship`, `Precondition`, `CheckResult`,

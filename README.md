@@ -9,6 +9,40 @@ writes can join your application's own database transaction.
 
 **Status:** pre-alpha. Nothing works yet; see `docs/08-milestones.md` for the plan.
 
+## Python quick start
+
+```bash
+# not on PyPI yet; build from source: cd crates/warden-py && maturin develop
+```
+
+The relationship write below commits atomically with the application's own row: it runs
+inside the app's `sqlite3` transaction and becomes visible only when that transaction
+commits (`docs/05-storage.md` §10). This example is run verbatim in CI
+(`crates/warden-py/tests/test_readme_example.py`), with `authz.zed` and a `documents`
+table set up first.
+
+```python
+import sqlite3
+from warden import Engine
+
+engine = Engine.sqlite("app.db")              # or Engine.memory()
+engine.write_schema(open("authz.zed").read())
+
+rev = engine.write(touch=["document:readme#viewer@user:anne"])
+engine.check("document:readme", "view", "user:anne", at_least=rev)    # True
+engine.check("document:readme#view@user:bob")                          # single-string form
+
+engine.lookup_resources("document", "view", "user:anne")              # LookupResult(ids=[...], cursor=None, revision=..)
+engine.lookup_subjects("document:readme", "view", "user")             # SubjectsResult(ids, wildcard, excluded, revision)
+
+# transactional with app data (headline feature)
+conn = sqlite3.connect("app.db", isolation_level=None)
+conn.execute("BEGIN IMMEDIATE")
+conn.execute("INSERT INTO documents(id, title) VALUES (?, ?)", ("readme", "Readme"))
+rev = engine.write(touch=["document:readme#owner@user:anne"], conn=conn)
+conn.execute("COMMIT")
+```
+
 ## Python and SQLite
 
 `Engine.sqlite()` stores relationships through **CPython's own `sqlite3` module**. The
