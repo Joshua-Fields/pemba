@@ -11,8 +11,8 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
+use warden_fixtures::{self as fixtures, StoreKind};
 use warden_schema::{SchemaError, compile};
-use warden_testkit::fixtures::{self, StoreKind};
 
 #[derive(Parser)]
 #[command(

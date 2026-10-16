@@ -7,7 +7,7 @@ optimised code path is checked against something simpler.
 |---|---|---|
 | Unit tests | `cargo test` | next to code |
 | Snapshot tests (diagnostics, IR, pretty-print) | `insta` | `warden-schema` |
-| Fixture scenarios (YAML) | `warden-testkit` runner | `testdata/fixtures/` |
+| Fixture scenarios (YAML) | `warden-fixtures` runner + `warden-testkit` oracle | `testdata/fixtures/` |
 | Reference-evaluator property tests | `proptest` | `warden-testkit`, `warden-core` |
 | Store conformance | generic suite | `warden-testkit::store_conformance` (memory, SQLite, Python SQLite) |
 | Differential vs SpiceDB | Docker + HTTP | `warden-difftest` (`#[ignore]`, CI job) |
@@ -174,10 +174,14 @@ expectErrors:                       # optional: schema or write must fail with t
   must fail with, compared as a multiset. A write failure that is not a relationship
   validation error is named by `Error::code()` (e.g. `DUPLICATE_IN_BATCH`). A fixture with
   `expectErrors` has no assertions or steps.
-- Runner: `warden-testkit::fixtures::run(path, store_kind)` and the CLI `warden test`.
+- Runner: the publishable `warden-fixtures` crate (format + engine-only runner, which the
+  CLI `warden test` uses) and `warden-testkit::fixtures::run(path, store_kind)`, the same
+  runner with the reference evaluator plugged in as its `Oracle` (OQ-024, T3.3). warden's
+  own tests use the testkit form.
   Each fixture runs against **both** memory and SQLite stores (memory only until the SQLite
   store lands in M2; adding a store kind is one `StoreKind` variant and one match arm).
-- **Every `assertTrue` / `assertFalse` is cross-checked**: the runner answers it with the
+- **Every `assertTrue` / `assertFalse` is cross-checked** (testkit form; `warden test`
+  checks the engine alone): the runner answers it with the
   engine and with the reference evaluator (§2.1) over its own model of the live tuples, and
   reports a failure naming each of the two that disagrees with the file. Objects the
   assertions name are added to the oracle's universe. If the oracle declines the schema

@@ -20,8 +20,8 @@ workspace = true
 warden = { workspace = true, features = ["sqlite", "memory"] }
 warden-schema.workspace = true
 clap.workspace = true
-# `warden test` runs fixtures with the testkit runner (docs/07-testing.md §3).
-warden-testkit.workspace = true
+# `warden test` runs fixtures against the engine alone (docs/07-testing.md §3, OQ-024).
+warden-fixtures.workspace = true
 
 [dev-dependencies]
 insta.workspace = true

@@ -23,7 +23,8 @@ warden/
 │   ├── warden-store-pysqlite/  # CPython's sqlite3, for warden-py (ADR-006, publish = false)
 │   ├── warden/                 # facade: re-exports core + stores behind features
 │   ├── warden-cli/             # binary `warden`
-│   ├── warden-testkit/         # reference evaluator, generators, fixture runner, conformance suite (publish = false)
+│   ├── warden-fixtures/        # fixture format + engine-only runner (`warden test`), with an oracle hook
+│   ├── warden-testkit/         # reference evaluator (the fixture oracle), generators, conformance suite (publish = false)
 │   ├── warden-difftest/        # SpiceDB differential tests (publish = false)
 │   └── warden-py/              # PyO3 bindings + python/warden/*.py, *.pyi, tests/, ci/
 ├── testdata/
@@ -36,9 +37,12 @@ warden/
 Dependency direction (no cycles, enforced by review):
 `schema` ← `core` ← `sqlite-common` ← `store-*` ← `warden` ← `cli`, `py`; `py` uses
 `warden` without its `sqlite` feature plus `store-pysqlite`, and must never link rusqlite
-(CI checks the built extension); `testkit` depends on `core` + stores
-(dev-dependency elsewhere, except `cli`, whose `warden test` runs the fixture runner, until
-T3.3 moves the fixture format and runner into a small publishable crate: OQ-024).
+(CI checks the built extension); `fixtures` depends on `core`, `schema` and
+`store-memory`, and `cli` depends on it for `warden test`; `testkit` depends on `core`,
+the stores and `fixtures`, and is only ever a dev-dependency (OQ-024). Its workspace entry
+has no version, so `cargo publish` strips it from published crates' dev-dependencies, and
+`cargo deny` (`allow-wildcard-paths`) still refuses it as a normal dependency of a
+published crate.
 
 Facade features: `sqlite` (default), `memory` (default).
 
@@ -104,8 +108,14 @@ Other conventions:
   `--ignored` in `warden-testkit`'s `properties` test), `cargo deny check`,
   `cargo doc`, Python tests (`maturin develop`, `pytest`, `mypy --strict` on the tests and
   sample) on ubuntu, macos and windows, coverage report (ubuntu).
-- `wheels.yml` (tag + manual): maturin-action matrix for ADR-014 platforms; smoke test;
-  upload artifacts. Publishing to PyPI/crates.io is a manual human step.
+- `wheels.yml` (tag + manual, and PRs touching it or the Python packaging):
+  maturin-action builds one abi3 (`cp311-abi3`) wheel per ADR-014 platform (manylinux
+  2_17 x86_64 and aarch64, macOS arm64 and x86_64, Windows x86_64), checks it contains no
+  SQLite (`ci/check_no_sqlite.py`), then installs each wheel on its platform (aarch64
+  under QEMU, macOS x86_64 under Rosetta 2) with CPython 3.11 and 3.14 and runs the whole
+  pytest suite against it. Wheels are uploaded as artifacts only.
+- `ci.yml` `publish` job: `cargo publish --workspace --dry-run` for every publishable
+  crate. Publishing to PyPI/crates.io is a manual human step.
 - `proptest.yml` (manual): the same property 1 run at a larger `PROPTEST_CASES` (an
   input), for soaking. Test builds use `opt-level = 3` for `warden-core`, `warden-testkit`,
   `warden-store-memory` and `warden-schema` (`[profile.test.package.*]`).

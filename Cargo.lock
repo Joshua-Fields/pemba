@@ -945,8 +945,8 @@ dependencies = [
  "clap",
  "insta",
  "warden",
+ "warden-fixtures",
  "warden-schema",
- "warden-testkit",
 ]
 
 [[package]]
@@ -964,6 +964,18 @@ name = "warden-difftest"
 version = "0.0.0"
 dependencies = [
  "warden-testkit",
+]
+
+[[package]]
+name = "warden-fixtures"
+version = "0.0.0"
+dependencies = [
+ "serde",
+ "serde-saphyr",
+ "thiserror",
+ "warden-core",
+ "warden-schema",
+ "warden-store-memory",
 ]
 
 [[package]]
@@ -1029,11 +1041,9 @@ name = "warden-testkit"
 version = "0.0.0"
 dependencies = [
  "proptest",
- "serde",
- "serde-saphyr",
- "thiserror",
  "tracing",
  "warden-core",
+ "warden-fixtures",
  "warden-schema",
  "warden-store-memory",
  "warden-store-sqlite",

@@ -417,6 +417,7 @@ it is resolved.
   reference-evaluator (oracle) cross-check stays in `warden-testkit` as an optional hook
   the runner accepts, used by internal tests only; the published CLI runs fixtures against
   the engine alone. `warden-testkit` stays `publish = false`
+- Done in T3.3: crate `warden-fixtures` (OQ-035 (a)).
 
 ## OQ-025 — SQLite store details decided in T2.1
 - Raised in: T2.1 (`docs/05-storage.md` §2, §4, §6; `docs/06-api.md` §1)
@@ -841,5 +842,36 @@ it is resolved.
   Python API never had (consistency is the `at_least` / `at_exactly` keywords, §2.2), so
   it could not run verbatim. The import was removed; the example is now in the README and
   runs in CI (`tests/test_readme_example.py`), which also checks the two copies match.
+## OQ-035 — Release pipeline details decided in T3.3
+- Raised in: T3.3 (ADR-014, `docs/09-repo-and-tooling.md` §1, §4, OQ-024)
+- Blocking: no
+- Current choice:
+  (a) The fixture format and engine-only runner are the publishable crate
+  `warden-fixtures` (codename prefix like every other crate; renamed with the rest under
+  ADR-012). The oracle hook is a trait pair, `Oracle` (`name`, `view`) and `OracleView`
+  (`check`, `lookup_resources`, `lookup_subjects`); `OracleError::Declined` is a warning,
+  `Failed` a failure, as `NotStratifiable` and other reference errors were before.
+  `warden_testkit::fixtures::{run, run_str}` keep their signatures and plug in
+  `ReferenceOracle`, so every internal fixture test is still cross-checked.
+  (b) `warden test` therefore no longer prints the oracle's opinion: a failing assertion
+  reads "engine says false", not "engine says false; reference evaluator says false". The
+  one CLI test pinning that text was updated (resolution of OQ-024: "the published CLI
+  runs fixtures against the engine alone").
+  (c) `warden-testkit`'s workspace entry is path-only (no `version`), so `cargo publish`
+  strips it from published crates' dev-dependencies; `deny.toml` sets
+  `allow-wildcard-paths = true`, which (checked) still fails a published crate that
+  depends on it normally.
+  (d) Publishable: `warden-schema`, `warden-core`, `warden-store-memory`,
+  `warden-sqlite-common`, `warden-store-sqlite`, `warden`, `warden-fixtures`,
+  `warden-cli`. Not: `warden-testkit`, `warden-difftest`, `warden-store-pysqlite`,
+  `warden-py` (PyPI only). Manifests have no `repository` / `documentation` yet (cargo
+  warns); left for the human with the final name.
+  (e) Wheel smoke tests run on runners assumed available to a private repository:
+  manylinux aarch64 under QEMU (`python:*-slim-bookworm` arm64 container) and macOS
+  x86_64 as an x86_64 CPython under Rosetta 2 on the Apple-silicon runner, rather than
+  native arm64 Linux / Intel macOS runners. Each runs the whole pytest suite against the
+  installed wheel on CPython 3.11 (abi3 floor) and 3.14.
+  (f) manylinux 2_17 (manylinux2014) for both Linux wheels: the oldest glibc maturin and
+  Rust support; the Rocky Linux 8 job (glibc 2.28) covers an old real system.
 - Resolve by: human review
 - Resolution: (fill in)
