@@ -130,7 +130,8 @@ them, never `set -x` around them, and do not expose them to workflows triggered 
   `PROPTEST_CASES` (10 000 on the weekly run; an input on a manual run), for soaking.
   Test builds use `opt-level = 3` for `warden-core`, `warden-testkit`,
   `warden-store-memory` and `warden-schema` (`[profile.test.package.*]`).
-- `difftest.yml` (weekly + manual): SpiceDB in Docker, `cargo test -p warden-difftest -- --ignored`.
+- `difftest.yml` (weekly + manual): SpiceDB `serve-testing` (`authzed/spicedb:v1.56.2`) in
+  Docker, `cargo test -p warden-difftest --test difftest -- --ignored` (`07` §4).
 - `oq032-probe.yml` (manual, and PRs touching the probe): the T3.2 SQLite-copies probe.
 - `fuzz.yml` (manual): nightly toolchain, each target for a fixed time.
 - Weekly: `cargo-mutants` on `warden-core::eval` and `warden-schema` validator.
