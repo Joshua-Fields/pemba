@@ -4,7 +4,8 @@
 //! Property 1 runs on the memory store only; the SQLite store arrives in M2, and on both
 //! generator variants ([`SubSides`]). Plain `cargo test` runs each for 64 cases; the
 //! `#[ignore]`d `prop1_*_full` tests (`cargo test -- --ignored`, ci.yml's `prop1` job, and
-//! the manual `proptest.yml` workflow) run at least 1 000, or `PROPTEST_CASES` if higher.
+//! the weekly and manual `proptest.yml` workflow) run at least 1 000, or `PROPTEST_CASES`
+//! if higher.
 //! Property 5 (memory store ≡ SQLite store) runs 64 cases plainly and at least 1 000 in
 //! `prop5_*_full`, likewise ignored. Property 4 (historical reads at `Exact(r)`, on both
 //! stores) likewise: 64 cases plainly, at least 1 000 in the ignored `prop4_*_full`. So

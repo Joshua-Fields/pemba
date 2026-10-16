@@ -127,6 +127,23 @@ jobs:
           python -c "import warden; assert warden.MIN_SQLITE_VERSION == '3.26.0'"
           pytest -q
 
+  prop1:
+    # Properties 1 to 5 and schema change at >= 1 000 cases each, on every PR (Linux only).
+    name: property 1, 1000 cases
+    runs-on: ubuntu-latest
+    # ~1 min since T1.4c bounded check cost (OQ-021); the cap catches a regression to
+    # exponential cost instead of letting it run for the default six hours.
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: Swatinem/rust-cache@v2
+      # Only the properties binary: warden-difftest's ignored tests need SpiceDB
+      # (difftest.yml). `prop1_*_full`, `prop4_*_full` (historical reads, both stores, ~8 s)
+      # `prop5_*_full` (memory ≡ SQLite, ~25 s), `prop2_*_full` (lookup_resources, both
+      # stores, ~8 s), `prop3_*_full` (lookup_subjects, both stores, ~8 s) and
+      # `schema_change_*_full` run at least 1 000 cases each; `prop4_*_full` includes GC.
+      - run: cargo test -p warden-testkit --test properties -- --ignored
+
   publish:
     # Every publishable crate packages and builds from its .crate alone (T3.3). Never
     # uploads: publishing is a manual human step.
