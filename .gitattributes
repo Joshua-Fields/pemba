@@ -4,3 +4,7 @@
 
 # Fixtures are LF in the repository; the runner also accepts CRLF (docs/07-testing.md §3).
 *.yaml text eol=lf
+
+# Migration scripts are embedded with include_str!; a CRLF checkout would store different
+# schema SQL text in sqlite_master on Windows than on every other platform.
+*.sql text eol=lf
