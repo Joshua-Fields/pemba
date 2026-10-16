@@ -115,6 +115,21 @@ pub enum Error {
         /// The relation it was found on, e.g. `doc#banned`.
         relation: String,
     },
+    /// A `check` (or a `lookup_resources` candidate) with a subject-set subject `t:x#r`
+    /// reached a stored wildcard `t:*` under the subtracted side of an exclusion. warden's
+    /// wildcards never match subject sets, SpiceDB's do, so the answer would differ between
+    /// them and warden's would be the more permissive one; it refuses to answer
+    /// (`docs/04-evaluation.md` §3.3, KD-3).
+    #[error(
+        "ambiguous: wildcard {wildcard} on the subtracted side of an exclusion; whether it \
+         excludes the subject set {subject} is not defined"
+    )]
+    AmbiguousWildcardExclusion {
+        /// The stored wildcard tuple, e.g. `doc:d#banned@group:*`.
+        wildcard: String,
+        /// The request's subject set, e.g. `group:eng#member`.
+        subject: String,
+    },
     /// `lookup_resources` visited more than `EngineConfig::max_lookup_nodes` nodes while
     /// generating candidates (`docs/04-evaluation.md` §5.1).
     #[error("lookup visited more than {max} nodes")]
@@ -199,6 +214,7 @@ impl Error {
         "FANOUT_EXCEEDED",
         "READ_LIMIT_EXCEEDED",
         "STALE_RELATIONSHIP",
+        "AMBIGUOUS_WILDCARD_EXCLUSION",
         "LOOKUP_TOO_LARGE",
         "NOT_MIGRATED",
         "STORAGE_VERSION_TOO_NEW",
@@ -229,6 +245,7 @@ impl Error {
             Self::FanoutExceeded { .. } => "FANOUT_EXCEEDED",
             Self::ReadLimitExceeded { .. } => "READ_LIMIT_EXCEEDED",
             Self::StaleRelationship { .. } => "STALE_RELATIONSHIP",
+            Self::AmbiguousWildcardExclusion { .. } => "AMBIGUOUS_WILDCARD_EXCLUSION",
             Self::LookupTooLarge { .. } => "LOOKUP_TOO_LARGE",
             Self::NotMigrated => "NOT_MIGRATED",
             Self::StorageVersionTooNew { .. } => "STORAGE_VERSION_TOO_NEW",
@@ -266,6 +283,7 @@ mod tests {
             | Error::FanoutExceeded { .. }
             | Error::ReadLimitExceeded { .. }
             | Error::StaleRelationship { .. }
+            | Error::AmbiguousWildcardExclusion { .. }
             | Error::LookupTooLarge { .. }
             | Error::NotMigrated
             | Error::StorageVersionTooNew { .. }
@@ -306,6 +324,10 @@ mod tests {
             Error::StaleRelationship {
                 tuple: s(),
                 relation: s(),
+            },
+            Error::AmbiguousWildcardExclusion {
+                wildcard: s(),
+                subject: s(),
             },
             Error::LookupTooLarge { max: 1 },
             Error::NotMigrated,
