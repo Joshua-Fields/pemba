@@ -8,3 +8,7 @@
 # Migration scripts are embedded with include_str!; a CRLF checkout would store different
 # schema SQL text in sqlite_master on Windows than on every other platform.
 *.sql text eol=lf
+
+# rustfmt.toml sets newline_style = "Unix", so `cargo fmt --check` fails on every Rust file a
+# Windows checkout with core.autocrlf=true converts to CRLF.
+*.rs text eol=lf
