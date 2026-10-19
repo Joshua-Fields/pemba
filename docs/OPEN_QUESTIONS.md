@@ -1043,3 +1043,16 @@ it is resolved.
 - Resolve by: make both measure the same table size (a fixed number of batches per sample,
   or a fresh database per sample), then compare
 - Resolution: (fill in)
+
+## OQ-041 — `Span::new` accepts an inverted span
+- Raised in: pre-release sweep (2026-10-19), cargo-mutants on `compile.rs`
+- Blocking: no
+- Current choice: `pemba_schema::Span::new(start, end)` (public, `const fn`) builds any
+  span, including `start > end`. A mutant of `ident_error` produced `Span::new(57, 56)` and
+  nothing objected; the diagnostic renderer drew it as a one-column caret, so only a test
+  asserting the span itself (`ident_format_highlights_exactly_the_offending_character`)
+  caught it.
+- Resolve by: after 0.1.0-alpha.1, add `debug_assert!(start <= end)` to `Span::new` (allowed
+  in a `const fn`), so an inverted span fails in tests and debug builds without changing
+  release behaviour; run the schema test suite and the fuzz targets with it
+- Resolution: (fill in)
