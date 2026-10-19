@@ -65,6 +65,20 @@ fn ident_format_type_prefix() {
 }
 
 #[test]
+fn ident_format_highlights_exactly_the_offending_character() {
+    // The rendered caret is one column wide even for an empty span, so the snapshots
+    // cannot tell `_` (one byte) from nothing; pin the span itself (cargo-mutants, T3.6).
+    let src = "definition user {}\ndefinition doc {\n    relation trailing_: user\n}";
+    let errs = errors(src);
+    let [e] = errs.errors.as_slice() else {
+        panic!("one error expected: {errs}");
+    };
+    assert_eq!(e.code, ErrorCode::IdentFormat);
+    let at = src.find("trailing_").unwrap() + "trailing".len();
+    assert_eq!((e.span.start, e.span.end), (at, at + 1), "{errs}");
+}
+
+#[test]
 fn ident_format_member_names() {
     check(
         "ident_format_member_names",
