@@ -299,6 +299,20 @@ schema and relationships move over as they are. The exceptions are listed in
 through a subject set (KD-2), and answers differ for cyclic data and for wildcards against
 subject sets (KD-1, KD-3).
 
+## Testing
+
+- Property tests against a naive reference evaluator: `check`, `lookup_resources` and
+  `lookup_subjects` agree with it, `check` at an exact revision survives interleaved writes,
+  deletes and GC, and the memory and SQLite stores return identical results. Each runs
+  1,000+ generated cases ([`docs/07-testing.md`](https://github.com/Joshua-Fields/pemba/blob/main/docs/07-testing.md) §2).
+- Differential testing against SpiceDB (a pinned release) on every fixture and at least 500
+  generated cases. Every difference is listed with a repro in
+  [`KNOWN_DIFFERENCES.md`](https://github.com/Joshua-Fields/pemba/blob/main/crates/pemba-difftest/KNOWN_DIFFERENCES.md).
+- Fuzzing: three cargo-fuzz targets (schema parser, relationship parser, and `check` against
+  the reference evaluator), each run for at least 10 minutes before a release.
+- Mutation testing on the evaluator and schema validator: 202 mutants, 0 survivors
+  ([`docs/MUTANTS.md`](https://github.com/Joshua-Fields/pemba/blob/main/docs/MUTANTS.md)).
+
 ## Documentation
 
 The specification lives in [`docs/`](https://github.com/Joshua-Fields/pemba/tree/main/docs/); start with
