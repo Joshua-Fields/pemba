@@ -1,5 +1,5 @@
 ---
-source: crates/warden-schema/tests/compile_errors.rs
+source: crates/pemba-schema/tests/compile_errors.rs
 description: "definition user {\n    relation aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa: user\n}"
 ---
 error[E_IDENT_FORMAT]: relation name `aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa` must be at most 64 characters

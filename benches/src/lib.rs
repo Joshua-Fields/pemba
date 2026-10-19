@@ -83,7 +83,7 @@ pub enum Op {
 pub struct Scenario {
     /// The name in `docs/07-testing.md` §7, e.g. `groups_depth_5`.
     pub name: String,
-    /// Relationships to load first, in warden's tuple syntax.
+    /// Relationships to load first, in pemba's tuple syntax.
     pub tuples: Vec<String>,
     /// The operation timed.
     pub op: Op,
@@ -250,7 +250,7 @@ mod tests {
     fn every_tuple_parses() {
         for s in scenarios() {
             for t in &s.tuples {
-                t.parse::<warden::model::Relationship>()
+                t.parse::<pemba::model::Relationship>()
                     .unwrap_or_else(|e| panic!("{}: {t}: {e}", s.name));
             }
         }
@@ -258,8 +258,8 @@ mod tests {
 
     #[test]
     fn schema_compiles() {
-        let e = warden::Engine::builder()
-            .store(warden::MemoryStore::new())
+        let e = pemba::Engine::builder()
+            .store(pemba::MemoryStore::new())
             .build()
             .unwrap();
         e.write_schema(SCHEMA).unwrap();

@@ -8,15 +8,15 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use warden::model::{
+use pemba::model::{
     Consistency, ObjectRef, RelName, Relationship, RelationshipFilter, Revision, SubjectRef,
     WriteOp, WriteRequest,
 };
-use warden::store::{
+use pemba::store::{
     DeleteResult, ReadStore, RelationCount, ReverseFilter, SchemaCheck, StoreError, StoredSchema,
     WritableStore,
 };
-use warden::{CheckItem, CheckRequest, Engine, EngineConfig, Error, MemoryStore};
+use pemba::{CheckItem, CheckRequest, Engine, EngineConfig, Error, MemoryStore};
 
 // ---------------------------------------------------------------------------------------
 // Helpers
@@ -1656,7 +1656,7 @@ fn check_bulk_memo_does_not_hide_the_ambiguity() {
 #[test]
 fn lookup_resources_fails_closed_on_the_ambiguity() {
     let e = engine(AMBIGUOUS_SCHEMA, AMBIGUOUS_DATA);
-    let got = e.lookup_resources(warden::LookupResourcesRequest::new(
+    let got = e.lookup_resources(pemba::LookupResourcesRequest::new(
         "page".parse().unwrap(),
         "view".parse().unwrap(),
         "grp:g#member".parse().unwrap(),
@@ -1667,7 +1667,7 @@ fn lookup_resources_fails_closed_on_the_ambiguity() {
     );
     // On the grant side it answers.
     let got = e
-        .lookup_resources(warden::LookupResourcesRequest::new(
+        .lookup_resources(pemba::LookupResourcesRequest::new(
             "page".parse().unwrap(),
             "banned_too".parse().unwrap(),
             "grp:g#member".parse().unwrap(),

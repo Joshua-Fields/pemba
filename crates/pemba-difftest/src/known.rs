@@ -1,4 +1,4 @@
-//! The documented differences between warden and SpiceDB (`KNOWN_DIFFERENCES.md`).
+//! The documented differences between pemba and SpiceDB (`KNOWN_DIFFERENCES.md`).
 //!
 //! Each entry's detector recognises a mismatch it explains; the harness counts those and
 //! fails on every other mismatch. Detectors are narrow on purpose: one that matched too
@@ -7,29 +7,29 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use warden_core::model::{ObjectRef, SubjectRef, TypeName};
+use pemba_core::model::{ObjectRef, SubjectRef, TypeName};
 
 use crate::{Answer, DiffCase, Question};
 
-/// `KD-1`: cyclic data. warden evaluates cycles to a fixed point (ADR-009); SpiceDB
+/// `KD-1`: cyclic data. pemba evaluates cycles to a fixed point (ADR-009); SpiceDB
 /// dispatches until its depth limit and fails with "max depth exceeded".
 pub const CYCLIC_DATA: &str = "KD-1 cyclic data";
 
 /// `KD-2`: SpiceDB refuses a schema in which a subject set or an arrow reaches a relation
-/// that allows a wildcard; warden accepts it (wildcards stay concrete objects only, KD-3).
+/// that allows a wildcard; pemba accepts it (wildcards stay concrete objects only, KD-3).
 pub const WILDCARD_SCHEMA: &str = "KD-2 schema: wildcard reached through subject set or arrow";
 
-/// `KD-3`: a wildcard `t:*` matches a subject-set subject `t:x#r` in SpiceDB; in warden it
+/// `KD-3`: a wildcard `t:*` matches a subject-set subject `t:x#r` in SpiceDB; in pemba it
 /// matches only objects of type `t` (`docs/04-evaluation.md` §3.3). On a granting path
-/// warden says `false` where SpiceDB says `true`. Under an exclusion's subtracted side
-/// warden would say `true` where SpiceDB says `false`, so since T3.4b it fails with
-/// `AMBIGUOUS_WILDCARD_EXCLUSION` instead. Recognised in those two shapes only (warden
+/// pemba says `false` where SpiceDB says `true`. Under an exclusion's subtracted side
+/// pemba would say `true` where SpiceDB says `false`, so since T3.4b it fails with
+/// `AMBIGUOUS_WILDCARD_EXCLUSION` instead. Recognised in those two shapes only (pemba
 /// `true` against SpiceDB `false` is no longer one) by asking both engines again without
 /// the case's `t:*` tuples: they must then agree.
 pub const WILDCARD_SUBJECT_SET: &str = "KD-3 wildcard vs subject-set subject";
 
 /// `KD-4`: near the depth limit (50 in both) one engine answers and the other fails with
-/// a depth error. warden short-circuits left to right (`docs/04-evaluation.md` §3.4);
+/// a depth error. pemba short-circuits left to right (`docs/04-evaluation.md` §3.4);
 /// SpiceDB dispatches branches concurrently and can fail on one past its limit before
 /// another grants, depending on timing.
 pub const DEPTH_ACCOUNTING: &str = "KD-4 depth limit near 50";
@@ -47,7 +47,7 @@ pub const ALL: &[&str] = &[
 const DEEP_CHAIN: usize = 20;
 
 /// Asks a question again on both engines without one type's wildcard tuples (KD-3):
-/// `(warden, SpiceDB)`, or `None` if that could not be done.
+/// `(pemba, SpiceDB)`, or `None` if that could not be done.
 pub(crate) type Reask<'a> = dyn FnMut(&TypeName, &Question) -> Option<(Answer, Answer)> + 'a;
 
 /// The setup error SpiceDB gives for a [`WILDCARD_SCHEMA`] schema.
@@ -60,12 +60,12 @@ pub(crate) fn explain_setup(error: &str) -> Option<&'static str> {
 
 /// The `KNOWN_DIFFERENCES.md` entry explaining this mismatch, if any. `without_wildcards`
 /// answers `question` again on both engines after removing the case's `t:*` tuples for
-/// the given type: `(warden, SpiceDB)`, or `None` if that could not be done.
+/// the given type: `(pemba, SpiceDB)`, or `None` if that could not be done.
 pub(crate) fn explain(
     without_wildcards: &mut Reask<'_>,
     case: &DiffCase,
     question: &Question,
-    warden: &Answer,
+    pemba: &Answer,
     spicedb: &Answer,
 ) -> Option<&'static str> {
     let depth_error = |a: &Answer| match a {
@@ -73,16 +73,16 @@ pub(crate) fn explain(
         _ => false,
     };
     let answered = |a: &Answer| !matches!(a, Answer::Error(_));
-    if answered(warden) && depth_error(spicedb) && has_data_cycle(case) {
+    if answered(pemba) && depth_error(spicedb) && has_data_cycle(case) {
         return Some(CYCLIC_DATA);
     }
-    if ((answered(warden) && depth_error(spicedb)) || (depth_error(warden) && answered(spicedb)))
+    if ((answered(pemba) && depth_error(spicedb)) || (depth_error(pemba) && answered(spicedb)))
         && !has_data_cycle(case)
         && longest_chain(case) >= DEEP_CHAIN
     {
         return Some(DEPTH_ACCOUNTING);
     }
-    let kd3_shape = match (warden, spicedb) {
+    let kd3_shape = match (pemba, spicedb) {
         (Answer::Allowed(false), Answer::Allowed(true)) => true,
         (Answer::Error(e), Answer::Allowed(_)) => e.starts_with("AMBIGUOUS_WILDCARD_EXCLUSION"),
         _ => false,
@@ -232,7 +232,7 @@ mod tests {
     /// re-ask without `grp:*` tuples returns `reasked`.
     fn kd3(
         tuples: &[&str],
-        warden: &Answer,
+        pemba: &Answer,
         spicedb: bool,
         reasked: Option<&(Answer, Answer)>,
     ) -> Option<&'static str> {
@@ -250,7 +250,7 @@ mod tests {
             &mut without,
             &case(tuples),
             &q,
-            warden,
+            pemba,
             &Answer::Allowed(spicedb),
         );
         if found.is_some() {
@@ -272,14 +272,14 @@ mod tests {
             kd3(&tuples, &no, true, agree.as_ref()),
             Some(WILDCARD_SUBJECT_SET)
         );
-        // Subtracted side: SpiceDB's wildcard excludes the subject set; warden refuses.
+        // Subtracted side: SpiceDB's wildcard excludes the subject set; pemba refuses.
         assert_eq!(
             kd3(&tuples, &ambiguous, false, agree.as_ref()),
             Some(WILDCARD_SUBJECT_SET)
         );
-        // warden allowing where SpiceDB denies is what T3.4b removed: unexplained.
+        // pemba allowing where SpiceDB denies is what T3.4b removed: unexplained.
         assert_eq!(kd3(&tuples, &yes, false, agree.as_ref()), None);
-        // Some other warden error: unexplained.
+        // Some other pemba error: unexplained.
         let other = Answer::Error("MAX_DEPTH_EXCEEDED: ...".to_owned());
         assert_eq!(kd3(&tuples, &other, false, agree.as_ref()), None);
         // Still disagreeing without the wildcard: something else, unexplained.

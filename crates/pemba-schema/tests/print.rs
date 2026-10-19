@@ -2,8 +2,8 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use warden_schema::compile;
-use warden_schema::ir::CompiledSchema;
+use pemba_schema::compile;
+use pemba_schema::ir::CompiledSchema;
 
 const SPEC_EXAMPLE: &str = include_str!("../../../testdata/schemas/spec_example.zed");
 

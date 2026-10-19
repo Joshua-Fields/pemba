@@ -1,5 +1,5 @@
 ---
-source: crates/warden-schema/tests/parse_errors.rs
+source: crates/pemba-schema/tests/parse_errors.rs
 description: "definition doc {\n    relation viewer: user:* with expiration\n}"
 ---
 error[E_UNSUPPORTED_FEATURE]: expiring relationships are not supported (`with expiration`)
@@ -8,4 +8,4 @@ error[E_UNSUPPORTED_FEATURE]: expiring relationships are not supported (`with ex
 2 |     relation viewer: user:* with expiration
   |                             ^^^^^^^^^^^^^^^
   |
-  = help: remove the `with` clause; warden stores unconditional, non-expiring relationships only
+  = help: remove the `with` clause; pemba stores unconditional, non-expiring relationships only

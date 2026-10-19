@@ -1,5 +1,5 @@
 ---
-source: crates/warden-schema/tests/parse_errors.rs
+source: crates/pemba-schema/tests/parse_errors.rs
 description: "definition doc {\n    permission view = folder.first(view)\n}"
 ---
 error[E_UNSUPPORTED_FEATURE]: arrow function `.first()` is not supported; only `.any()` and `.all()` are

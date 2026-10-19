@@ -1,5 +1,5 @@
 ---
-source: crates/warden-schema/tests/compile_errors.rs
+source: crates/pemba-schema/tests/compile_errors.rs
 description: "definition user {}\ndefinition group {\n    relation member: user\n}\ndefinition doc {\n    relation viewer: group#membr\n}"
 ---
 error[E_UNKNOWN_SUBJECT_RELATION]: `group` has no relation or permission named `membr`

@@ -8,8 +8,8 @@ from __future__ import annotations
 import tempfile
 from pathlib import Path
 
-import warden
-from warden import Engine, Precondition, Relationship, Revision
+import pemba
+from pemba import Engine, Precondition, Relationship, Revision
 
 SCHEMA = """\
 definition user {}
@@ -22,7 +22,7 @@ definition document {
 
 
 def main() -> None:
-    diagnostics: list[warden.Diagnostic] = Engine.validate_schema(SCHEMA)
+    diagnostics: list[pemba.Diagnostic] = Engine.validate_schema(SCHEMA)
     assert diagnostics == []
 
     with tempfile.TemporaryDirectory() as tmp:
@@ -52,19 +52,19 @@ def main() -> None:
     one_string: bool = engine.check("document:readme#view@user:bob", at_exactly=rev)
     assert allowed and one_string
 
-    detailed: warden.CheckResult = engine.check_detailed("document:readme", "view", "user:anne")
+    detailed: pemba.CheckResult = engine.check_detailed("document:readme", "view", "user:anne")
     reads: int = detailed.store_reads
     assert detailed.allowed and reads >= 1
 
-    bulk: list[bool | warden.WardenError] = engine.check_bulk(
+    bulk: list[bool | pemba.PembaError] = engine.check_bulk(
         [("document:readme", "view", "user:anne"), ("document:readme", "nope", "user:anne")]
     )
     for item in bulk:
-        if isinstance(item, warden.WardenError):
+        if isinstance(item, pemba.PembaError):
             code: str = item.code
             assert code == "INVALID_REQUEST"
 
-    page: warden.LookupResult = engine.lookup_resources("document", "view", "user:anne", limit=1)
+    page: pemba.LookupResult = engine.lookup_resources("document", "view", "user:anne", limit=1)
     ids: list[str] = list(page.ids)
     while page.cursor is not None:
         page = engine.lookup_resources(
@@ -73,30 +73,30 @@ def main() -> None:
         ids += page.ids
     assert ids == list(engine.iter_resources("document", "view", "user:anne"))
 
-    subjects: warden.SubjectsResult = engine.lookup_subjects("document:readme", "view", "user")
+    subjects: pemba.SubjectsResult = engine.lookup_subjects("document:readme", "view", "user")
     assert "anne" in subjects and not subjects.wildcard and subjects.excluded == []
 
     rels: list[Relationship] = engine.read_relationships(resource_type="document", subject_id="anne")
     assert {r.resource_id for r in rels} == {"readme", "spec", "old"}
 
-    deleted: warden.DeleteResult = engine.delete_relationships(resource_type="document", resource_id="old")
+    deleted: pemba.DeleteResult = engine.delete_relationships(resource_type="document", resource_id="old")
     assert deleted.deleted == 1 and not deleted.more
 
     head: Revision = engine.head_revision()
-    stats: warden.GcStats = engine.gc(head)
+    stats: pemba.GcStats = engine.gc(head)
     assert stats.horizon == head
 
     try:
         engine.write_schema("definition document { relation reader: nope }")
-    except warden.SchemaError as e:
+    except pemba.SchemaError as e:
         assert [d.code for d in e.diagnostics] == ["E_UNKNOWN_TYPE"]
     try:
         engine.write_schema("definition user {}")
-    except warden.SchemaChangeOrphansError as e:
+    except pemba.SchemaChangeOrphansError as e:
         counts: dict[str, int] = {o.relation: o.count for o in e.orphans}
         assert counts
-    except warden.StorageError as e:
-        retry: bool = e.retryable or isinstance(e, warden.TransactionConflictError)
+    except pemba.StorageError as e:
+        retry: bool = e.retryable or isinstance(e, pemba.TransactionConflictError)
         assert not retry
 
 

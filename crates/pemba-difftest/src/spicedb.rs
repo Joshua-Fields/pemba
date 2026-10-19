@@ -5,7 +5,7 @@ use std::collections::BTreeSet;
 use std::time::Duration;
 
 use serde_json::{Value, json};
-use warden_core::model::{ObjectRef, RelName, Relationship, SubjectRef, TypeName};
+use pemba_core::model::{ObjectRef, RelName, Relationship, SubjectRef, TypeName};
 
 use crate::{Answer, Question};
 
@@ -23,10 +23,10 @@ pub struct SpiceDb {
 }
 
 impl SpiceDb {
-    /// `WARDEN_SPICEDB_URL` and `WARDEN_SPICEDB_KEY`, if both are set.
+    /// `PEMBA_SPICEDB_URL` and `PEMBA_SPICEDB_KEY`, if both are set.
     pub fn from_env() -> Option<Self> {
-        let base = std::env::var("WARDEN_SPICEDB_URL").ok()?;
-        let key = std::env::var("WARDEN_SPICEDB_KEY").ok()?;
+        let base = std::env::var("PEMBA_SPICEDB_URL").ok()?;
+        let key = std::env::var("PEMBA_SPICEDB_KEY").ok()?;
         Some(Self::new(&base, &key))
     }
 
@@ -248,7 +248,7 @@ impl SpiceDb {
             }
         }
         if wildcard {
-            // warden's answer lists no ids beside a wildcard; the excluded ids say it all.
+            // pemba's answer lists no ids beside a wildcard; the excluded ids say it all.
             Answer::Subjects(Vec::new(), true, excluded.into_iter().collect())
         } else {
             Answer::Subjects(ids.into_iter().collect(), false, Vec::new())

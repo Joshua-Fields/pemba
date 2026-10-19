@@ -2,9 +2,9 @@
 
 Inputs (whichever exist; a missing one is reported as "not run"):
 
-- ``target/bench-latency/*.txt``: the Rust latency pass of ``cargo bench -p warden-benches``
+- ``target/bench-latency/*.txt``: the Rust latency pass of ``cargo bench -p pemba-benches``
 - ``target/bench-py.json``: ``pytest bench/test_scenarios.py --benchmark-json=... \
-  --benchmark-save-data`` in ``crates/warden-py``
+  --benchmark-save-data`` in ``crates/pemba-py``
 - ``target/bench-spicedb.json``: ``python benches/spicedb/run.py``
 
 Every table is p50/p99 per operation in µs (``docs/07-testing.md`` §7), next to the
@@ -31,8 +31,8 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 
 COMMANDS = {
-    "rust": "cargo bench -p warden-benches",
-    "python": ("cd crates/warden-py && maturin develop --release && pytest "
+    "rust": "cargo bench -p pemba-benches",
+    "python": ("cd crates/pemba-py && maturin develop --release && pytest "
                "bench/test_scenarios.py --benchmark-json=../../target/bench-py.json "
                "--benchmark-save-data"),
     "spicedb": "python benches/spicedb/run.py",

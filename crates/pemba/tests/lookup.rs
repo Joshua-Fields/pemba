@@ -11,11 +11,11 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 
-use warden::model::{
+use pemba::model::{
     Consistency, ObjectId, Relationship, Revision, SubjectRef, WriteOp, WriteRequest,
 };
-use warden::store::WritableStore;
-use warden::{
+use pemba::store::WritableStore;
+use pemba::{
     Engine, EngineConfig, Error, LookupResourcesRequest, LookupResourcesResponse, MemoryStore,
     SqliteConfig, SqliteStore,
 };
@@ -586,7 +586,7 @@ impl TempDir {
     fn new() -> Self {
         static NEXT: AtomicU32 = AtomicU32::new(0);
         let dir = std::env::temp_dir().join(format!(
-            "warden-lookup-{}-{}",
+            "pemba-lookup-{}-{}",
             std::process::id(),
             NEXT.fetch_add(1, Ordering::Relaxed)
         ));

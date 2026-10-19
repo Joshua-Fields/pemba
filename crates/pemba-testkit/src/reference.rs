@@ -17,8 +17,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
-use warden_core::model::{ObjectId, ObjectRef, RelName, Relationship, SubjectRef, TypeName};
-use warden_schema::ir::{AllowedSubject, ArrowMode, CompiledSchema, Expr, Member, RelId, TypeId};
+use pemba_core::model::{ObjectId, ObjectRef, RelName, Relationship, SubjectRef, TypeName};
+use pemba_schema::ir::{AllowedSubject, ArrowMode, CompiledSchema, Expr, Member, RelId, TypeId};
 
 /// The extra object id every type's universe gets, standing for every object never
 /// mentioned in the tuples (so wildcard semantics are tested on unseen subjects). A valid

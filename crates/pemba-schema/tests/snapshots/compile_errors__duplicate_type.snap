@@ -1,5 +1,5 @@
 ---
-source: crates/warden-schema/tests/compile_errors.rs
+source: crates/pemba-schema/tests/compile_errors.rs
 description: "definition user {}\n\ndefinition user {}"
 ---
 error[E_DUPLICATE_TYPE]: type `user` is defined more than once

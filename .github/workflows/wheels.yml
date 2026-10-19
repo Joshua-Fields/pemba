@@ -37,21 +37,21 @@ jobs:
           maturin-version: "1.15.0"
           target: ${{ matrix.target }}
           manylinux: ${{ matrix.manylinux || 'auto' }}
-          working-directory: crates/warden-py
+          working-directory: crates/pemba-py
           args: --release --out dist
       - name: one abi3 wheel, no SQLite inside (ADR-006, OQ-032)
         shell: bash
-        working-directory: crates/warden-py
+        working-directory: crates/pemba-py
         run: |
           ls dist
           [ "$(ls dist/*.whl | wc -l)" -eq 1 ]
           case "$(ls dist/*.whl)" in *-cp311-abi3-*) ;; *) echo "not an abi3 (cp311) wheel"; exit 1;; esac
-          python3 -c "import sys, zipfile; z = zipfile.ZipFile(sys.argv[1]); [open(n.rsplit('/', 1)[-1], 'wb').write(z.read(n)) for n in z.namelist() if '_warden' in n]" dist/*.whl
-          python3 ci/check_no_sqlite.py _warden.*
+          python3 -c "import sys, zipfile; z = zipfile.ZipFile(sys.argv[1]); [open(n.rsplit('/', 1)[-1], 'wb').write(z.read(n)) for n in z.namelist() if '_pemba' in n]" dist/*.whl
+          python3 ci/check_no_sqlite.py _pemba.*
       - uses: actions/upload-artifact@v4
         with:
           name: wheel-${{ matrix.platform }}
-          path: crates/warden-py/dist/*.whl
+          path: crates/pemba-py/dist/*.whl
           if-no-files-found: error
 
   smoke:
@@ -76,7 +76,7 @@ jobs:
     defaults:
       run:
         shell: bash
-        working-directory: crates/warden-py
+        working-directory: crates/pemba-py
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
@@ -86,7 +86,7 @@ jobs:
       - uses: actions/download-artifact@v5
         with:
           name: wheel-${{ matrix.platform }}
-          path: crates/warden-py/dist
+          path: crates/pemba-py/dist
       - name: install the wheel, test it
         env:
           RUN: ${{ matrix.run }}
@@ -95,9 +95,9 @@ jobs:
           if [ -d .venv/Scripts ]; then source .venv/Scripts/activate; else source .venv/bin/activate; fi
           $RUN python -c "import platform, sqlite3, sys; print(sys.version, platform.machine(), sqlite3.sqlite_version); assert platform.machine() == '${{ matrix.machine }}'"
           $RUN python -m pip install pytest==9.1.1
-          $RUN python -m pip install --no-index --find-links dist warden
+          $RUN python -m pip install --no-index --find-links dist pemba
           # The installed package, not the source tree.
-          $RUN python -c "import warden, sys; assert 'site-packages' in warden.__file__, warden.__file__; print(warden.__file__)"
+          $RUN python -c "import pemba, sys; assert 'site-packages' in pemba.__file__, pemba.__file__; print(pemba.__file__)"
           $RUN python ci/check_no_sqlite.py
           $RUN python -m pytest -q
 
@@ -119,17 +119,17 @@ jobs:
       - uses: actions/download-artifact@v5
         with:
           name: wheel-linux-aarch64
-          path: crates/warden-py/dist
+          path: crates/pemba-py/dist
       - name: install the wheel, test it (arm64 container)
         run: |
-          docker run --rm --platform linux/arm64 -v "$PWD:/src" -w /src/crates/warden-py \
+          docker run --rm --platform linux/arm64 -v "$PWD:/src" -w /src/crates/pemba-py \
             python:${{ matrix.python }}-slim-bookworm sh -euxc '
               python -c "import platform, sqlite3, sys; print(sys.version, platform.machine(), sqlite3.sqlite_version)"
               python -m venv /tmp/venv
               . /tmp/venv/bin/activate
               pip install pytest==9.1.1
-              pip install --no-index --find-links dist warden
-              python -c "import warden; assert \"site-packages\" in warden.__file__, warden.__file__"
+              pip install --no-index --find-links dist pemba
+              python -c "import pemba; assert \"site-packages\" in pemba.__file__, pemba.__file__"
               python ci/check_no_sqlite.py
               pytest -q -p no:cacheprovider
             '

@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-import warden
+import pemba
 
 SCHEMA = """\
 definition user {}
@@ -43,20 +43,20 @@ definition doc {
 
 
 @pytest.fixture(params=["memory", "sqlite"])
-def make_engine(request: pytest.FixtureRequest, tmp_path: Path) -> Iterator[Callable[..., warden.Engine]]:
+def make_engine(request: pytest.FixtureRequest, tmp_path: Path) -> Iterator[Callable[..., pemba.Engine]]:
     """A factory: ``make_engine(max_depth=...)`` on the parametrised store."""
     counter = iter(range(1_000_000))
 
-    def make(max_depth: int = 50) -> warden.Engine:
+    def make(max_depth: int = 50) -> pemba.Engine:
         if request.param == "memory":
-            return warden.Engine.memory(max_depth=max_depth)
-        return warden.Engine.sqlite(tmp_path / f"authz{next(counter)}.db", max_depth=max_depth)
+            return pemba.Engine.memory(max_depth=max_depth)
+        return pemba.Engine.sqlite(tmp_path / f"authz{next(counter)}.db", max_depth=max_depth)
 
     yield make
 
 
 @pytest.fixture
-def engine(make_engine: Callable[..., warden.Engine]) -> warden.Engine:
+def engine(make_engine: Callable[..., pemba.Engine]) -> pemba.Engine:
     """An engine with ``SCHEMA`` written."""
     e = make_engine()
     e.write_schema(SCHEMA)

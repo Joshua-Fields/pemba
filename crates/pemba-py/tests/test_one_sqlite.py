@@ -24,7 +24,7 @@ from typing import Any
 
 import pytest
 
-import warden
+import pemba
 
 OTHER_PROCESS = r"""
 import sqlite3, sys
@@ -99,12 +99,12 @@ def traced_writes(monkeypatch: pytest.MonkeyPatch) -> Iterator[list[Callable[[st
 def test_engine_write_lock_survives_an_app_close(
     db: Path, traced_writes: list[Callable[[str], None]]
 ) -> None:
-    engine = warden.Engine.sqlite(db)
+    engine = pemba.Engine.sqlite(db)
     engine.write_schema(SCHEMA)
     seen: list[str] = []
 
     def inside_the_write(sql: str) -> None:
-        if sql.startswith("INSERT INTO warden_revisions") and not seen:
+        if sql.startswith("INSERT INTO pemba_revisions") and not seen:
             seen.append(other_process(db))  # control: the engine holds the lock
             app_open_read_close(db)
             seen.append(other_process(db))  # the bug: this one got the lock
@@ -125,14 +125,14 @@ def test_engine_write_lock_survives_an_app_close(
 
 
 def test_app_write_lock_survives_an_engine_close(db: Path) -> None:
-    warden.Engine.sqlite(db).write_schema(SCHEMA)  # migrate while the file is unlocked
+    pemba.Engine.sqlite(db).write_schema(SCHEMA)  # migrate while the file is unlocked
     app = sqlite3.connect(db, isolation_level=None)
     app.execute("BEGIN IMMEDIATE")
     app.execute("INSERT INTO app_rows VALUES ('app')")
     assert other_process(db).startswith("blocked")
 
     # auto_migrate=False: migrating takes the write lock even when there is nothing to do.
-    engine = warden.Engine.sqlite(db, auto_migrate=False)
+    engine = pemba.Engine.sqlite(db, auto_migrate=False)
     assert not engine.check("doc:readme", "viewer", "user:anne")
     del engine  # closes every engine connection now, not at interpreter exit
 
@@ -157,11 +157,11 @@ def test_refuses_an_unusable_sqlite(
 ) -> None:
     monkeypatch.setattr(sqlite3, "sqlite_version", version)
     monkeypatch.setattr(sqlite3, "threadsafety", threadsafety)
-    with pytest.raises(warden.StorageError) as info:
-        warden.Engine.sqlite(tmp_path / "a.db")
+    with pytest.raises(pemba.StorageError) as info:
+        pemba.Engine.sqlite(tmp_path / "a.db")
     assert info.value.code == "STORE_ERROR"
     message = str(info.value)
     assert needle in message
     if threadsafety:
-        assert warden.MIN_SQLITE_VERSION in message, message
+        assert pemba.MIN_SQLITE_VERSION in message, message
     assert not (tmp_path / "a.db").exists(), "refused before opening the file"

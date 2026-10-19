@@ -10,7 +10,7 @@ from collections.abc import Mapping
 from typing import Any
 
 
-class WardenError(Exception):
+class PembaError(Exception):
     """Base class of every engine error. ``code`` is the Rust ``Error::code()``."""
 
     code: str
@@ -26,7 +26,7 @@ class WardenError(Exception):
             setattr(self, key, value)
 
 
-class SchemaError(WardenError):
+class SchemaError(PembaError):
     """The schema failed to compile. ``diagnostics`` lists errors, then warnings."""
 
     diagnostics: list[Any]
@@ -38,7 +38,7 @@ class SchemaError(WardenError):
         super().__init__(message, code, details)
 
 
-class SchemaChangeOrphansError(WardenError):
+class SchemaChangeOrphansError(PembaError):
     """``write_schema`` refused: live relationships would no longer fit the schema.
 
     ``orphans`` has one ``OrphanReport`` (with its ``count``) per group of them.
@@ -53,11 +53,11 @@ class SchemaChangeOrphansError(WardenError):
         super().__init__(message, code, details)
 
 
-class NoSchemaError(WardenError):
+class NoSchemaError(PembaError):
     """A read or write before any schema was written."""
 
 
-class InvalidRelationshipError(WardenError):
+class InvalidRelationshipError(PembaError):
     """A written relationship does not fit the schema.
 
     ``relationship`` is its tuple string, ``reason`` the schema code (``E_UNKNOWN_TYPE`` ...).
@@ -67,41 +67,41 @@ class InvalidRelationshipError(WardenError):
     reason: str
 
 
-class InvalidRequestError(WardenError):
+class InvalidRequestError(PembaError):
     """The request names something the schema does not define, or breaks a limit."""
 
 
-class ConsistencyError(WardenError):
+class ConsistencyError(PembaError):
     """The requested revision is not committed yet, or was garbage-collected."""
 
 
-class EvaluationLimitError(WardenError):
+class EvaluationLimitError(PembaError):
     """Evaluation hit a limit (depth, fan-out, reads, lookup size) or an undefined cycle."""
 
 
-class StaleRelationshipError(WardenError):
+class StaleRelationshipError(PembaError):
     """A stored relationship no longer fits the schema, so the answer is unknown."""
 
     relationship: str
 
 
-class AmbiguousWildcardExclusionError(WardenError):
+class AmbiguousWildcardExclusionError(PembaError):
     """A subject-set check reached a stored wildcard on an exclusion's subtracted side.
 
-    warden's wildcards never match subject sets and SpiceDB's do, so whether
+    pemba's wildcards never match subject sets and SpiceDB's do, so whether
     ``relationship`` (e.g. ``doc:d#banned@group:*``) excludes ``subject`` (e.g.
-    ``group:eng#member``) is not defined; warden refuses rather than allow.
+    ``group:eng#member``) is not defined; pemba refuses rather than allow.
     """
 
     relationship: str
     subject: str
 
 
-class WriteConflictError(WardenError):
+class WriteConflictError(PembaError):
     """A write's preconditions, ``create`` uniqueness or batch uniqueness failed."""
 
 
-class StorageError(WardenError):
+class StorageError(PembaError):
     """The store failed, or the database is not at the supported storage version."""
 
 

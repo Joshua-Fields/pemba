@@ -1,14 +1,14 @@
-//! The fixture format and runner for warden (`docs/07-testing.md` §3), used by
-//! `warden test`.
+//! The fixture format and runner for pemba (`docs/07-testing.md` §3), used by
+//! `pemba test`.
 //!
 //! A fixture is a YAML file using SpiceDB validation-file keys (`schema`, `schemaFile`,
-//! `relationships`, `assertions`) plus warden extensions (`expectErrors`,
+//! `relationships`, `assertions`) plus pemba extensions (`expectErrors`,
 //! `expectCheckErrors`, `steps`, `expectedLookups`). [`run`] executes one file against one
 //! store kind and reports every failing assertion; it never stops at the first.
 //!
 //! [`run`] compares the engine with the answers written in the file. [`run_with_oracle`]
-//! also asks an [`Oracle`] (warden's own tests pass the reference evaluator from the
-//! unpublished `warden-testkit`, OQ-024) over the tuples the runner believes are live. Any
+//! also asks an [`Oracle`] (pemba's own tests pass the reference evaluator from the
+//! unpublished `pemba-testkit`, OQ-024) over the tuples the runner believes are live. Any
 //! disagreement is a failure naming who disagreed, so a wrong hand-computed answer, an
 //! engine bug and an oracle bug are told apart. `expectedLookups.resources` is checked the
 //! same way: the file's ids, the engine's pages (at the default page size and at size 1),
@@ -24,16 +24,16 @@ use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 use serde::de::IgnoredAny;
-use warden_core::model::{
+use pemba_core::model::{
     Consistency, ObjectRef, RelName, Relationship, SubjectRef, WriteOp, WriteRequest,
 };
-use warden_core::store::WritableStore;
-use warden_core::{
+use pemba_core::store::WritableStore;
+use pemba_core::{
     CheckRequest, Engine, EngineConfig, Error, LookupResourcesRequest, LookupSubjectsRequest,
     LookupSubjectsResponse,
 };
-use warden_schema::ir::CompiledSchema;
-use warden_store_memory::MemoryStore;
+use pemba_schema::ir::CompiledSchema;
+use pemba_store_memory::MemoryStore;
 
 /// A second evaluator the runner cross-checks the engine and the file against.
 pub trait Oracle {
@@ -475,7 +475,7 @@ impl<'o, S: WritableStore> Runner<'o, S> {
         // Step 0: schema, then `relationships` as one batch of touches.
         let mut setup_error = None;
         let schema = match self.engine.write_schema(schema_source) {
-            Ok(_) => match warden_schema::compile(schema_source) {
+            Ok(_) => match pemba_schema::compile(schema_source) {
                 Ok(c) => Some(c.schema),
                 Err(e) => {
                     report.fail(

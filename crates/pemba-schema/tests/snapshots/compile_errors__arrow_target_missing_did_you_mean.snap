@@ -1,5 +1,5 @@
 ---
-source: crates/warden-schema/tests/compile_errors.rs
+source: crates/pemba-schema/tests/compile_errors.rs
 description: "definition user {}\ndefinition team {\n    relation member: user\n}\ndefinition doc {\n    relation owner: user | team\n    permission view = owner->memebr\n}"
 ---
 error[E_ARROW_TARGET_MISSING]: `owner->memebr`: types `user`, `team` have no relation or permission named `memebr`

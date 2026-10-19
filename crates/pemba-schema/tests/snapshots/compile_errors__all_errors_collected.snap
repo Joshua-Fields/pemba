@@ -1,5 +1,5 @@
 ---
-source: crates/warden-schema/tests/compile_errors.rs
+source: crates/pemba-schema/tests/compile_errors.rs
 description: "definition user {}\ndefinition doc {\n    relation viewer: user | grp#member\n    relation viewer: user\n    permission view = viewer + editor\n    permission nil = view\n}\ndefinition user {}\ndefinition ab {\n    relation parent: doc\n    permission view = parent->nope\n}\n"
 ---
 error[E_UNKNOWN_TYPE]: unknown type `grp`

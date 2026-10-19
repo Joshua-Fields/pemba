@@ -22,11 +22,11 @@ use crate::store::{
     WriteTxn,
 };
 
-const RELATIONSHIPS: &str = "warden_relationships";
-const REVISIONS: &str = "warden_revisions";
-const SCHEMA: &str = "warden_schema";
-const META: &str = "warden_meta";
-const SAVEPOINT: &str = "warden_write";
+const RELATIONSHIPS: &str = "pemba_relationships";
+const REVISIONS: &str = "pemba_revisions";
+const SCHEMA: &str = "pemba_schema";
+const META: &str = "pemba_meta";
+const SAVEPOINT: &str = "pemba_write";
 
 /// Applies `req` at a new revision inside `txn` and returns that revision: steps 2–6 of
 /// `docs/05-storage.md` §5. Validating ops against the schema (step 1) is the caller's job.
@@ -314,7 +314,7 @@ where
     }
 }
 
-/// The GC horizon stored in `warden_meta`.
+/// The GC horizon stored in `pemba_meta`.
 ///
 /// # Errors
 ///
@@ -339,7 +339,7 @@ where
                 .map_err(|_| corrupt(&format!("gc_horizon {v:?} is not a revision"))),
             _ => Err(corrupt("gc_horizon is not text")),
         },
-        _ => Err(corrupt("warden_meta has no gc_horizon")),
+        _ => Err(corrupt("pemba_meta has no gc_horizon")),
     }
 }
 
@@ -354,7 +354,7 @@ fn reject_duplicates(req: &WriteRequest) -> Result<(), Error> {
     Ok(())
 }
 
-/// Runs `f` inside `SAVEPOINT warden_write`, rolling back to it if `f` fails.
+/// Runs `f` inside `SAVEPOINT pemba_write`, rolling back to it if `f` fails.
 ///
 /// Without it, a failure after the first statement (an `AlreadyExists` on the third op, a
 /// lost lock upgrade) would leave a revision row and earlier ops in a caller-owned
@@ -446,7 +446,7 @@ where
     Ok(rev)
 }
 
-/// Step 4: a new `warden_revisions` row; its id is the revision.
+/// Step 4: a new `pemba_revisions` row; its id is the revision.
 fn allocate_revision<T, D>(txn: &mut T, dialect: &D, kind: &str) -> Result<Revision, Error>
 where
     T: WriteTxn + ?Sized,
@@ -572,7 +572,7 @@ fn corrupt(message: &str) -> Error {
 }
 
 /// Current UTC time as ISO-8601 with milliseconds, e.g. `2026-10-15T18:20:36.123Z`.
-/// Informational only (`warden_revisions.committed_at`), so a clock before 1970 is
+/// Informational only (`pemba_revisions.committed_at`), so a clock before 1970 is
 /// recorded as the epoch rather than failing the write.
 fn now_iso8601() -> String {
     let since = SystemTime::now()

@@ -7,7 +7,7 @@
 use std::sync::{Condvar, Mutex};
 
 use rusqlite::Connection;
-use warden_core::store::StoreError;
+use pemba_core::store::StoreError;
 
 use crate::poisoned;
 

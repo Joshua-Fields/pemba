@@ -1,4 +1,4 @@
-"""warden: an embedded, Zanzibar-style authorisation engine (``docs/06-api.md`` §2).
+"""pemba: an embedded, Zanzibar-style authorisation engine (``docs/06-api.md`` §2).
 
 ``Engine`` is thread-safe; share one per process. It is not fork-safe: create it after
 forking (with gunicorn ``--preload``, open it in a ``post_fork`` hook, not at import).
@@ -9,7 +9,7 @@ process with anything that brings its own SQLite (``apsw``, other bundled builds
 ``docs/06-api.md`` §2.5.
 """
 
-from warden._errors import (
+from pemba._errors import (
     ConsistencyError,
     EvaluationLimitError,
     InvalidRelationshipError,
@@ -21,11 +21,11 @@ from warden._errors import (
     AmbiguousWildcardExclusionError,
     StorageError,
     TransactionConflictError,
-    WardenError,
+    PembaError,
     WriteConflictError,
 )
-from warden._revision import Revision
-from warden._warden import (
+from pemba._revision import Revision
+from pemba._pemba import (
     MIN_SQLITE_VERSION,
     CheckResult,
     DeleteResult,
@@ -63,6 +63,6 @@ __all__ = [
     "StorageError",
     "SubjectsResult",
     "TransactionConflictError",
-    "WardenError",
+    "PembaError",
     "WriteConflictError",
 ]

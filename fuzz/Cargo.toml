@@ -1,6 +1,6 @@
 [package]
-name = "warden-fuzz"
-description = "cargo-fuzz targets for warden (docs/07-testing.md §5)."
+name = "pemba-fuzz"
+description = "cargo-fuzz targets for pemba (docs/07-testing.md §5)."
 version = "0.0.0"
 edition = "2024"
 license = "Apache-2.0"
@@ -17,11 +17,11 @@ members = ["."]
 [dependencies]
 # Fuzzing (docs/09-repo-and-tooling.md §2, approved list).
 libfuzzer-sys = "0.4.13"
-warden-core = { path = "../crates/warden-core" }
-warden-schema = { path = "../crates/warden-schema" }
-warden-store-memory = { path = "../crates/warden-store-memory" }
-warden-testkit = { path = "../crates/warden-testkit" }
-# Runs warden-testkit's generators on an RNG seeded from the fuzzer's input (OQ-039).
+pemba-core = { path = "../crates/pemba-core" }
+pemba-schema = { path = "../crates/pemba-schema" }
+pemba-store-memory = { path = "../crates/pemba-store-memory" }
+pemba-testkit = { path = "../crates/pemba-testkit" }
+# Runs pemba-testkit's generators on an RNG seeded from the fuzzer's input (OQ-039).
 proptest = "1.12.0"
 
 [[bin]]

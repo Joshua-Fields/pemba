@@ -44,7 +44,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: Swatinem/rust-cache@v2
-      # warden-store-pysqlite's tests embed an interpreter (conformance suite, property 5).
+      # pemba-store-pysqlite's tests embed an interpreter (conformance suite, property 5).
       - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
@@ -68,7 +68,7 @@ jobs:
     defaults:
       run:
         shell: bash
-        working-directory: crates/warden-py
+        working-directory: crates/pemba-py
     steps:
       - uses: actions/checkout@v5
       - uses: Swatinem/rust-cache@v2
@@ -90,8 +90,8 @@ jobs:
         run: |
           source .venv/bin/activate 2>/dev/null || source .venv/Scripts/activate
           maturin build --release --out dist
-          python -c "import sys, zipfile; z = zipfile.ZipFile(sys.argv[1]); [open(n.rsplit('/', 1)[-1], 'wb').write(z.read(n)) for n in z.namelist() if '_warden' in n]" dist/*.whl
-          python ci/check_no_sqlite.py _warden.*
+          python -c "import sys, zipfile; z = zipfile.ZipFile(sys.argv[1]); [open(n.rsplit('/', 1)[-1], 'wb').write(z.read(n)) for n in z.namelist() if '_pemba' in n]" dist/*.whl
+          python ci/check_no_sqlite.py _pemba.*
 
   python-oldest:
     # The oldest combination docs/05-storage.md §4.3 claims: CPython 3.11 (the abi3 floor,
@@ -104,7 +104,7 @@ jobs:
     defaults:
       run:
         shell: bash
-        working-directory: crates/warden-py
+        working-directory: crates/pemba-py
     steps:
       - name: system packages
         working-directory: /
@@ -124,7 +124,7 @@ jobs:
           pip install maturin==1.15.0 pytest==9.1.1
           maturin develop
           python ci/check_no_sqlite.py
-          python -c "import warden; assert warden.MIN_SQLITE_VERSION == '3.26.0'"
+          python -c "import pemba; assert pemba.MIN_SQLITE_VERSION == '3.26.0'"
           pytest -q
 
   prop1:
@@ -137,12 +137,12 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: Swatinem/rust-cache@v2
-      # Only the properties binary: warden-difftest's ignored tests need SpiceDB
+      # Only the properties binary: pemba-difftest's ignored tests need SpiceDB
       # (difftest.yml). `prop1_*_full`, `prop4_*_full` (historical reads, both stores, ~8 s)
       # `prop5_*_full` (memory ≡ SQLite, ~25 s), `prop2_*_full` (lookup_resources, both
       # stores, ~8 s), `prop3_*_full` (lookup_subjects, both stores, ~8 s) and
       # `schema_change_*_full` run at least 1 000 cases each; `prop4_*_full` includes GC.
-      - run: cargo test -p warden-testkit --test properties -- --ignored
+      - run: cargo test -p pemba-testkit --test properties -- --ignored
 
   publish:
     # Every publishable crate packages and builds from its .crate alone (T3.3). Never

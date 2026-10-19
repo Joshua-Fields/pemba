@@ -2,7 +2,7 @@
 
 use std::fmt;
 
-pub use warden_schema::ident::IdentErrorKind;
+pub use pemba_schema::ident::IdentErrorKind;
 
 /// The kind of component a [`ParseError`] is about.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
@@ -44,7 +44,7 @@ pub enum ParseErrorReason {
     Identifier {
         /// [`Component::TypeName`] or [`Component::RelName`].
         component: Component,
-        /// The violation, as reported by `warden_schema::ident`.
+        /// The violation, as reported by `pemba_schema::ident`.
         kind: IdentErrorKind,
     },
     /// An object id or revision is empty.

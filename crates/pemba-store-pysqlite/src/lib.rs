@@ -1,4 +1,4 @@
-//! SQLite relationship store for warden that runs every statement through CPython's own
+//! SQLite relationship store for pemba that runs every statement through CPython's own
 //! `sqlite3` module (ADR-006 as amended by OQ-032).
 //!
 //! # Why
@@ -13,13 +13,13 @@
 //!
 //! # Shape
 //!
-//! Same as `warden-store-sqlite` (`docs/05-storage.md` §4.2): one writer connection, a
+//! Same as `pemba-store-sqlite` (`docs/05-storage.md` §4.2): one writer connection, a
 //! pool of read-only connections, one read transaction per request
-//! ([`ReadStore::snapshot`]) and the shared write algorithm in [`warden_core::write`] over
+//! ([`ReadStore::snapshot`]) and the shared write algorithm in [`pemba_core::write`] over
 //! [`PyTxn`]. Statement text, migrations and row decoding come from
-//! [`warden_sqlite_common`].
+//! [`pemba_sqlite_common`].
 //!
-//! [`ReadStore::snapshot`]: warden_core::store::ReadStore::snapshot
+//! [`ReadStore::snapshot`]: pemba_core::store::ReadStore::snapshot
 //!
 //! # The GIL
 //!
@@ -27,7 +27,7 @@
 //! statements the store holds none. The store itself never waits for a lock while holding the GIL:
 //! the reader pool never blocks (it opens a connection when none is idle) and the writer
 //! mutex is taken before any statement runs. A caller that holds the GIL across a whole
-//! request (as `warden-py` does, for speed) must therefore serialise its requests on the
+//! request (as `pemba-py` does, for speed) must therefore serialise its requests on the
 //! store: a thread blocked on the writer mutex while holding the GIL would stop the
 //! holder, whose `sqlite3` calls release and retake the GIL, from ever finishing.
 //!

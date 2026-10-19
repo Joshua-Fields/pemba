@@ -1,14 +1,14 @@
 //! Frozen result and argument classes (`docs/06-api.md` §2.2).
 //!
 //! Each stores plain Rust data; getters that return a revision wrap it in the Python
-//! `warden.Revision` (an `int` subclass, defined in Python because PyO3 cannot subclass
+//! `pemba.Revision` (an `int` subclass, defined in Python because PyO3 cannot subclass
 //! `int`).
 
 use pyo3::prelude::*;
 use pyo3::sync::PyOnceLock;
 use pyo3::types::PyType;
-use warden::SchemaError;
-use warden::model::{
+use pemba::SchemaError;
+use pemba::model::{
     self, ObjectId, Precondition as CorePrecondition, RelName, RelationshipFilter, SubjectRef,
     TypeName,
 };
@@ -17,10 +17,10 @@ use crate::errors::parse_err;
 
 static REVISION: PyOnceLock<Py<PyType>> = PyOnceLock::new();
 
-/// `r` as a Python `warden.Revision`.
+/// `r` as a Python `pemba.Revision`.
 pub(crate) fn revision(py: Python<'_>, r: model::Revision) -> PyResult<Bound<'_, PyAny>> {
     REVISION
-        .import(py, "warden._revision", "Revision")?
+        .import(py, "pemba._revision", "Revision")?
         .call1((r.0,))
 }
 
@@ -33,7 +33,7 @@ fn parse<T: std::str::FromStr<Err = model::ParseError>>(s: &str) -> PyResult<T> 
 /// Build one from its parts, `Relationship("document", "readme", "viewer", "user",
 /// "anne")`, or with `Relationship.parse(s)`. `str()` gives the tuple string. Malformed
 /// parts raise `ValueError`.
-#[pyclass(frozen, eq, hash, module = "warden")]
+#[pyclass(frozen, eq, hash, module = "pemba")]
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub(crate) struct Relationship {
     pub(crate) inner: model::Relationship,
@@ -135,7 +135,7 @@ pub(crate) fn filter(
 }
 
 /// A write precondition: a filter that must (or must not) match a live relationship.
-#[pyclass(frozen, eq, hash, module = "warden")]
+#[pyclass(frozen, eq, hash, module = "pemba")]
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub(crate) struct Precondition {
     pub(crate) inner: CorePrecondition,
@@ -200,7 +200,7 @@ impl Precondition {
 }
 
 /// `check_detailed`'s answer with its evaluation statistics.
-#[pyclass(frozen, module = "warden")]
+#[pyclass(frozen, module = "pemba")]
 pub(crate) struct CheckResult {
     /// The answer.
     #[pyo3(get)]
@@ -226,8 +226,8 @@ pub(crate) struct CheckResult {
     elapsed_us: u64,
 }
 
-impl From<warden::CheckResponse> for CheckResult {
-    fn from(r: warden::CheckResponse) -> Self {
+impl From<pemba::CheckResponse> for CheckResult {
+    fn from(r: pemba::CheckResponse) -> Self {
         let s = r.stats;
         Self {
             allowed: r.allowed,
@@ -264,7 +264,7 @@ fn py_bool(b: bool) -> &'static str {
 }
 
 /// One page of `lookup_resources`.
-#[pyclass(frozen, eq, hash, module = "warden")]
+#[pyclass(frozen, eq, hash, module = "pemba")]
 #[derive(PartialEq, Eq, Hash)]
 pub(crate) struct LookupResult {
     /// The resource ids on this page, ascending.
@@ -277,8 +277,8 @@ pub(crate) struct LookupResult {
     revision: model::Revision,
 }
 
-impl From<warden::LookupResourcesResponse> for LookupResult {
-    fn from(r: warden::LookupResourcesResponse) -> Self {
+impl From<pemba::LookupResourcesResponse> for LookupResult {
+    fn from(r: pemba::LookupResourcesResponse) -> Self {
         Self {
             ids: r
                 .resource_ids
@@ -311,7 +311,7 @@ impl LookupResult {
 }
 
 /// `lookup_subjects`' answer: `ids`, or every object (`wildcard`) except `excluded`.
-#[pyclass(frozen, eq, hash, module = "warden")]
+#[pyclass(frozen, eq, hash, module = "pemba")]
 #[derive(PartialEq, Eq, Hash)]
 pub(crate) struct SubjectsResult {
     /// The subject ids that have the permission (when `wildcard` is false).
@@ -326,8 +326,8 @@ pub(crate) struct SubjectsResult {
     revision: model::Revision,
 }
 
-impl From<warden::LookupSubjectsResponse> for SubjectsResult {
-    fn from(r: warden::LookupSubjectsResponse) -> Self {
+impl From<pemba::LookupSubjectsResponse> for SubjectsResult {
+    fn from(r: pemba::LookupSubjectsResponse) -> Self {
         let ids = |v: Vec<ObjectId>| v.iter().map(|i| i.as_str().to_owned()).collect();
         Self {
             ids: ids(r.subject_ids),
@@ -364,7 +364,7 @@ impl SubjectsResult {
 }
 
 /// A schema error or warning.
-#[pyclass(frozen, eq, hash, get_all, module = "warden")]
+#[pyclass(frozen, eq, hash, get_all, module = "pemba")]
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub(crate) struct Diagnostic {
     /// Stable code, e.g. `E_UNKNOWN_TYPE`.
@@ -408,7 +408,7 @@ impl Diagnostic {
 }
 
 /// One group of live relationships a schema change would orphan.
-#[pyclass(frozen, eq, hash, get_all, module = "warden")]
+#[pyclass(frozen, eq, hash, get_all, module = "pemba")]
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub(crate) struct OrphanReport {
     /// The resource type of the orphaned relationships.
@@ -426,8 +426,8 @@ pub(crate) struct OrphanReport {
     message: String,
 }
 
-impl From<&warden::OrphanReport> for OrphanReport {
-    fn from(r: &warden::OrphanReport) -> Self {
+impl From<&pemba::OrphanReport> for OrphanReport {
+    fn from(r: &pemba::OrphanReport) -> Self {
         Self {
             resource_type: r.resource_type.as_str().to_owned(),
             relation: r.relation.as_str().to_owned(),
@@ -450,7 +450,7 @@ impl OrphanReport {
 }
 
 /// Outcome of `gc`.
-#[pyclass(frozen, eq, hash, module = "warden")]
+#[pyclass(frozen, eq, hash, module = "pemba")]
 #[derive(PartialEq, Eq, Hash)]
 pub(crate) struct GcStats {
     /// Deleted relationships removed for good.
@@ -462,8 +462,8 @@ pub(crate) struct GcStats {
     batches: u64,
 }
 
-impl From<warden::store::GcStats> for GcStats {
-    fn from(s: warden::store::GcStats) -> Self {
+impl From<pemba::store::GcStats> for GcStats {
+    fn from(s: pemba::store::GcStats) -> Self {
         Self {
             rows_removed: s.rows_removed,
             horizon: s.horizon,
@@ -488,7 +488,7 @@ impl GcStats {
 }
 
 /// Outcome of `delete_relationships`.
-#[pyclass(frozen, eq, hash, module = "warden")]
+#[pyclass(frozen, eq, hash, module = "pemba")]
 #[derive(PartialEq, Eq, Hash)]
 pub(crate) struct DeleteResult {
     /// Relationships deleted by this call.
@@ -500,8 +500,8 @@ pub(crate) struct DeleteResult {
     revision: model::Revision,
 }
 
-impl From<warden::store::DeleteResult> for DeleteResult {
-    fn from(r: warden::store::DeleteResult) -> Self {
+impl From<pemba::store::DeleteResult> for DeleteResult {
+    fn from(r: pemba::store::DeleteResult) -> Self {
         Self {
             deleted: r.deleted,
             more: r.more,

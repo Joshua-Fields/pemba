@@ -1,5 +1,5 @@
 ---
-source: crates/warden-schema/tests/compile_errors.rs
+source: crates/pemba-schema/tests/compile_errors.rs
 description: "definition user {}\ndefinition doc {\n    relation editor: user | user:*\n    permission can_edit = editor\n    permission view = editor\n}"
 ---
 warning[W_WILDCARD_ON_WRITE_LIKE_PERMISSION]: permission `can_edit` can be granted to every `user` through the wildcard on `doc#editor`

@@ -1,5 +1,5 @@
 ---
-source: crates/warden-cli/tests/schema_cmd.rs
+source: crates/pemba-cli/tests/schema_cmd.rs
 expression: stderr(&out)
 ---
 error[E_UNEXPECTED_TOKEN]: expected `relation`, `permission` or `}`, found `;`

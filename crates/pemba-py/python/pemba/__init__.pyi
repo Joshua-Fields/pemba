@@ -1,4 +1,4 @@
-"""Type stubs for warden (``docs/06-api.md`` §2.2)."""
+"""Type stubs for pemba (``docs/06-api.md`` §2.2)."""
 
 import os
 from collections.abc import Iterable, Iterator, Mapping, Sequence
@@ -28,7 +28,7 @@ __all__ = [
     "StorageError",
     "SubjectsResult",
     "TransactionConflictError",
-    "WardenError",
+    "PembaError",
     "WriteConflictError",
 ]
 
@@ -251,7 +251,7 @@ class Engine:
     def check(
         self, tuple_str: str, /, *, at_least: int | None = None, at_exactly: int | None = None
     ) -> bool:
-        """Whether subject has permission on resource. Raises WardenError rather than answering False on any evaluation problem (fails closed)."""
+        """Whether subject has permission on resource. Raises PembaError rather than answering False on any evaluation problem (fails closed)."""
     @overload
     def check(
         self,
@@ -263,7 +263,7 @@ class Engine:
         at_least: int | None = None,
         at_exactly: int | None = None,
     ) -> bool:
-        """Whether subject has permission on resource. Raises WardenError rather than answering False on any evaluation problem (fails closed)."""
+        """Whether subject has permission on resource. Raises PembaError rather than answering False on any evaluation problem (fails closed)."""
     def check_detailed(
         self,
         resource: str,
@@ -282,8 +282,8 @@ class Engine:
         *,
         at_least: int | None = None,
         at_exactly: int | None = None,
-    ) -> list[bool | WardenError]:
-        """Checks many items at one revision; each entry is a bool or that item's WardenError."""
+    ) -> list[bool | PembaError]:
+        """Checks many items at one revision; each entry is a bool or that item's PembaError."""
     def lookup_resources(
         self,
         resource_type: str,
@@ -339,37 +339,37 @@ class Engine:
 
 # ---- exceptions (06 §2.3) ----
 
-class WardenError(Exception):
+class PembaError(Exception):
     code: str
     retryable: bool
     def __init__(
         self, message: str, code: str = "", details: Mapping[str, Any] | None = None
     ) -> None: ...
 
-class SchemaError(WardenError):
+class SchemaError(PembaError):
     diagnostics: list[Diagnostic]
 
-class SchemaChangeOrphansError(WardenError):
+class SchemaChangeOrphansError(PembaError):
     orphans: list[OrphanReport]
 
-class NoSchemaError(WardenError): ...
+class NoSchemaError(PembaError): ...
 
-class InvalidRelationshipError(WardenError):
+class InvalidRelationshipError(PembaError):
     relationship: str
     reason: str
 
-class InvalidRequestError(WardenError): ...
-class ConsistencyError(WardenError): ...
-class EvaluationLimitError(WardenError): ...
+class InvalidRequestError(PembaError): ...
+class ConsistencyError(PembaError): ...
+class EvaluationLimitError(PembaError): ...
 
-class StaleRelationshipError(WardenError):
+class StaleRelationshipError(PembaError):
     relationship: str
 
-class AmbiguousWildcardExclusionError(WardenError):
+class AmbiguousWildcardExclusionError(PembaError):
     relationship: str
     subject: str
 
-class WriteConflictError(WardenError): ...
-class StorageError(WardenError): ...
+class WriteConflictError(PembaError): ...
+class StorageError(PembaError): ...
 class TransactionConflictError(StorageError): ...
 

@@ -6,20 +6,20 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use warden_core::model::{
+use pemba_core::model::{
     Consistency, ObjectRef, RelName, Relationship, RelationshipFilter, Revision, SubjectRef,
     WriteOp, WriteRequest,
 };
-use warden_core::store::{
+use pemba_core::store::{
     DeleteResult, ReadStore, RelationCount, ReverseFilter, SchemaCheck, StoreError, StoredSchema,
     WritableStore,
 };
-use warden_core::{
+use pemba_core::{
     CheckRequest, CheckResponse, Engine, EngineConfig, Error, LookupSubjectsRequest,
     LookupSubjectsResponse,
 };
-use warden_store_memory::MemoryStore;
-use warden_testkit::reference::Reference;
+use pemba_store_memory::MemoryStore;
+use pemba_testkit::reference::Reference;
 
 /// Case 96 of `TestRunner::deterministic()` over `generate::case()` at the time OQ-021 was
 /// raised (not shrunk): dense mutual recursion through subject sets of permissions.
@@ -107,7 +107,7 @@ fn check_on_dense_cyclic_data_reads_a_bounded_number_of_tuples() {
         .unwrap();
 
     // The answer is right today; only the cost is wrong.
-    let schema = warden_schema::compile(SCHEMA).unwrap().schema;
+    let schema = pemba_schema::compile(SCHEMA).unwrap().schema;
     let oracle = Reference::new(&schema, &tuples).unwrap();
     let want = oracle
         .check(

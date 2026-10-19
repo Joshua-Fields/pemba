@@ -20,7 +20,7 @@ pub enum ErrorCode {
     AmbiguousOperators,
     /// An arrow whose right side is itself an arrow, such as `a->b->c` (§3).
     ArrowChain,
-    /// SpiceDB syntax that warden recognises but does not implement (§7).
+    /// SpiceDB syntax that pemba recognises but does not implement (§7).
     UnsupportedFeature,
 
     // ---- semantic errors (§5) ----
@@ -52,7 +52,7 @@ pub enum ErrorCode {
     ReservedName,
 
     // ---- relationship validation (`docs/02-data-model.md` §6) ----
-    // Not schema diagnostics: carried by `warden_core::Error::InvalidRelationship` when a
+    // Not schema diagnostics: carried by `pemba_core::Error::InvalidRelationship` when a
     // written relationship does not fit the schema. An undefined resource type reuses
     // `UnknownType`. They share this enum so one code namespace covers schema and write
     // failures (`expectErrors` in fixtures, `docs/07-testing.md` §3).

@@ -1,5 +1,5 @@
 ---
-source: crates/warden-schema/tests/compile_errors.rs
+source: crates/pemba-schema/tests/compile_errors.rs
 description: "definition docs/document_ {}"
 ---
 error[E_IDENT_FORMAT]: type name `docs/document_` must end with a lowercase letter or digit, found '_'

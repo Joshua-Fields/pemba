@@ -1,6 +1,6 @@
 [package]
-name = "warden-store-sqlite"
-description = "SQLite relationship store for warden."
+name = "pemba-store-sqlite"
+description = "SQLite relationship store for pemba."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -11,11 +11,11 @@ authors.workspace = true
 workspace = true
 
 [dependencies]
-warden-core.workspace = true
-warden-sqlite-common.workspace = true
+pemba-core.workspace = true
+pemba-sqlite-common.workspace = true
 # `bundled`: one SQLite version on every platform, no system library on Windows/macOS CI.
 # `cache`: `prepare_cached` for the write path (docs/05-storage.md §5).
 rusqlite = { version = "0.40.2", default-features = false, features = ["bundled", "cache"] }
 
 [dev-dependencies]
-warden-testkit.workspace = true
+pemba-testkit.workspace = true

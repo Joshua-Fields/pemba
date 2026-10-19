@@ -3,7 +3,7 @@
 ## 1. Layout
 
 ```text
-warden/
+pemba/
 ├── CLAUDE.md
 ├── README.md
 ├── LICENSE                     # Apache-2.0
@@ -14,19 +14,19 @@ warden/
 ├── deny.toml                   # cargo-deny: licences, advisories, duplicates
 ├── docs/                       # this spec + OPEN_QUESTIONS.md + MUTANTS.md
 ├── crates/
-│   ├── warden-schema/          # lexer, parser, validator, IR, printer. No I/O.
-│   ├── warden-core/            # model types, store traits, write logic, evaluator, Engine
-│   ├── warden-store-memory/
-│   ├── warden-sqlite-common/   # driver-free SQLite: SQL text, migration runner, row decoding
+│   ├── pemba-schema/          # lexer, parser, validator, IR, printer. No I/O.
+│   ├── pemba-core/            # model types, store traits, write logic, evaluator, Engine
+│   ├── pemba-store-memory/
+│   ├── pemba-sqlite-common/   # driver-free SQLite: SQL text, migration runner, row decoding
 │   │   └── migrations/         # 0001_init.sql, ...
-│   ├── warden-store-sqlite/    # rusqlite (bundled SQLite), for Rust
-│   ├── warden-store-pysqlite/  # CPython's sqlite3, for warden-py (ADR-006, publish = false)
-│   ├── warden/                 # facade: re-exports core + stores behind features
-│   ├── warden-cli/             # binary `warden`
-│   ├── warden-fixtures/        # fixture format + engine-only runner (`warden test`), with an oracle hook
-│   ├── warden-testkit/         # reference evaluator (the fixture oracle), generators, conformance suite (publish = false)
-│   ├── warden-difftest/        # SpiceDB differential tests (publish = false)
-│   └── warden-py/              # PyO3 bindings + python/warden/*.py, *.pyi, tests/, ci/
+│   ├── pemba-store-sqlite/    # rusqlite (bundled SQLite), for Rust
+│   ├── pemba-store-pysqlite/  # CPython's sqlite3, for pemba-py (ADR-006, publish = false)
+│   ├── pemba/                 # facade: re-exports core + stores behind features
+│   ├── pemba-cli/             # binary `pemba`
+│   ├── pemba-fixtures/        # fixture format + engine-only runner (`pemba test`), with an oracle hook
+│   ├── pemba-testkit/         # reference evaluator (the fixture oracle), generators, conformance suite (publish = false)
+│   ├── pemba-difftest/        # SpiceDB differential tests (publish = false)
+│   └── pemba-py/              # PyO3 bindings + python/pemba/*.py, *.pyi, tests/, ci/
 ├── testdata/
 │   └── fixtures/               # YAML fixtures (docs/07 §3), regressions/
 ├── benches/                    # criterion benches, spicedb/ comparison scripts, RESULTS.md
@@ -35,10 +35,10 @@ warden/
 ```
 
 Dependency direction (no cycles, enforced by review):
-`schema` ← `core` ← `sqlite-common` ← `store-*` ← `warden` ← `cli`, `py`; `py` uses
-`warden` without its `sqlite` feature plus `store-pysqlite`, and must never link rusqlite
+`schema` ← `core` ← `sqlite-common` ← `store-*` ← `pemba` ← `cli`, `py`; `py` uses
+`pemba` without its `sqlite` feature plus `store-pysqlite`, and must never link rusqlite
 (CI checks the built extension); `fixtures` depends on `core`, `schema` and
-`store-memory`, and `cli` depends on it for `warden test`; `testkit` depends on `core`,
+`store-memory`, and `cli` depends on it for `pemba test`; `testkit` depends on `core`,
 the stores and `fixtures`, and is only ever a dev-dependency (OQ-024). Its workspace entry
 has no version, so `cargo publish` strips it from published crates' dev-dependencies, and
 `cargo deny` (`allow-wildcard-paths`) still refuses it as a normal dependency of a
@@ -79,7 +79,7 @@ ISC, Unicode-DFS/Unicode-3.0, Zlib).
 `[workspace.lints]`:
 ```toml
 [workspace.lints.rust]
-unsafe_code = "forbid"          # overridden to "allow" only in warden-py if PyO3 requires
+unsafe_code = "forbid"          # overridden to "allow" only in pemba-py if PyO3 requires
 missing_docs = "warn"
 unreachable_pub = "warn"
 
@@ -114,7 +114,7 @@ them, never `set -x` around them, and do not expose them to workflows triggered 
 
 - `ci.yml` (push to main, PR): fmt, clippy, test (ubuntu, macos, windows; property 1 at 64
   cases plus saved regression seeds), properties 1 to 5 and schema change at ≥ 1 000 cases
-  each (`prop1` job, ubuntu only, `--ignored` in `warden-testkit`'s `properties` test),
+  each (`prop1` job, ubuntu only, `--ignored` in `pemba-testkit`'s `properties` test),
   `cargo deny check`, `cargo doc`, Python tests (`maturin develop`, `pytest`,
   `mypy --strict` on the tests and sample) on ubuntu, macos and windows, the oldest supported combination (Rocky Linux 8: CPython 3.11, SQLite
   3.26.0, `python-oldest`), and `cargo publish --workspace --dry-run` for every
@@ -125,16 +125,16 @@ them, never `set -x` around them, and do not expose them to workflows triggered 
   (`ci/check_no_sqlite.py`), then installs each wheel on its platform (aarch64 under QEMU,
   macOS x86_64 under Rosetta 2) with CPython 3.11 and 3.14 and runs the whole pytest suite
   against it. Wheels are uploaded as artifacts only. Run it by hand after changing the
-  Python packaging (`pyproject.toml`, `warden-py/Cargo.toml`, `ci/`).
+  Python packaging (`pyproject.toml`, `pemba-py/Cargo.toml`, `ci/`).
 - `proptest.yml` (weekly + manual): the same property tests at a raised
   `PROPTEST_CASES` (10 000 on the weekly run; an input on a manual run), for soaking.
-  Test builds use `opt-level = 3` for `warden-core`, `warden-testkit`,
-  `warden-store-memory` and `warden-schema` (`[profile.test.package.*]`).
+  Test builds use `opt-level = 3` for `pemba-core`, `pemba-testkit`,
+  `pemba-store-memory` and `pemba-schema` (`[profile.test.package.*]`).
 - `difftest.yml` (weekly + manual): SpiceDB `serve-testing` (`authzed/spicedb:v1.56.2`) in
-  Docker, `cargo test -p warden-difftest --test difftest -- --ignored` (`07` §4).
+  Docker, `cargo test -p pemba-difftest --test difftest -- --ignored` (`07` §4).
 - `oq032-probe.yml` (manual, and PRs touching the probe): the T3.2 SQLite-copies probe.
 - `fuzz.yml` (manual): nightly toolchain, each target for a fixed time.
-- Weekly: `cargo-mutants` on `warden-core::eval` and `warden-schema` validator.
+- Weekly: `cargo-mutants` on `pemba-core::eval` and `pemba-schema` validator.
 
 ## 5. Git conventions
 

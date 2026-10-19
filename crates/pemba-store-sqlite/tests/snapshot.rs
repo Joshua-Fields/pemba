@@ -12,19 +12,19 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
-use warden_core::model::{
+use pemba_core::model::{
     Consistency, ObjectRef, RelName, Relationship, RelationshipFilter, Revision, SubjectRef,
     WriteOp, WriteRequest,
 };
-use warden_core::store::{
+use pemba_core::store::{
     DeleteResult, ReadStore, RelationCount, ReverseFilter, SchemaCheck, StoreError, StoredSchema,
     WritableStore,
 };
-use warden_core::{
+use pemba_core::{
     CheckItem, CheckRequest, Engine, EngineConfig, Error, LookupResourcesRequest,
     LookupSubjectsRequest, ReadRelationshipsRequest,
 };
-use warden_store_sqlite::{SqliteConfig, SqliteStore};
+use pemba_store_sqlite::{SqliteConfig, SqliteStore};
 
 const SCHEMA: &str = "\
 definition user {}
@@ -46,7 +46,7 @@ impl TempDir {
     fn new() -> Self {
         static NEXT: AtomicU32 = AtomicU32::new(0);
         let dir = std::env::temp_dir().join(format!(
-            "warden-snapshot-{}-{}",
+            "pemba-snapshot-{}-{}",
             std::process::id(),
             NEXT.fetch_add(1, Ordering::Relaxed)
         ));

@@ -1,5 +1,5 @@
 ---
-source: crates/warden-cli/tests/schema_cmd.rs
+source: crates/pemba-cli/tests/schema_cmd.rs
 expression: stderr(&out)
 ---
 warning[W_UNUSED_RELATION]: relation `archived_by` is not used by any permission, arrow or subject set

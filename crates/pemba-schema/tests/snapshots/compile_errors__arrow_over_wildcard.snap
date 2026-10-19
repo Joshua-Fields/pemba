@@ -1,5 +1,5 @@
 ---
-source: crates/warden-schema/tests/compile_errors.rs
+source: crates/pemba-schema/tests/compile_errors.rs
 description: "definition folder {\n    relation parent: folder | folder:*\n    permission view = parent->view\n}"
 ---
 error[E_ARROW_OVER_WILDCARD]: arrow over `parent`, which allows the wildcard `folder:*`

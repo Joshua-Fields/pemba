@@ -1,4 +1,4 @@
-//! warden: an embedded, Zanzibar-style authorisation engine.
+//! pemba: an embedded, Zanzibar-style authorisation engine.
 //!
 //! An application defines a **schema** (object types, relations and permissions, in a
 //! strict subset of SpiceDB's schema language), writes **relationships** such as
@@ -12,12 +12,12 @@
 //! [`SqliteTxn`]), so the relationship and the application row it describes commit or roll
 //! back together.
 //!
-//! This crate re-exports `warden-core` and the stores enabled by its features:
+//! This crate re-exports `pemba-core` and the stores enabled by its features:
 //! `sqlite` ([`SqliteStore`], default) and `memory` ([`MemoryStore`], default).
 //!
 //! ```
-//! use warden::model::{Consistency, WriteOp, WriteRequest};
-//! use warden::{CheckRequest, Engine, LookupResourcesRequest, MemoryStore};
+//! use pemba::model::{Consistency, WriteOp, WriteRequest};
+//! use pemba::{CheckRequest, Engine, LookupResourcesRequest, MemoryStore};
 //!
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! let engine = Engine::builder().store(MemoryStore::new()).build()?;
@@ -62,8 +62,8 @@
 
 #![forbid(unsafe_code)]
 
-pub use warden_core::*;
+pub use pemba_core::*;
 #[cfg(feature = "memory")]
-pub use warden_store_memory::MemoryStore;
+pub use pemba_store_memory::MemoryStore;
 #[cfg(feature = "sqlite")]
-pub use warden_store_sqlite::{SqliteConfig, SqliteStore, SqliteTxn, Synchronous};
+pub use pemba_store_sqlite::{SqliteConfig, SqliteStore, SqliteTxn, Synchronous};

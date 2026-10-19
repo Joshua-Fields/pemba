@@ -1,4 +1,4 @@
-//! Test support for warden: the reference evaluator, generators, the fixture runner and the
+//! Test support for pemba: the reference evaluator, generators, the fixture runner and the
 //! conformance suite.
 //!
 //! Implements `docs/07-testing.md`.

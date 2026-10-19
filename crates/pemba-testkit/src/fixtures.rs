@@ -1,7 +1,7 @@
 //! The fixture runner with the reference evaluator as its oracle (`docs/07-testing.md` §3).
 //!
-//! The format and the runner live in the publishable `warden-fixtures` crate, which
-//! `warden test` uses against the engine alone (OQ-024). Here, every `assertTrue` /
+//! The format and the runner live in the publishable `pemba-fixtures` crate, which
+//! `pemba test` uses against the engine alone (OQ-024). Here, every `assertTrue` /
 //! `assertFalse` and `expectedLookups` entry is also answered by [`crate::reference`] over
 //! the tuples the runner believes are live. The oracle's answer to a subjects lookup is a
 //! wildcard when it allows its fresh id, which stands in for every object never written.
@@ -9,11 +9,11 @@
 
 use std::path::Path;
 
-use warden_core::model::{ObjectRef, RelName, Relationship, SubjectRef};
-use warden_core::{LookupResourcesRequest, LookupSubjectsRequest};
-use warden_schema::ir::CompiledSchema;
+use pemba_core::model::{ObjectRef, RelName, Relationship, SubjectRef};
+use pemba_core::{LookupResourcesRequest, LookupSubjectsRequest};
+use pemba_schema::ir::CompiledSchema;
 
-pub use warden_fixtures::{
+pub use pemba_fixtures::{
     Failure, FixtureError, Oracle, OracleError, OracleView, Report, StoreKind, SubjectsAnswer,
 };
 
@@ -115,9 +115,9 @@ impl OracleView for Reference {
 ///
 /// # Errors
 ///
-/// As [`warden_fixtures::run`].
+/// As [`pemba_fixtures::run`].
 pub fn run(path: &Path, store: StoreKind) -> Result<Report, FixtureError> {
-    warden_fixtures::run_with_oracle(path, store, &ReferenceOracle)
+    pemba_fixtures::run_with_oracle(path, store, &ReferenceOracle)
 }
 
 /// Runs fixture text, cross-checked by [`ReferenceOracle`]; a `schemaFile` is resolved
@@ -125,7 +125,7 @@ pub fn run(path: &Path, store: StoreKind) -> Result<Report, FixtureError> {
 ///
 /// # Errors
 ///
-/// As [`warden_fixtures::run`].
+/// As [`pemba_fixtures::run`].
 pub fn run_str(source: &str, base_dir: &Path, store: StoreKind) -> Result<Report, FixtureError> {
-    warden_fixtures::run_str_with_oracle(source, base_dir, store, &ReferenceOracle)
+    pemba_fixtures::run_str_with_oracle(source, base_dir, store, &ReferenceOracle)
 }

@@ -1,5 +1,5 @@
 [package]
-name = "warden"
+name = "pemba"
 description = "Embedded, Zanzibar-style authorisation engine."
 version.workspace = true
 edition.workspace = true
@@ -17,14 +17,14 @@ all-features = true
 [features]
 default = ["sqlite", "memory"]
 # In-memory store.
-memory = ["dep:warden-store-memory"]
+memory = ["dep:pemba-store-memory"]
 # SQLite store.
-sqlite = ["dep:warden-store-sqlite"]
+sqlite = ["dep:pemba-store-sqlite"]
 
 [dependencies]
-warden-core.workspace = true
-warden-store-memory = { workspace = true, optional = true }
-warden-store-sqlite = { workspace = true, optional = true }
+pemba-core.workspace = true
+pemba-store-memory = { workspace = true, optional = true }
+pemba-store-sqlite = { workspace = true, optional = true }
 
 [dev-dependencies]
 tracing.workspace = true

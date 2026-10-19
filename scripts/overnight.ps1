@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Runs warden's full local check suite unattended and logs every step.
+    Runs pemba's full local check suite unattended and logs every step.
 
 .DESCRIPTION
     Runs, in order, continuing after any failure:
@@ -24,8 +24,8 @@
     Parallel cargo-mutants jobs (default 2). Each job builds in its own copy of the tree.
 
 .PARAMETER SpiceDbUrl
-    SpiceDB HTTP gateway for the difftests. Defaults to $env:WARDEN_SPICEDB_URL, else
-    http://127.0.0.1:8443. With no preshared key in $env:WARDEN_SPICEDB_KEY, the key
+    SpiceDB HTTP gateway for the difftests. Defaults to $env:PEMBA_SPICEDB_URL, else
+    http://127.0.0.1:8443. With no preshared key in $env:PEMBA_SPICEDB_KEY, the key
     "overnight" is used, which suits `spicedb serve-testing`.
 
 .EXAMPLE
@@ -35,7 +35,7 @@
 param(
     [int]$FuzzSeconds = 600,
     [int]$MutantsJobs = 2,
-    [string]$SpiceDbUrl = $(if ($env:WARDEN_SPICEDB_URL) { $env:WARDEN_SPICEDB_URL } else { 'http://127.0.0.1:8443' })
+    [string]$SpiceDbUrl = $(if ($env:PEMBA_SPICEDB_URL) { $env:PEMBA_SPICEDB_URL } else { 'http://127.0.0.1:8443' })
 )
 
 $ErrorActionPreference = 'Continue'
@@ -133,7 +133,7 @@ Push-Location $Repo
 $commit = (& git rev-parse HEAD 2>$null)
 $dirty = (& git status --porcelain --untracked-files=no 2>$null)
 Pop-Location
-Write-Summary "warden overnight run $Stamp"
+Write-Summary "pemba overnight run $Stamp"
 Write-Summary "commit   $commit$(if ($dirty) { ' (uncommitted changes present)' })"
 Write-Summary "started  $(Get-Date -Format s)"
 Write-Summary "rustc    $(& rustc -V 2>$null)"
@@ -153,25 +153,25 @@ Invoke-Step 'cargo doc' 'cargo doc --workspace --no-deps'
 Remove-Item Env:\RUSTDOCFLAGS
 Invoke-Step 'cargo test' 'cargo test --workspace --all-features'
 
-$spiceKey = if ($env:WARDEN_SPICEDB_KEY) { $env:WARDEN_SPICEDB_KEY } else { 'overnight' }
+$spiceKey = if ($env:PEMBA_SPICEDB_KEY) { $env:PEMBA_SPICEDB_KEY } else { 'overnight' }
 $spiceUp = Test-Http ($SpiceDbUrl.TrimEnd('/') + '/healthz')
 # The difftests pass silently without SpiceDB, so they get their own step: run when
 # SpiceDB answers, reported as SKIP when it does not.
-Invoke-Step 'cargo test --ignored (no difftest)' 'cargo test --workspace --all-features --exclude warden-difftest -- --ignored'
+Invoke-Step 'cargo test --ignored (no difftest)' 'cargo test --workspace --all-features --exclude pemba-difftest -- --ignored'
 if ($spiceUp) {
-    $env:WARDEN_SPICEDB_URL = $SpiceDbUrl
-    $env:WARDEN_SPICEDB_KEY = $spiceKey
-    $env:WARDEN_DIFFTEST_REQUIRED = '1'
+    $env:PEMBA_SPICEDB_URL = $SpiceDbUrl
+    $env:PEMBA_SPICEDB_KEY = $spiceKey
+    $env:PEMBA_DIFFTEST_REQUIRED = '1'
     # One test at a time, as in difftest.yml: two at once more than double SpiceDB's memory.
-    Invoke-Step 'difftest vs SpiceDB (--ignored)' 'cargo test -p warden-difftest --test difftest -- --ignored --nocapture --test-threads=1'
-    Remove-Item Env:\WARDEN_DIFFTEST_REQUIRED
+    Invoke-Step 'difftest vs SpiceDB (--ignored)' 'cargo test -p pemba-difftest --test difftest -- --ignored --nocapture --test-threads=1'
+    Remove-Item Env:\PEMBA_DIFFTEST_REQUIRED
 } else {
     Skip-Step 'difftest vs SpiceDB (--ignored)' "SpiceDB not reachable at $SpiceDbUrl"
 }
 
 # ---- Python ----
 
-$py = Join-Path $Repo 'crates\warden-py'
+$py = Join-Path $Repo 'crates\pemba-py'
 if (Test-Path $Python) {
     Invoke-Step 'maturin develop' 'maturin develop' $py
     Invoke-Step 'pytest' "`"$Python`" -m pytest -q" $py
@@ -198,12 +198,12 @@ if ((Test-Command 'cargo-fuzz') -and $AsanDir) {
 
 # ---- mutation testing ----
 
-# Most evaluator tests live in other crates (warden/tests, warden-testkit), so every mutant
+# Most evaluator tests live in other crates (pemba/tests, pemba-testkit), so every mutant
 # runs the whole workspace's tests. Exit 2 = surviving mutants, 3 = timeouts: review them
 # in mutants.out and kill or justify them in docs/MUTANTS.md (T3.6).
 $mutants = @(
-    @{ Name = 'mutants warden-core eval'; File = 'crates/warden-core/src/eval.rs'; Out = 'mutants-eval' },
-    @{ Name = 'mutants warden-schema validator'; File = 'crates/warden-schema/src/compile.rs'; Out = 'mutants-schema' }
+    @{ Name = 'mutants pemba-core eval'; File = 'crates/pemba-core/src/eval.rs'; Out = 'mutants-eval' },
+    @{ Name = 'mutants pemba-schema validator'; File = 'crates/pemba-schema/src/compile.rs'; Out = 'mutants-schema' }
 )
 foreach ($m in $mutants) {
     if (Test-Command 'cargo-mutants') {
@@ -216,8 +216,8 @@ foreach ($m in $mutants) {
 
 # ---- benchmarks ----
 
-Invoke-Step 'bench data' 'cargo run --quiet -p warden-benches --bin bench-data -- target/bench-data'
-Invoke-Step 'bench Rust (criterion)' 'cargo bench -p warden-benches'
+Invoke-Step 'bench data' 'cargo run --quiet -p pemba-benches --bin bench-data -- target/bench-data'
+Invoke-Step 'bench Rust (criterion)' 'cargo bench -p pemba-benches'
 if (Test-Path $Python) {
     Invoke-Step 'maturin develop --release' 'maturin develop --release' $py
     Invoke-Step 'bench Python (pytest-benchmark)' "`"$Python`" -m pytest bench/test_scenarios.py -q --benchmark-json=../../target/bench-py.json --benchmark-save-data" $py

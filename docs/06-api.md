@@ -5,7 +5,7 @@ the same change (CLAUDE.md rule 10).
 
 ---
 
-## 1. Rust (`warden` facade crate re-exports `warden-core` + chosen stores)
+## 1. Rust (`pemba` facade crate re-exports `pemba-core` + chosen stores)
 
 ```rust
 pub struct Engine<S: WritableStore> { /* schema: ArcSwap<CompiledSchema>, store: S, config */ }
@@ -278,7 +278,7 @@ pub enum Error {
     Store(StoreError),
 }
 ```
-`InvalidRelationship.code` is a `warden_schema::ErrorCode` (`E_UNKNOWN_TYPE`,
+`InvalidRelationship.code` is a `pemba_schema::ErrorCode` (`E_UNKNOWN_TYPE`,
 `E_UNKNOWN_RELATION`, `E_WRITE_TO_PERMISSION`, `E_SUBJECT_TYPE_NOT_ALLOWED`; `02` §6).
 Every variant has a stable machine code (`Error::code() -> &'static str`, e.g.
 `"MAX_DEPTH_EXCEEDED"`) used by the Python exception mapping. Codes so far: `SCHEMA_ERROR`,
@@ -301,13 +301,13 @@ longer subtracts `banned`. It is not an audit log.
 
 ---
 
-## 2. Python (`warden` package, built from `warden-py`)
+## 2. Python (`pemba` package, built from `pemba-py`)
 
 ### 2.1 Usage
 
 ```python
 import sqlite3
-from warden import Engine
+from pemba import Engine
 
 engine = Engine.sqlite("app.db")              # or Engine.memory()
 engine.write_schema(open("authz.zed").read())
@@ -327,7 +327,7 @@ rev = engine.write(touch=["document:readme#owner@user:anne"], conn=conn)
 conn.execute("COMMIT")
 ```
 
-### 2.2 Signatures (ship as `warden/__init__.pyi`)
+### 2.2 Signatures (ship as `pemba/__init__.pyi`)
 
 ```python
 MIN_SQLITE_VERSION: str   # "3.26.0": oldest sqlite3.sqlite_version Engine.sqlite() accepts
@@ -368,7 +368,7 @@ class Engine:
                        at_least: int | None = None, at_exactly: int | None = None) -> "CheckResult": ...
     def check_bulk(self, items: Sequence[tuple[str, str, str]], /, *,
                    at_least: int | None = None, at_exactly: int | None = None
-                   ) -> list[bool | "WardenError"]: ...
+                   ) -> list[bool | "PembaError"]: ...
 
     def lookup_resources(self, resource_type: str, permission: str, subject: str, /, *,
                          limit: int | None = None, cursor: str | None = None,
@@ -414,7 +414,7 @@ Rules:
   stops only when the cursor runs out (pages may be empty, `06` §1). It fetches lazily.
 - `read_relationships` returns every match, paging internally at the first page's
   revision; bound it with filters.
-- Malformed tuple/object strings raise `ValueError` (argument mistakes), not `WardenError`.
+- Malformed tuple/object strings raise `ValueError` (argument mistakes), not `PembaError`.
 - Migration is a store concern (OQ-025 (d)), so there is no `Engine.migrate()`:
   `Engine.sqlite(path)` migrates on open while `auto_migrate=True` (the default); a
   production deploy step runs `Engine.sqlite(path, auto_migrate=True)` once, and app
@@ -440,7 +440,7 @@ Rules:
 ### 2.3 Exceptions
 
 ```text
-WardenError(Exception)               .code: str  (Rust Error::code()), .retryable: bool
+PembaError(Exception)               .code: str  (Rust Error::code()), .retryable: bool
 ├── SchemaError                      SCHEMA_ERROR; .diagnostics: list[Diagnostic]
 ├── SchemaChangeOrphansError         SCHEMA_CHANGE_ORPHANS; .orphans: list[OrphanReport] (per-group counts)
 ├── NoSchemaError                    NO_SCHEMA
@@ -460,26 +460,26 @@ WardenError(Exception)               .code: str  (Rust Error::code()), .retryabl
 Every `Error::code()` maps to exactly one class (tested by iterating `Error::CODES`).
 `retryable` is `StoreError::is_retryable()` (true for `TRANSACTION_CONFLICT` and a
 persistent `SchemaChanged`), else false.
-Python argument mistakes raise built-in `ValueError` / `TypeError`, not `WardenError`.
+Python argument mistakes raise built-in `ValueError` / `TypeError`, not `PembaError`.
 
-### 2.4 FastAPI helper (stretch, `warden.contrib.fastapi`)
+### 2.4 FastAPI helper (stretch, `pemba.contrib.fastapi`)
 
 ```python
-from warden.contrib.fastapi import Authz
+from pemba.contrib.fastapi import Authz
 authz = Authz(engine, subject=lambda request: f"user:{request.state.user_id}")
 
 @app.get("/documents/{doc_id}")
 def get_doc(doc_id: str, _=Depends(authz.require("document", "view", path_param="doc_id"))):
     ...
 ```
-Raises `HTTPException(403)` on deny, `HTTPException(503)` on `WardenError` (fail closed).
-Pure Python, optional extra `pip install warden[fastapi]`.
+Raises `HTTPException(403)` on deny, `HTTPException(503)` on `PembaError` (fail closed).
+Pure Python, optional extra `pip install pemba[fastapi]`.
 
 ### 2.5 SQLite in the same process
 
 `Engine.sqlite()` runs on **CPython's own `sqlite3` module**. The engine shares the
 interpreter's SQLite library and bundles none (ADR-006, OQ-032). It requires that library
-to be at least `warden.MIN_SQLITE_VERSION` (`05` §4.3), and refuses an older one with a
+to be at least `pemba.MIN_SQLITE_VERSION` (`05` §4.3), and refuses an older one with a
 `StorageError` naming both versions.
 
 Safe in the same process on the same database file: `sqlite3`, and everything built on it
@@ -492,21 +492,21 @@ locks, which belong to the process, and a `close()` of any descriptor on the fil
 silently releases all of them. SQLite works around this with a process-wide list of open
 files, but each SQLite copy keeps its own list. A close by one copy therefore drops the
 other's locks: another process can then write at the same time, and one of the commits is
-lost or the database corrupted, with no error anywhere. warden's T3.2 probe lost a
+lost or the database corrupted, with no error anywhere. pemba's T3.2 probe lost a
 committed transaction exactly this way
 (<https://www.sqlite.org/howtocorrupt.html>, §2.2–2.3). Windows locks per handle and is
 not affected, but the same rule applies so code stays portable.
 
 ---
 
-## 3. CLI (`warden-cli`, binary name `warden`)
+## 3. CLI (`pemba-cli`, binary name `pemba`)
 
 ```text
-warden schema validate <file.zed>           exit 0 ok / 1 errors; prints rustc-style diagnostics
-warden schema fmt <file.zed> [--check]      canonical formatting
-warden test <fixture.yaml>...               runs fixture files (docs/07 §3); exit 1 on failure
-warden check --db app.db <tuple_string>     ad-hoc check against a SQLite store
-warden migrate --db app.db
+pemba schema validate <file.zed>           exit 0 ok / 1 errors; prints rustc-style diagnostics
+pemba schema fmt <file.zed> [--check]      canonical formatting
+pemba test <fixture.yaml>...               runs fixture files (docs/07 §3); exit 1 on failure
+pemba check --db app.db <tuple_string>     ad-hoc check against a SQLite store
+pemba migrate --db app.db
 ```
 Use `clap` (derive). Output colours via `anstream`/`owo-colors`, disabled when not a TTY
 (not yet implemented; output is plain text).
@@ -522,7 +522,7 @@ keys to stderr, and a summary line. Paths are printed with `/` separators on eve
 platform, so output is identical on Windows. An unreadable file is exit 2.
 
 `schema fmt` is **experimental**: it does not modify files. It prints
-`warden_schema::format(source)` to stdout: the canonical form with every comment kept
+`pemba_schema::format(source)` to stdout: the canonical form with every comment kept
 (`03` §9.1, T3.8). `--check` prints nothing on success and exits 1 with a one-line message
 if the file differs from that output, so a canonical file with comments passes. A schema
 with errors makes `fmt` print the same diagnostics as `validate` and exit 1. If the

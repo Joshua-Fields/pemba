@@ -1,8 +1,8 @@
 //! Checking relationships and filters against the compiled schema
 //! (`docs/02-data-model.md` §6, `docs/05-storage.md` §5 step 1).
 
-use warden_schema::ErrorCode;
-use warden_schema::ir::{AllowedSubject, CompiledSchema, Member, TypeDef, TypeId};
+use pemba_schema::ErrorCode;
+use pemba_schema::ir::{AllowedSubject, CompiledSchema, Member, TypeDef, TypeId};
 
 use crate::error::Error;
 use crate::model::{Relationship, RelationshipFilter, SubjectRef, WriteOp};

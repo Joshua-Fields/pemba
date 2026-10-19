@@ -4,7 +4,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use warden_schema::{ErrorCode, SchemaErrors, compile};
+use pemba_schema::{ErrorCode, SchemaErrors, compile};
 
 fn errors(src: &str) -> SchemaErrors {
     match compile(src) {

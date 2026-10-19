@@ -2,7 +2,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use warden_schema::{FormatError, compile, format};
+use pemba_schema::{FormatError, compile, format};
 
 fn fmt(src: &str) -> String {
     let out = format(src).unwrap();

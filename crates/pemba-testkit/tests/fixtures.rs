@@ -5,7 +5,7 @@
 
 use std::path::{Path, PathBuf};
 
-use warden_testkit::fixtures::{Report, StoreKind, run, run_str};
+use pemba_testkit::fixtures::{Report, StoreKind, run, run_str};
 
 fn fixtures_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../testdata/fixtures")

@@ -1,5 +1,5 @@
 ---
-source: crates/warden-schema/tests/parse_errors.rs
+source: crates/pemba-schema/tests/parse_errors.rs
 description: "use expiration\n\ndefinition user {}"
 ---
 error[E_UNSUPPORTED_FEATURE]: `use expiration` (expiring relationships) is not supported

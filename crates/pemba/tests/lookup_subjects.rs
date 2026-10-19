@@ -2,9 +2,9 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use warden::model::{Consistency, ObjectId, Relationship, Revision, WriteOp, WriteRequest};
-use warden::store::WritableStore;
-use warden::{
+use pemba::model::{Consistency, ObjectId, Relationship, Revision, WriteOp, WriteRequest};
+use pemba::store::WritableStore;
+use pemba::{
     Engine, EngineConfig, Error, LookupSubjectsRequest, LookupSubjectsResponse, MemoryStore,
 };
 

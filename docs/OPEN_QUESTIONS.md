@@ -10,7 +10,15 @@ it is resolved.
 - Current choice: codename `warden`, kept only in crate names, the Python module name,
   `TABLE_PREFIX` and docs so the rename is a mechanical find-replace
 - Resolve by: human picks a name free on crates.io, PyPI, npm and GitHub before publishing
-- Resolution: (fill in)
+- Resolution: resolved before 0.1 by the human: the final name is `pemba` (ADR-012
+  Accepted). Every `warden` / `Warden` / `WARDEN` spelling was renamed: crates
+  `warden-*` → `pemba-*`, Python package `warden` → `pemba` (native module `_pemba`,
+  `WardenError` → `PembaError`), CLI binary `pemba`, environment variables `WARDEN_*` →
+  `PEMBA_*`, repository `github.com/Joshua-Fields/pemba`. On-disk format change: the SQLite
+  tables and indexes are now `pemba_*` (`pemba_meta`, `pemba_revisions`,
+  `pemba_relationships`, `pemba_rel_*`, `pemba_schema`), so a database created under the
+  codename is not recognised. Nothing was published, so there is no migration path and
+  `storage_version` stays `1` (`docs/05-storage.md` §4.1).
 
 ## OQ-002 — Postgres revision ordering
 - Raised in: T0.1 (`docs/01-decisions.md` ADR-005)
@@ -35,7 +43,7 @@ it is resolved.
   match SpiceDB and update ADR-013
 - Resolve by: differential test in T3.4
 - T3.4 evidence: SpiceDB 1.56.2 agrees (`false` over zero related objects;
-  `crates/warden-difftest/KNOWN_DIFFERENCES.md`, "Checked and agreeing"). Left for the
+  `crates/pemba-difftest/KNOWN_DIFFERENCES.md`, "Checked and agreeing"). Left for the
   human to mark resolved.
 - Resolution: (fill in)
 
@@ -65,7 +73,7 @@ it is resolved.
 - Current choice: every `/`-separated segment obeys the 3–64 character identifier rule; full
   type name at most 128 bytes
 - Resolve by: differential test in T3.4
-- T3.4 evidence: SpiceDB 1.56.2 accepts and refuses the same 11 probe names as warden
+- T3.4 evidence: SpiceDB 1.56.2 accepts and refuses the same 11 probe names as pemba
   (segments of 2/3/64/65 characters, several prefixes, 128 vs 129 bytes, trailing `_`).
   Left for the human to mark resolved.
 - Resolution: (fill in)
@@ -135,7 +143,7 @@ it is resolved.
   exactly once canonical; unchanged `types` for input already in canonical member order).
   Spec `03` §9 now states it in place of literal IR equality.
 
-## OQ-013 — `warden schema fmt` output target, comments, exit code for I/O errors
+## OQ-013 — `pemba schema fmt` output target, comments, exit code for I/O errors
 - Raised in: T0.5 (`docs/06-api.md` §3)
 - Blocking: no
 - Current choice: see Resolution. Original note: `fmt` prints to stdout and never rewrites the file in place, because the
@@ -162,7 +170,7 @@ it is resolved.
   generic store. `WritableStore` now has typed methods (`write`, `write_schema`, `gc`) that
   every store implements; `with_write_txn`/`dialect` moved to a sub-trait `SqlStore`, which
   the SQLite store will implement and back its `WritableStore` methods with the shared
-  algorithm in `warden-core::write`. `Engine::write_in` requires `S: SqlStore`. Schema
+  algorithm in `pemba-core::write`. `Engine::write_in` requires `S: SqlStore`. Schema
   validation (§5 step 1) stays in the engine, outside the store call. Spec `05` §2–3 and
   `06` §1 updated. `delete_by_filter` will be added to `WritableStore` in T2.6
 - Resolve by: human review
@@ -201,13 +209,13 @@ it is resolved.
 - Resolution: resolved in T1.2 by the human. Duplicates are checked before preconditions.
   `02` §5 now lists the full order (batch size, schema present, validation, duplicates,
   preconditions, revision, ops/`AlreadyExists`), matching `05` §5. Tested at the engine
-  level in `crates/warden/tests/engine.rs` as well as in the conformance suite
+  level in `crates/pemba/tests/engine.rs` as well as in the conformance suite
 
 ## OQ-017 — Codes for relationship validation; validating filters
 - Raised in: T1.2 (`docs/02-data-model.md` §6 named only `E_WRITE_TO_PERMISSION`;
   `docs/06-api.md` §1.1 types `InvalidRelationship.code` as `ErrorCode`)
 - Blocking: no
-- Current choice: (a) codes are new variants of `warden_schema::ErrorCode`, one namespace
+- Current choice: (a) codes are new variants of `pemba_schema::ErrorCode`, one namespace
   with schema diagnostics as fixtures' `expectErrors` expects: undefined resource type reuses
   `E_UNKNOWN_TYPE`; undefined relation is `E_UNKNOWN_RELATION`; a permission is
   `E_WRITE_TO_PERMISSION`; any subject not in the allowed list, including an undefined
@@ -291,7 +299,7 @@ it is resolved.
   refuses any change a live tuple would fail validation under, and writes commit only at
   the schema version they were validated against (`05` §7); tests
   `schema_change_leaves_no_stale_tuple_at_head` (property) and the orphan cases in
-  `crates/warden/tests/schema_change.rs`. In history (`Exact(r)` below the current schema's
+  `crates/pemba/tests/schema_change.rs`. In history (`Exact(r)` below the current schema's
   revision) they can still be met, and each now fails closed with `StaleRelationship`: a
   stale subject set (as before), a stale object tuple on the exact-hit step, a stale
   wildcard (probed only at such revisions), a stale arrow-related object (`04` §3.3; tests
@@ -321,7 +329,7 @@ it is resolved.
   allowed type, and subject-set allowed types) and evaluate each stratum to a fixed point
   before any stratum that subtracts it. A schema where a `sub` side depends on its own
   stratum is not stratifiable. **Refusing such schemas applies only to the reference
-  evaluator (`warden-testkit::reference`) and the proptest generators**: the oracle declines
+  evaluator (`pemba-testkit::reference`) and the proptest generators**: the oracle declines
   to answer and the generators must not produce them. The schema compiler keeps accepting
   them and the engine keeps evaluating them, deciding per check from the data
   (`NonMonotonicCycle` only when a cycle is actually reached, `04` §3.6); hand-written
@@ -334,13 +342,13 @@ it is resolved.
   stratified `sub`-side evaluation should reuse the same strata
 - Resolve by: T1.4 (human to confirm the stratification approach)
 - Resolution: resolved in T1.4 as proposed, at the human's direction. The oracle
-  (`warden-testkit::reference`) stratifies by the `(type, member)` graph above, with every
+  (`pemba-testkit::reference`) stratifies by the `(type, member)` graph above, with every
   edge reached through a `sub` side negative; a component holding a negative edge returns
   `ReferenceError::NotStratifiable` instead of an answer; components are evaluated in
   dependency order, each from ∅ to a fixed point. Monotone recursion inside a `sub` side is
   already handled (it is an earlier component), so T1.4b needs no oracle change. `07` §2.1
   rewritten. Both variants of the example are fixed tests (`oq020_banned_direct`,
-  `oq020_banned_one_hop_deeper` in `crates/warden-testkit/tests/reference.rs`), checking
+  `oq020_banned_one_hop_deeper` in `crates/pemba-testkit/tests/reference.rs`), checking
   the oracle and the engine; generators put recursion on exclusion base sides
 
 ## OQ-021 — Exponential `check` cost on cyclic data (denial-of-service risk)
@@ -351,7 +359,7 @@ it is resolved.
   slow case examined agreed with the reference evaluator), but cyclic group data is
   ordinary data that users can write, so a user can make one `check` arbitrarily expensive:
   a denial-of-service risk. `max_depth` and `max_check_fanout` do not bound total work.
-- Observed (property tests built with `opt-level = 3` for `warden-core`/`warden-testkit`):
+- Observed (property tests built with `opt-level = 3` for `pemba-core`/`pemba-testkit`):
   one 1 000-case run of `prop1_check_matches_reference_full` took 3.0 s; the next, with a
   different random seed, was still running after 573 s and was stopped (its slow case was
   never printed). Pinned case (case 96 of the deterministic runner, not shrunk): 2 types,
@@ -360,7 +368,7 @@ it is resolved.
   release); the oracle takes 21 ms for the whole case. Time is dominated by a few such cases.
 - Current choice: no engine change in T1.4. The case is
   `check_on_dense_cyclic_data_reads_a_bounded_number_of_tuples`
-  (`crates/warden-testkit/tests/check_cost.rs`, ≤ 1 000 store reads), `#[ignore]`d and
+  (`crates/pemba-testkit/tests/check_cost.rs`, ≤ 1 000 store reads), `#[ignore]`d and
   failing today. Plain `cargo test` runs property 1 at 64 cases plus saved seeds; the
   1 000-case run is the manual `proptest.yml` workflow
 - T1.4c phase 1: lowlink taint plus memoising cycle heads and tainted `true`s is still
@@ -382,7 +390,7 @@ it is resolved.
 - Problem: SpiceDB validation files can only assert `true` / `false` / caveated, but
   `depth_limit.yaml` and `non_monotone_cycle.yaml` must show a check *failing*, and
   fail-closed means that is neither `assertTrue` nor `assertFalse`.
-- Current choice: a warden-only key `expectCheckErrors`, a map from check (assertion
+- Current choice: a pemba-only key `expectCheckErrors`, a map from check (assertion
   syntax) to `Error::code()` (`MAX_DEPTH_EXCEEDED`, `NON_MONOTONIC_CYCLE`, ...), at top level
   and per step (`07` §3.2). A map, not a list, so one check has exactly one expected code.
   A check may not appear both here and in `assertTrue` / `assertFalse`. Checked against the
@@ -398,7 +406,7 @@ it is resolved.
 - Problem: a validation file has one relationship set and one assertion block, so it
   cannot show that a delete revokes, a failed batch applies nothing, or a deleted tuple can
   be created again.
-- Current choice: a warden-only ordered `steps:` list (`07` §3.2). The top-level
+- Current choice: a pemba-only ordered `steps:` list (`07` §3.2). The top-level
   `relationships` + `assertions` are step 0, so `zed validate` checks the same initial state;
   each later step is one write batch (`ops` of `create:` / `touch:` / `delete:` tuple strings),
   an optional `expectError` code, then the step's own `assertions` and `expectCheckErrors` at
@@ -409,53 +417,53 @@ it is resolved.
 - Resolve by: human review
 - Resolution: (fill in)
 
-## OQ-024 — `warden-cli` depends on the unpublished `warden-testkit`
-- Raised in: T1.5 (`docs/06-api.md` §3 `warden test`, `docs/09-repo-and-tooling.md` §1)
-- Blocking: yes, for publishing `warden-cli` to crates.io (T3.x release)
-- Problem: `07` §3 puts the runner in `warden-testkit` (`publish = false`) and `06` §3 puts
-  `warden test` in the CLI, so the CLI now has a normal dependency on the testkit (and through
+## OQ-024 — `pemba-cli` depends on the unpublished `pemba-testkit`
+- Raised in: T1.5 (`docs/06-api.md` §3 `pemba test`, `docs/09-repo-and-tooling.md` §1)
+- Blocking: yes, for publishing `pemba-cli` to crates.io (T3.x release)
+- Problem: `07` §3 puts the runner in `pemba-testkit` (`publish = false`) and `06` §3 puts
+  `pemba test` in the CLI, so the CLI now has a normal dependency on the testkit (and through
   it `proptest`, `serde`, `serde-saphyr`). `cargo publish` refuses a crate whose dependency is
   not on crates.io.
 - Current choice: accept for now (nothing is published before the release milestone); `09`
   §1 notes the exception. Options at release: move `fixtures` (and `reference`, which it
-  cross-checks with) into a small published crate; publish `warden-testkit`; or put
-  `warden test` behind a CLI feature that is off for the published binary
+  cross-checks with) into a small published crate; publish `pemba-testkit`; or put
+  `pemba test` behind a CLI feature that is off for the published binary
 - Also decided here, conservatively: a fixture that is not valid YAML, has an unknown key, or
   needs exactly one of `schema` / `schemaFile` and has neither is exit 1 (input rejected, as
   for `schema validate`), not exit 2; only an unreadable file is exit 2. `expectedLookups:`
   is skipped with a warning (like `validation:`) until T2.4 / T2.5, rather than refused
 - Resolve by: before the first crates.io release
 - Resolution: resolved in T2.1 by the human (docs only; the move itself is a T3.3 AC). Before
-  T3.3 the fixture format and the engine-only fixture runner move out of `warden-testkit`
-  into a small publishable crate, which `warden-cli` depends on for `warden test`. The
-  reference-evaluator (oracle) cross-check stays in `warden-testkit` as an optional hook
+  T3.3 the fixture format and the engine-only fixture runner move out of `pemba-testkit`
+  into a small publishable crate, which `pemba-cli` depends on for `pemba test`. The
+  reference-evaluator (oracle) cross-check stays in `pemba-testkit` as an optional hook
   the runner accepts, used by internal tests only; the published CLI runs fixtures against
-  the engine alone. `warden-testkit` stays `publish = false`
-- Done in T3.3: crate `warden-fixtures` (OQ-035 (a)).
+  the engine alone. `pemba-testkit` stays `publish = false`
+- Done in T3.3: crate `pemba-fixtures` (OQ-035 (a)).
 
 ## OQ-025 — SQLite store details decided in T2.1
 - Raised in: T2.1 (`docs/05-storage.md` §2, §4, §6; `docs/06-api.md` §1)
 - Blocking: no
 - Current choice:
-  (a) `warden_rel_fwd` is now (resource_type, resource_id, relation, subject_type,
+  (a) `pemba_rel_fwd` is now (resource_type, resource_id, relation, subject_type,
   subject_id, subject_relation, created_rev, deleted_rev) instead of (resource_type,
   resource_id, relation, created_rev). The old index could not serve the §6.2 `ORDER BY`
   (the §2 result order), so every forward read sorted; the new one returns rows in index
   order and is covering for §6.1–6.2. Storage version 1 is unreleased, so no migration is
   needed. Spec §4 updated; a test checks the migration DDL equals the §4 DDL.
   (b) §6 queries name their index with `INDEXED BY`: unpinned, SQLite answered
-  `read_reverse` with a resource type from `warden_rel_fwd` (a range over every resource
+  `read_reverse` with a resource type from `pemba_rel_fwd` (a range over every resource
   of the type), and app-run `ANALYZE` could move any plan.
   (c) In-memory SQLite is rejected (`InvalidRequest`) instead of supported with a
   shared-cache URI and pool size 1 (§4.2): no WAL, and shared cache swaps snapshot
-  isolation for table locks. Conservative; `warden-store-memory` covers the use.
+  isolation for table locks. Conservative; `pemba-store-memory` covers the use.
   (d) `auto_migrate` lives on `SqliteConfig`, read by `SqliteStore::open`, because the store
   is opened (and its version checked) before any engine exists; the explicit step is
   `SqliteStore::migrate(path, &config)`. `EngineConfig::auto_migrate` and
   `Engine::migrate()` (`06` §1) currently do nothing for SQLite; proposal: remove both, or
   make `Engine::migrate` delegate through a store method, decided in T2.2/T2.3.
   (e) A database at an *older* storage version with `auto_migrate = false` is
-  `NotMigrated` (same as missing tables). A `warden_meta` table without a numeric
+  `NotMigrated` (same as missing tables). A `pemba_meta` table without a numeric
   `storage_version` is `StoreError::Corrupt`, never migrated over.
   (f) New `StoreError` variants: `Backend { message }` (driver failure) and `Corrupt`.
 - Resolve by: human review
@@ -468,7 +476,7 @@ it is resolved.
 - Raised in: T2.2 (`docs/05-storage.md` §2, §5, §5.1, §10; `docs/06-api.md` §1)
 - Blocking: no
 - Current choice:
-  (a) `warden_core::write::write` runs steps 3–6 inside `SAVEPOINT warden_write` and rolls
+  (a) `pemba_core::write::write` runs steps 3–6 inside `SAVEPOINT pemba_write` and rolls
   back to it on error. The spec only said a failed native write rolls back; for `write_in`
   the caller owns the transaction, and without the savepoint an `AlreadyExists` on the
   third op would leave a revision row and two ops behind for a caller that commits anyway.
@@ -476,7 +484,7 @@ it is resolved.
   method: `Engine::write_in` is generic over the transaction type, so only the store knows
   how to ask (SQLite: `PRAGMA database_list` through the transaction, compared with the
   store's canonicalised file). Rust checks on every call; the Python per-connection cache of
-  §10 stays a `warden-py` optimisation.
+  §10 stays a `pemba-py` optimisation.
   (c) New `StoreError::Conflict { message }` + `StoreError::is_retryable()` for
   `SQLITE_BUSY_SNAPSHOT` (lost lock upgrade) and `SQLITE_BUSY`/`SQLITE_LOCKED`. Verified:
   a deferred transaction that ran a `MustNotExist` precondition, then saw another connection
@@ -484,20 +492,20 @@ it is resolved.
   no busy wait, never a successful write.
   (d) `SqliteTxn::new` takes `&rusqlite::Transaction`, not a bare connection, so a Rust
   foreign write is always inside a caller transaction (the Python autocommit guard of §10
-  has no Rust counterpart to need). `warden-store-sqlite` re-exports `rusqlite`.
+  has no Rust counterpart to need). `pemba-store-sqlite` re-exports `rusqlite`.
   (e) SQLite placeholders are plain `?` (as `05` §2 says), never reused, so the same text
   works with Python's qmark style. `committed_at` is computed in Rust, not by SQL, to stay
   portable. GC deletes in one statement until T2.6 adds batching.
   (f) Rolled-back revisions are reused (AUTOINCREMENT's counter rolls back with the
-  transaction); `06` §1 documents that such a revision is void. `warden_revisions`'s
+  transaction); `06` §1 documents that such a revision is void. `pemba_revisions`'s
   "never reuse ids" comment holds only for committed revisions.
 - Resolve by: human review
 - Resolution: resolved in T2.3 by the human: (a)–(f) all accepted as written. `06` §1 now
   states that `StoreError::Conflict` means the caller's whole transaction is stale and must
   be rolled back and retried from the start. Consequence of (d): because
-  `warden-store-sqlite` re-exports `rusqlite` (and `SqliteTxn::new` takes its
+  `pemba-store-sqlite` re-exports `rusqlite` (and `SqliteTxn::new` takes its
   `Transaction`), a `rusqlite` major-version bump is a breaking change for
-  `warden-store-sqlite` and needs a major (pre-1.0: minor) version bump of that crate
+  `pemba-store-sqlite` and needs a major (pre-1.0: minor) version bump of that crate
 
 ## OQ-027 — Read snapshots: shape of the API (T2.3)
 - Raised in: T2.3 (`docs/05-storage.md` §2 "Revision checks", `docs/04-evaluation.md` §1)
@@ -562,7 +570,7 @@ it is resolved.
   and default (200 000) apply; a separate knob would add API surface with no different
   default to justify it. Cost: the error name says "check". Alternative: a
   `max_lookup_reads` with its own variant, if T3.5 shows `gather` needs a different budget.
-  (b) Cycles: §3.6's SCC iteration is shared, not copied: `warden-core::scc` is generic
+  (b) Cycles: §3.6's SCC iteration is shared, not copied: `pemba-core::scc` is generic
   over a small lattice trait (`bool` for `check`, `SubjectSet` for `gather`). `check` was
   moved onto it unchanged (all `check` tests, `cycle_passes.rs` pass counts and property 1
   agree). The `bool` "assumed `false`" flag became "the value a hit assumed", and "a re-run
@@ -639,8 +647,8 @@ it is resolved.
   `Engine.sqlite(path)` with the default `auto_migrate=True`.
   (c) Classes not in the old §2.3: `NoSchemaError` (`NO_SCHEMA` had no class),
   `StaleRelationshipError`, `SchemaChangeOrphansError` (`.orphans`), and
-  `BATCH_TOO_LARGE` under `InvalidRequestError`. `WardenError.retryable` mirrors
-  `StoreError::is_retryable()`. The classes are Python (`warden/_errors.py`), chosen by
+  `BATCH_TOO_LARGE` under `InvalidRequestError`. `PembaError.retryable` mirrors
+  `StoreError::is_retryable()`. The classes are Python (`pemba/_errors.py`), chosen by
   code in Rust, so they are ordinary subclassable exceptions.
   (d) `**consistency` spelled out as keyword-only `at_least` / `at_exactly` everywhere, so
   `mypy --strict` checks it. `Engine.sqlite` takes `str | os.PathLike[str]`.
@@ -657,14 +665,14 @@ it is resolved.
 - Raised in: T3.2 phase 0 (ADR-006, `docs/05-storage.md` §4.2 and §10, ADR-014;
   <https://www.sqlite.org/howtocorrupt.html> §2.2–2.3)
 - Blocking: **yes**, for T3.2 and for 0.1
-- Problem: ADR-006 says reads use the engine's own connections. In `warden-py` those are
+- Problem: ADR-006 says reads use the engine's own connections. In `pemba-py` those are
   `rusqlite` with `bundled` SQLite, while the app's `sqlite3` module uses CPython's own copy.
   On POSIX, SQLite works around `close()` dropping every `fcntl` lock the process holds on
   a file by keeping a process-wide list of open files. Each copy has its own list, so a
   close by one copy silently drops the other copy's locks. Foreign mode puts both copies on
   one file in one process by design.
-- Test (`crates/warden-py/probes/sqlite_copies/run_probe.py`, deterministic, no timing):
-  a bundled-copy connection (built like `warden-py`: rusqlite 0.40.2, SQLite 3.53.2) holds
+- Test (`crates/pemba-py/probes/sqlite_copies/run_probe.py`, deterministic, no timing):
+  a bundled-copy connection (built like `pemba-py`: rusqlite 0.40.2, SQLite 3.53.2) holds
   `BEGIN IMMEDIATE` plus an uncommitted insert on a WAL database. A separate process's
   `BEGIN IMMEDIATE` (busy timeout 0) fails, as it should. Then in the same process, Python
   runs `sqlite3.connect(f)`, one `SELECT` and `close()`, and the separate process tries
@@ -690,11 +698,11 @@ it is resolved.
     mechanism. Also not tested: read snapshots losing their WAL read locks. Inferred: the
     same close drops them, so a checkpoint could overwrite pages an open `check` is still
     reading, giving wrong answers rather than errors.
-- Option A, prototyped (`crates/warden-py/probes/pystore`): a store whose every statement
+- Option A, prototyped (`crates/pemba-py/probes/pystore`): a store whose every statement
   (reads, native writes, migration, GC) runs on Python `sqlite3` connections the engine
   owns, so only CPython's copy touches the file. It reuses `WriteTxn`, `SqlDialect`,
-  `ReadStore`, `warden_core::write` and the production SQL text, included verbatim from
-  `warden-store-sqlite/src/sql.rs`. **The store conformance suite passes (all 25 cases).**
+  `ReadStore`, `pemba_core::write` and the production SQL text, included verbatim from
+  `pemba-store-sqlite/src/sql.rs`. **The store conformance suite passes (all 25 cases).**
   Check latency on `google_docs.yaml` (42 tuples, its 32 assertions, each timed from the
   Python call to its answer, release builds, WSL2 8 CPUs, Python 3.14.4 with SQLite
   3.46.1, 200 rounds; two runs agree within 5 %):
@@ -730,7 +738,7 @@ it is resolved.
     environment. Only a conda-built package (not a PyPI wheel) could link to it.
   - Windows python.org: `DLLs/sqlite3.dll`. Linkable in principle, but Windows is not
     affected anyway.
-  - Variant B′: `libsqlite3-sys`'s `loadable_extension` feature, with warden loaded as a
+  - Variant B′: `libsqlite3-sys`'s `loadable_extension` feature, with pemba loaded as a
     SQLite extension through the app's `conn.load_extension`. It uses the host's API
     table, so the copy is right by construction. But `enable_load_extension` is missing
     from several builds (e.g. macOS system Python), and it puts every call behind a
@@ -748,10 +756,10 @@ it is resolved.
   with its own SQLite. `SqliteTxn` (`Engine::write_in`) is safe because it takes the
   caller's `rusqlite::Transaction` from the re-exported `rusqlite`, which is the same copy
   by construction. Document: "open the app's connection through
-  `warden_store_sqlite::rusqlite`".
+  `pemba_store_sqlite::rusqlite`".
 - Current choice: resolved, see Resolution.
 - Recommendation:
-  1. **Option A for `warden-py`'s SQLite store**, with requests serialised (one Rust mutex
+  1. **Option A for `pemba-py`'s SQLite store**, with requests serialised (one Rust mutex
      taken without the GIL, the GIL then held for the whole request, reader pool kept for
      snapshots). It is correct by construction on every platform, needs no `unsafe`, and
      conformance already passes. Cost: about 2.7× single-threaded latency (still about
@@ -767,15 +775,15 @@ it is resolved.
      that `rusqlite::version()` equals the caller connection's `sqlite_version()`. That
      is necessary but not sufficient, so it is only a smoke alarm.
   5. Before 0.1, phase 1 must also measure lookups under option A, add the probe as a
-     permanent regression test (running the real `warden` package instead of the probe
+     permanent regression test (running the real `pemba` package instead of the probe
      module, expecting `lock held`), and document it for gunicorn/threads users.
 - Resolve by: human review of this entry and the draft ADR-006 amendment, then phase 1
 - Resolution (human, T3.2a): **option A, with requests serialised and the GIL held per
   request; option B rejected.** ADR-006 amended accordingly. T3.2 is split into T3.2a
   (Python SQLite store, one SQLite copy) and T3.2b (foreign transaction mode).
-  Implemented in T3.2a as `warden-store-pysqlite`. `warden-py` no longer depends on
+  Implemented in T3.2a as `pemba-store-pysqlite`. `pemba-py` no longer depends on
   rusqlite, and CI fails if the built extension or the release wheel contains SQLite. The
-  probe is now `crates/warden-py/tests/test_one_sqlite.py`. It covers both directions,
+  probe is now `crates/pemba-py/tests/test_one_sqlite.py`. It covers both directions,
   and the app-holds-the-lock test fails against the T3.1 rusqlite build. Floor: SQLite
   3.26.0 (`docs/05-storage.md` §4.3), tested on Rocky Linux 8. Details decided along the
   way are in OQ-033.
@@ -785,12 +793,12 @@ it is resolved.
   `docs/06-api.md` §2)
 - Blocking: no
 - Current choice:
-  (a) Two new crates. `warden-sqlite-common` is driver-free: SQL text, migration scripts
+  (a) Two new crates. `pemba-sqlite-common` is driver-free: SQL text, migration scripts
   and runner over `WriteTxn`, row decoding over `WriteTxn`, `SqliteDialect`,
-  `SqliteConfig`, `MIN_SQLITE_VERSION`. `warden-store-pysqlite` is the store over
-  CPython's `sqlite3`. `warden-store-sqlite` re-exports `SqliteConfig`/`Synchronous`, so
+  `SqliteConfig`, `MIN_SQLITE_VERSION`. `pemba-store-pysqlite` is the store over
+  CPython's `sqlite3`. `pemba-store-sqlite` re-exports `SqliteConfig`/`Synchronous`, so
   its public paths are unchanged. Migration scripts moved to
-  `crates/warden-sqlite-common/migrations/` and run one statement at a time; a test pins
+  `crates/pemba-sqlite-common/migrations/` and run one statement at a time; a test pins
   the result to SQLite's own script runner. The migration runner reads `sqlite_master`,
   not its 3.33 alias `sqlite_schema`. The native store keeps its typed `rusqlite`
   decoding on the hot path; conformance and property 5 hold both stores to the same
@@ -806,17 +814,17 @@ it is resolved.
   (d) `Engine.sqlite()` refuses (`StorageError`, `STORE_ERROR`, naming both versions) a
   `sqlite3` whose SQLite is older than `MIN_SQLITE_VERSION` or built without thread
   support (`sqlite3.threadsafety == 0`). Both are checked before the file is opened. New
-  constant `warden.MIN_SQLITE_VERSION` (`"3.26.0"`).
+  constant `pemba.MIN_SQLITE_VERSION` (`"3.26.0"`).
   (e) `auto_migrate=True` takes the write lock even when there is nothing to migrate,
   exactly as the native store does. App processes should open with
   `auto_migrate=False` (already the documented production advice), or `Engine.sqlite()`
   waits up to `busy_timeout_ms` behind an open app write transaction.
   (f) PyO3's deprecated `extension-module` feature is dropped. maturin sets
   `PYO3_BUILD_EXTENSION_MODULE`, and the feature would unify into
-  `warden-store-pysqlite`'s tests, which embed an interpreter and must link it. The
+  `pemba-store-pysqlite`'s tests, which embed an interpreter and must link it. The
   workspace `test` CI job therefore installs Python 3.11 on all three OSes.
-  (g) Property 5's harness moved into `warden_testkit::store_equivalence`, so any store's
-  tests can run it. `warden-store-pysqlite` runs it (64 cases, and ≥ 1 000 with
+  (g) Property 5's harness moved into `pemba_testkit::store_equivalence`, so any store's
+  tests can run it. `pemba-store-pysqlite` runs it (64 cases, and ≥ 1 000 with
   `--ignored`) along with the conformance suite.
   (h) A destructor that calls Python (closing connections) sets aside and restores any
   pending exception. Before this fix, a temporary `Engine` dropped while its own call was
@@ -852,7 +860,7 @@ it is resolved.
   `SQLITE_BUSY_SNAPSHOT` from a stale deferred snapshot); every other driver error is
   `StoreError::Foreign` (`StorageError`, `STORE_ERROR`, message "foreign connection
   error: ...").
-  (e) Spec fix: the `06` §2.1 example imported `Consistency` from `warden`, which the
+  (e) Spec fix: the `06` §2.1 example imported `Consistency` from `pemba`, which the
   Python API never had (consistency is the `at_least` / `at_exactly` keywords, §2.2), so
   it could not run verbatim. The import was removed; the example is now in the README and
   runs in CI (`tests/test_readme_example.py`), which also checks the two copies match.
@@ -865,24 +873,24 @@ it is resolved.
 - Blocking: no
 - Current choice:
   (a) The fixture format and engine-only runner are the publishable crate
-  `warden-fixtures` (codename prefix like every other crate; renamed with the rest under
+  `pemba-fixtures` (codename prefix like every other crate; renamed with the rest under
   ADR-012). The oracle hook is a trait pair, `Oracle` (`name`, `view`) and `OracleView`
   (`check`, `lookup_resources`, `lookup_subjects`); `OracleError::Declined` is a warning,
   `Failed` a failure, as `NotStratifiable` and other reference errors were before.
-  `warden_testkit::fixtures::{run, run_str}` keep their signatures and plug in
+  `pemba_testkit::fixtures::{run, run_str}` keep their signatures and plug in
   `ReferenceOracle`, so every internal fixture test is still cross-checked.
-  (b) `warden test` therefore no longer prints the oracle's opinion: a failing assertion
+  (b) `pemba test` therefore no longer prints the oracle's opinion: a failing assertion
   reads "engine says false", not "engine says false; reference evaluator says false". The
   one CLI test pinning that text was updated (resolution of OQ-024: "the published CLI
   runs fixtures against the engine alone").
-  (c) `warden-testkit`'s workspace entry is path-only (no `version`), so `cargo publish`
+  (c) `pemba-testkit`'s workspace entry is path-only (no `version`), so `cargo publish`
   strips it from published crates' dev-dependencies; `deny.toml` sets
   `allow-wildcard-paths = true`, which (checked) still fails a published crate that
   depends on it normally.
-  (d) Publishable: `warden-schema`, `warden-core`, `warden-store-memory`,
-  `warden-sqlite-common`, `warden-store-sqlite`, `warden`, `warden-fixtures`,
-  `warden-cli`. Not: `warden-testkit`, `warden-difftest`, `warden-store-pysqlite`,
-  `warden-py` (PyPI only). Manifests have no `repository` / `documentation` yet (cargo
+  (d) Publishable: `pemba-schema`, `pemba-core`, `pemba-store-memory`,
+  `pemba-sqlite-common`, `pemba-store-sqlite`, `pemba`, `pemba-fixtures`,
+  `pemba-cli`. Not: `pemba-testkit`, `pemba-difftest`, `pemba-store-pysqlite`,
+  `pemba-py` (PyPI only). Manifests have no `repository` / `documentation` yet (cargo
   warns); left for the human with the final name.
   (e) Wheel smoke tests run on runners assumed available to a private repository:
   manylinux aarch64 under QEMU (`python:*-slim-bookworm` arm64 container) and macOS
@@ -924,11 +932,11 @@ it is resolved.
 - Resolution: (fill in)
 
 ## OQ-037 — Differential-test details decided in T3.4
-- Raised in: T3.4 (`docs/07-testing.md` §4, `crates/warden-difftest/KNOWN_DIFFERENCES.md`)
+- Raised in: T3.4 (`docs/07-testing.md` §4, `crates/pemba-difftest/KNOWN_DIFFERENCES.md`)
 - Blocking: no
 - Current choice:
-  (a) warden keeps accepting schemas where a wildcard is reached through a subject set,
-  which SpiceDB refuses (KD-2). warden's rule for them is KD-3's (a wildcard matches only
+  (a) pemba keeps accepting schemas where a wildcard is reached through a subject set,
+  which SpiceDB refuses (KD-2). pemba's rule for them is KD-3's (a wildcard matches only
   objects). SpiceDB's refusal is itself nondeterministic: the harness writes every schema
   to 12 throwaway datastores and counts any refusal as KD-2. The minimal repro is in
   `docs/upstream/spicedb-kd2.md` for the human to file.
@@ -936,17 +944,17 @@ it is resolved.
   because SpiceDB exhausts its depth limit on cyclic data and ran out of memory on dense
   acyclic data. Cyclic and larger data are compared only through the fixtures.
   (c) KD-3: a wildcard never matches a subject set (`04` §3.3), unchanged on the grant side.
-  On the subtracted side warden allowed what SpiceDB denies. Decided by the human on
+  On the subtracted side pemba allowed what SpiceDB denies. Decided by the human on
   2026-10-16: fail closed with a new error. Done in T3.4b
   (`AMBIGUOUS_WILDCARD_EXCLUSION`, `04` §3.3).
   (f) T3.4b details: "under a subtracted side" means at least one, not an odd number. Under
-  two subtracted sides the wildcard is back on a granting path, where warden's answer is
+  two subtracted sides the wildcard is back on a granting path, where pemba's answer is
   the stricter one, but the error is still raised: it is the simpler rule and fails closed.
   The probe runs after the exact-tuple hit (if the subject set itself is stored, the
   answer is `true` either way). It runs only for relations whose schema allows `t:*`; a
   stale `t:*` below the schema's revision is not probed for subject sets, as before.
   (d) KD-4 (depth limit near 50) was seen once and not reproduced; SpiceDB's answer there
-  depends on timing. warden's behaviour is kept and pinned by `depth_limit.yaml`.
+  depends on timing. pemba's behaviour is kept and pinned by `depth_limit.yaml`.
   (e) `difftest.yml` pins `authzed/spicedb:v1.56.2`. Moving to a new SpiceDB release is a
   deliberate change that re-runs the comparison and updates `KNOWN_DIFFERENCES.md`.
 - Resolve by: human review of `KNOWN_DIFFERENCES.md`
@@ -972,7 +980,7 @@ it is resolved.
   defaults.
   (e) SpiceDB is measured over its HTTP gateway (JSON) on one kept-alive connection,
   fully consistent by default (matching `Consistency::Latest`), on `serve-testing`'s
-  in-memory datastore. The closest warden figure is therefore the memory store. gRPC is
+  in-memory datastore. The closest pemba figure is therefore the memory store. gRPC is
   not measured: it would need a gRPC client dependency for a comparison script.
   (f) `RESULTS.md` and `RESULTS.json` (summary statistics) are committed; the raw
   per-call durations stay in `target/` because they are megabytes per run. The
@@ -985,7 +993,7 @@ it is resolved.
 - Blocking: no
 - Current choice:
   (a) `fuzz_check_vs_reference` does not use an `arbitrary`-derived case as §5 says. It
-  runs `warden-testkit`'s construct-valid proptest generators (§2.2, the ones property 1
+  runs `pemba-testkit`'s construct-valid proptest generators (§2.2, the ones property 1
   uses) on a ChaCha RNG seeded from a hash of the input. Every input is therefore a valid,
   stratifiable case with property 1's restrictions, and the check is property 1's (single
   checks and `check_bulk`, with the one accepted error). The first byte picks

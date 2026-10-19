@@ -2,21 +2,21 @@
 //!
 //! The same adapter serves the store's own connection (inside `BEGIN IMMEDIATE`) and a
 //! caller's transaction passed to `Engine::write_in`, so both run the one write algorithm
-//! in `warden_core::write` (`docs/05-storage.md` §5, ADR-006).
+//! in `pemba_core::write` (`docs/05-storage.md` §5, ADR-006).
 
 use rusqlite::types::ValueRef;
 use rusqlite::{Connection, Transaction};
-use warden_core::store::{SqlValue, StoreError, WriteTxn};
+use pemba_core::store::{SqlValue, StoreError, WriteTxn};
 
 use crate::store_err;
 
 /// A caller-owned SQLite transaction, as a [`WriteTxn`] for `Engine::write_in`.
 ///
 /// ```no_run
-/// # fn demo(engine: &warden_core::Engine<warden_store_sqlite::SqliteStore>,
-/// #         req: warden_core::model::WriteRequest) -> Result<(), Box<dyn std::error::Error>> {
+/// # fn demo(engine: &pemba_core::Engine<pemba_store_sqlite::SqliteStore>,
+/// #         req: pemba_core::model::WriteRequest) -> Result<(), Box<dyn std::error::Error>> {
 /// use rusqlite::{Connection, TransactionBehavior};
-/// use warden_store_sqlite::SqliteTxn;
+/// use pemba_store_sqlite::SqliteTxn;
 ///
 /// let mut conn = Connection::open("app.db")?;
 /// let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;

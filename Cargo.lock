@@ -842,6 +842,143 @@ dependencies = [
 ]
 
 [[package]]
+name = "pemba"
+version = "0.0.0"
+dependencies = [
+ "pemba-core",
+ "pemba-store-memory",
+ "pemba-store-sqlite",
+ "tracing",
+]
+
+[[package]]
+name = "pemba-benches"
+version = "0.0.0"
+dependencies = [
+ "criterion",
+ "pemba",
+]
+
+[[package]]
+name = "pemba-cli"
+version = "0.0.0"
+dependencies = [
+ "clap",
+ "insta",
+ "pemba",
+ "pemba-fixtures",
+ "pemba-schema",
+]
+
+[[package]]
+name = "pemba-core"
+version = "0.0.0"
+dependencies = [
+ "pemba-schema",
+ "proptest",
+ "thiserror",
+ "tracing",
+]
+
+[[package]]
+name = "pemba-difftest"
+version = "0.0.0"
+dependencies = [
+ "pemba-core",
+ "pemba-schema",
+ "pemba-store-memory",
+ "pemba-testkit",
+ "proptest",
+ "serde",
+ "serde-saphyr",
+ "serde_json",
+ "ureq",
+]
+
+[[package]]
+name = "pemba-fixtures"
+version = "0.0.0"
+dependencies = [
+ "pemba-core",
+ "pemba-schema",
+ "pemba-store-memory",
+ "serde",
+ "serde-saphyr",
+ "thiserror",
+]
+
+[[package]]
+name = "pemba-py"
+version = "0.0.0"
+dependencies = [
+ "pemba",
+ "pemba-schema",
+ "pemba-sqlite-common",
+ "pemba-store-pysqlite",
+ "pyo3",
+]
+
+[[package]]
+name = "pemba-schema"
+version = "0.0.0"
+dependencies = [
+ "insta",
+ "proptest",
+ "sha2",
+ "thiserror",
+]
+
+[[package]]
+name = "pemba-sqlite-common"
+version = "0.0.0"
+dependencies = [
+ "pemba-core",
+]
+
+[[package]]
+name = "pemba-store-memory"
+version = "0.0.0"
+dependencies = [
+ "pemba-core",
+ "pemba-testkit",
+]
+
+[[package]]
+name = "pemba-store-pysqlite"
+version = "0.0.0"
+dependencies = [
+ "pemba-core",
+ "pemba-sqlite-common",
+ "pemba-store-memory",
+ "pemba-testkit",
+ "proptest",
+ "pyo3",
+]
+
+[[package]]
+name = "pemba-store-sqlite"
+version = "0.0.0"
+dependencies = [
+ "pemba-core",
+ "pemba-sqlite-common",
+ "pemba-testkit",
+ "rusqlite",
+]
+
+[[package]]
+name = "pemba-testkit"
+version = "0.0.0"
+dependencies = [
+ "pemba-core",
+ "pemba-fixtures",
+ "pemba-schema",
+ "pemba-store-memory",
+ "pemba-store-sqlite",
+ "proptest",
+ "tracing",
+]
+
+[[package]]
 name = "percent-encoding"
 version = "2.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1496,143 +1633,6 @@ checksum = "29790946404f91d9c5d06f9874efddea1dc06c5efe94541a7d6863108e3a5e4b"
 dependencies = [
  "same-file",
  "winapi-util",
-]
-
-[[package]]
-name = "warden"
-version = "0.0.0"
-dependencies = [
- "tracing",
- "warden-core",
- "warden-store-memory",
- "warden-store-sqlite",
-]
-
-[[package]]
-name = "warden-benches"
-version = "0.0.0"
-dependencies = [
- "criterion",
- "warden",
-]
-
-[[package]]
-name = "warden-cli"
-version = "0.0.0"
-dependencies = [
- "clap",
- "insta",
- "warden",
- "warden-fixtures",
- "warden-schema",
-]
-
-[[package]]
-name = "warden-core"
-version = "0.0.0"
-dependencies = [
- "proptest",
- "thiserror",
- "tracing",
- "warden-schema",
-]
-
-[[package]]
-name = "warden-difftest"
-version = "0.0.0"
-dependencies = [
- "proptest",
- "serde",
- "serde-saphyr",
- "serde_json",
- "ureq",
- "warden-core",
- "warden-schema",
- "warden-store-memory",
- "warden-testkit",
-]
-
-[[package]]
-name = "warden-fixtures"
-version = "0.0.0"
-dependencies = [
- "serde",
- "serde-saphyr",
- "thiserror",
- "warden-core",
- "warden-schema",
- "warden-store-memory",
-]
-
-[[package]]
-name = "warden-py"
-version = "0.0.0"
-dependencies = [
- "pyo3",
- "warden",
- "warden-schema",
- "warden-sqlite-common",
- "warden-store-pysqlite",
-]
-
-[[package]]
-name = "warden-schema"
-version = "0.0.0"
-dependencies = [
- "insta",
- "proptest",
- "sha2",
- "thiserror",
-]
-
-[[package]]
-name = "warden-sqlite-common"
-version = "0.0.0"
-dependencies = [
- "warden-core",
-]
-
-[[package]]
-name = "warden-store-memory"
-version = "0.0.0"
-dependencies = [
- "warden-core",
- "warden-testkit",
-]
-
-[[package]]
-name = "warden-store-pysqlite"
-version = "0.0.0"
-dependencies = [
- "proptest",
- "pyo3",
- "warden-core",
- "warden-sqlite-common",
- "warden-store-memory",
- "warden-testkit",
-]
-
-[[package]]
-name = "warden-store-sqlite"
-version = "0.0.0"
-dependencies = [
- "rusqlite",
- "warden-core",
- "warden-sqlite-common",
- "warden-testkit",
-]
-
-[[package]]
-name = "warden-testkit"
-version = "0.0.0"
-dependencies = [
- "proptest",
- "tracing",
- "warden-core",
- "warden-fixtures",
- "warden-schema",
- "warden-store-memory",
- "warden-store-sqlite",
 ]
 
 [[package]]

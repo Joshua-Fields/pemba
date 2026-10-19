@@ -1,5 +1,5 @@
 ---
-source: crates/warden-schema/tests/print.rs
+source: crates/pemba-schema/tests/print.rs
 expression: fmt(src)
 ---
 definition user {}

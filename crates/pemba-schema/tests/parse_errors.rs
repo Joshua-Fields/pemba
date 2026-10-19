@@ -3,7 +3,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use warden_schema::{ErrorCode, parse};
+use pemba_schema::{ErrorCode, parse};
 
 /// Parses `src`, asserts it fails with `code`, and snapshots the rendered diagnostic. The
 /// source goes into the snapshot description so a reviewer sees input and output together.

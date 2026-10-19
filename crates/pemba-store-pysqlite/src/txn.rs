@@ -2,7 +2,7 @@
 
 use pyo3::prelude::*;
 use pyo3::types::{PyInt, PyString, PyTuple};
-use warden_core::store::{SqlValue, StoreError, WriteTxn};
+use pemba_core::store::{SqlValue, StoreError, WriteTxn};
 
 /// `SQLITE_CONSTRAINT_UNIQUE`, an extended result code.
 const CONSTRAINT_UNIQUE: i64 = 2067;
@@ -65,7 +65,7 @@ fn params<'py>(py: Python<'py>, values: &[SqlValue]) -> PyResult<Bound<'py, PyTu
     PyTuple::new(py, items)
 }
 
-/// Classifies a Python exception like `warden-store-sqlite` classifies a driver error:
+/// Classifies a Python exception like `pemba-store-sqlite` classifies a driver error:
 /// `sqlite3.Error.sqlite_errorcode` (Python ≥ 3.11) carries the extended result code.
 pub(crate) fn store_err(py: Python<'_>, e: &PyErr) -> StoreError {
     let message = e.to_string();

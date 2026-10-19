@@ -1,4 +1,4 @@
-//! Schema language for warden: lexer, parser, semantic validator, compiled IR, pretty
+//! Schema language for pemba: lexer, parser, semantic validator, compiled IR, pretty
 //! printer and comment-preserving formatter. Performs no I/O.
 //!
 //! Implements `docs/03-schema-language.md`.

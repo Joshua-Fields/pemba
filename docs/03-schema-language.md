@@ -1,6 +1,6 @@
 # 03 — Schema language
 
-Crate: `warden-schema`. No I/O, no dependency on `warden-core` (core depends on schema).
+Crate: `pemba-schema`. No I/O, no dependency on `pemba-core` (core depends on schema).
 
 Reference for syntax: https://authzed.com/docs/spicedb/concepts/schema — we implement a
 **strict subset** (ADR-004). File extension convention: `.zed`.
@@ -315,7 +315,7 @@ and `Display` then says `warning[W_...]` instead of `error[E_...]`.
 line (`--> schema.zed:3:5`), for tools such as the CLI. Tests snapshot the rendered
 output (`insta`).
 
-The parser (`warden_schema::parse`, source → AST with byte spans) stops at the first lexical
+The parser (`pemba_schema::parse`, source → AST with byte spans) stops at the first lexical
 or syntax error: `E_UNEXPECTED_CHAR`, `E_UNTERMINATED_COMMENT`, `E_UNEXPECTED_TOKEN`,
 `E_AMBIGUOUS_OPERATORS`, `E_ARROW_CHAIN`, `E_UNSUPPORTED_FEATURE`. Collecting all errors
 (§5) applies to the semantic pass. The parser accepts keywords as relation/permission names
@@ -355,8 +355,8 @@ plain comments and relation/permission interleaving, but changes with doc commen
 
 ### 9.1 Comment-preserving formatter (T3.8)
 
-`warden_schema::format(source) -> Result<String, FormatError>` (used by
-`warden schema fmt`) prints the canonical form above with every plain comment (`//`,
+`pemba_schema::format(source) -> Result<String, FormatError>` (used by
+`pemba schema fmt`) prints the canonical form above with every plain comment (`//`,
 `/* */`) and every dangling doc comment kept, verbatim except that a `//` comment loses
 trailing whitespace and line breaks become `\n`. Without such comments its output is
 exactly `to_canonical_string()`. Placement:

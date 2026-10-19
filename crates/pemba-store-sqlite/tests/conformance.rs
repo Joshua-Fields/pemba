@@ -4,17 +4,17 @@
 
 use std::sync::atomic::{AtomicU32, Ordering};
 
-use warden_store_sqlite::{SqliteConfig, SqliteStore};
+use pemba_store_sqlite::{SqliteConfig, SqliteStore};
 
 #[test]
 fn sqlite_store_conforms() {
-    let dir = std::env::temp_dir().join(format!("warden-conformance-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("pemba-conformance-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let next = AtomicU32::new(0);
     // Each case drops its store before the next starts, so removing the directory at the
     // end also works on Windows.
     let result = std::panic::catch_unwind(|| {
-        warden_testkit::store_conformance::run(|| {
+        pemba_testkit::store_conformance::run(|| {
             let n = next.fetch_add(1, Ordering::Relaxed);
             SqliteStore::open(dir.join(format!("case{n}.db")), SqliteConfig::default()).unwrap()
         });

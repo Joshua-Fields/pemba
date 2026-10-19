@@ -1,4 +1,4 @@
-//! The `warden` command-line tool (`docs/06-api.md` §3).
+//! The `pemba` command-line tool (`docs/06-api.md` §3).
 //!
 //! Exit codes: 0 success, 1 the input was rejected (schema errors, `fmt --check` found a
 //! file that is not canonical, or a fixture failed), 2 usage or I/O error (bad arguments,
@@ -11,14 +11,14 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
-use warden_fixtures::{self as fixtures, StoreKind};
-use warden_schema::{FormatError, SchemaError, compile};
+use pemba_fixtures::{self as fixtures, StoreKind};
+use pemba_schema::{FormatError, SchemaError, compile};
 
 #[derive(Parser)]
 #[command(
-    name = "warden",
+    name = "pemba",
     version,
-    about = "Command-line tool for warden.",
+    about = "Command-line tool for pemba.",
     after_help = EXIT_CODES
 )]
 struct Cli {
@@ -168,7 +168,7 @@ fn validate(file: &Path) -> CmdResult {
 fn fmt(file: &Path, check: bool) -> CmdResult {
     let source = read(file)?;
     let path = file.display().to_string();
-    let formatted = match warden_schema::format(&source) {
+    let formatted = match pemba_schema::format(&source) {
         Ok(f) => f,
         Err(FormatError::Schema(e)) => {
             let mut err = io::stderr().lock();
@@ -185,7 +185,7 @@ fn fmt(file: &Path, check: bool) -> CmdResult {
         }
         writeln!(
             io::stderr(),
-            "`{path}` is not in canonical form; `warden schema fmt {path}` prints it"
+            "`{path}` is not in canonical form; `pemba schema fmt {path}` prints it"
         )
         .map_err(|e| io_error(&e))?;
         return Ok(ExitCode::from(REJECTED));
@@ -228,7 +228,7 @@ fn fixture_files(paths: &[PathBuf]) -> Result<Vec<PathBuf>, String> {
     Ok(out)
 }
 
-/// `path` with `/` separators on every platform, so `warden test` output is the same on
+/// `path` with `/` separators on every platform, so `pemba test` output is the same on
 /// Windows as elsewhere.
 fn slash_path(path: &Path) -> String {
     let s = path.display().to_string();

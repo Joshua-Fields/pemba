@@ -1,5 +1,5 @@
 ---
-source: crates/warden-schema/tests/parse_errors.rs
+source: crates/pemba-schema/tests/parse_errors.rs
 description: "definition user {}\n/* never closed\ndefinition team {}\n"
 ---
 error[E_UNTERMINATED_COMMENT]: unterminated block comment

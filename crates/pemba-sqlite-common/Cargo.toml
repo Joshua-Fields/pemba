@@ -1,6 +1,6 @@
 [package]
-name = "warden-sqlite-common"
-description = "Driver-independent SQLite text and logic for warden's SQLite stores."
+name = "pemba-sqlite-common"
+description = "Driver-independent SQLite text and logic for pemba's SQLite stores."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -11,4 +11,4 @@ authors.workspace = true
 workspace = true
 
 [dependencies]
-warden-core.workspace = true
+pemba-core.workspace = true

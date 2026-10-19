@@ -6,17 +6,17 @@ optimised code path is checked against something simpler.
 | Layer | Tool | Where |
 |---|---|---|
 | Unit tests | `cargo test` | next to code |
-| Snapshot tests (diagnostics, IR, pretty-print) | `insta` | `warden-schema` |
-| Fixture scenarios (YAML) | `warden-fixtures` runner + `warden-testkit` oracle | `testdata/fixtures/` |
-| Reference-evaluator property tests | `proptest` | `warden-testkit`, `warden-core` |
-| Store conformance | generic suite | `warden-testkit::store_conformance` (memory, SQLite, Python SQLite) |
-| Differential vs SpiceDB | Docker + HTTP | `warden-difftest` (`#[ignore]`, CI job) |
+| Snapshot tests (diagnostics, IR, pretty-print) | `insta` | `pemba-schema` |
+| Fixture scenarios (YAML) | `pemba-fixtures` runner + `pemba-testkit` oracle | `testdata/fixtures/` |
+| Reference-evaluator property tests | `proptest` | `pemba-testkit`, `pemba-core` |
+| Store conformance | generic suite | `pemba-testkit::store_conformance` (memory, SQLite, Python SQLite) |
+| Differential vs SpiceDB | Docker + HTTP | `pemba-difftest` (`#[ignore]`, CI job) |
 | Fuzzing | `cargo-fuzz` | `fuzz/` |
 | Mutation testing | `cargo-mutants` (eval + schema validator) | CI weekly |
-| Python tests | `pytest` | `crates/warden-py/tests/` |
+| Python tests | `pytest` | `crates/pemba-py/tests/` |
 | Benchmarks | `criterion`, `pytest-benchmark` | `benches/` |
 
-Coverage target (`cargo llvm-cov`): ≥ 90% lines for `warden-schema` and `warden-core::eval`.
+Coverage target (`cargo llvm-cov`): ≥ 90% lines for `pemba-schema` and `pemba-core::eval`.
 
 ---
 
@@ -36,8 +36,8 @@ Coverage target (`cargo llvm-cov`): ≥ 90% lines for `warden-schema` and `warde
 
 ## 2. Reference evaluator (the oracle)
 
-`warden-testkit::reference` — **deliberately naive, written for obviousness, not speed.**
-It must not share evaluation code with `warden-core::eval` (it may share the schema IR types
+`pemba-testkit::reference` — **deliberately naive, written for obviousness, not speed.**
+It must not share evaluation code with `pemba-core::eval` (it may share the schema IR types
 and parsers).
 
 ### 2.1 Algorithm (stratified fixed points, OQ-020)
@@ -77,7 +77,7 @@ at a non-least fixed point or never stops (OQ-020).
   (nothing a `sub` side reaches lies on a cycle of the dependency graph); the
   `SubSides::Recursive` variant (T1.4b) allows monotone recursion beneath it, dropping only
   a `sub` side that reaches back to its own permission. Property 1 runs on both.
-  Implemented in `warden-testkit::generate`, construct-valid.
+  Implemented in `pemba-testkit::generate`, construct-valid.
 - Data: 0–40 tuples valid for the schema, ids from a small alphabet (`a`..`f`) to force
   sharing and cycles.
 - Queries: random `(object, member, subject)` from the universe, including fresh ids and
@@ -160,7 +160,7 @@ assertions:
   assertFalse:
     - document:readme#view@user:bob
 
-# warden extensions (ignored by zed):
+# pemba extensions (ignored by zed):
 expectedLookups:
   resources:
     - query: "document#view@user:anne"
@@ -194,13 +194,13 @@ expectErrors:                       # optional: schema or write must fail with t
   must fail with, compared as a multiset. A write failure that is not a relationship
   validation error is named by `Error::code()` (e.g. `DUPLICATE_IN_BATCH`). A fixture with
   `expectErrors` has no assertions or steps.
-- Runner: the publishable `warden-fixtures` crate (format + engine-only runner, which the
-  CLI `warden test` uses) and `warden-testkit::fixtures::run(path, store_kind)`, the same
-  runner with the reference evaluator plugged in as its `Oracle` (OQ-024, T3.3). warden's
+- Runner: the publishable `pemba-fixtures` crate (format + engine-only runner, which the
+  CLI `pemba test` uses) and `pemba-testkit::fixtures::run(path, store_kind)`, the same
+  runner with the reference evaluator plugged in as its `Oracle` (OQ-024, T3.3). pemba's
   own tests use the testkit form.
   Each fixture runs against **both** memory and SQLite stores (memory only until the SQLite
   store lands in M2; adding a store kind is one `StoreKind` variant and one match arm).
-- **Every `assertTrue` / `assertFalse` is cross-checked** (testkit form; `warden test`
+- **Every `assertTrue` / `assertFalse` is cross-checked** (testkit form; `pemba test`
   checks the engine alone): the runner answers it with the
   engine and with the reference evaluator (§2.1) over its own model of the live tuples, and
   reports a failure naming each of the two that disagrees with the file. Objects the
@@ -235,10 +235,10 @@ expectErrors:                       # optional: schema or write must fail with t
 | `non_monotone_cycle.yaml` | cycle through exclusion → `NonMonotonicCycle` |
 | `schema_errors/*.yaml` | one file per schema error code (except `E_EMPTY_RELATION_TYPES`, which the parser makes unreachable from source text: `relation r:` is `E_UNEXPECTED_TOKEN`) |
 
-### 3.2 warden extensions (ignored by `zed`)
+### 3.2 pemba extensions (ignored by `zed`)
 
-Both extensions are warden-only keys; `zed validate` does not know them, so a file using
-them is a warden fixture first. What `zed` would check is exactly the top-level
+Both extensions are pemba-only keys; `zed validate` does not know them, so a file using
+them is a pemba fixture first. What `zed` would check is exactly the top-level
 `relationships` and `assertions` ("step 0").
 
 **`expectCheckErrors`** (OQ-022): a map from a check, in assertion syntax, to the code
@@ -280,16 +280,16 @@ steps:
 
 ## 4. Differential testing against SpiceDB
 
-Crate `warden-difftest` (dev-only, never published). Tests are `#[ignore]` and require
-`WARDEN_SPICEDB_URL` (the HTTP gateway) + `WARDEN_SPICEDB_KEY` (a token prefix). Without
-them the tests print that they did not run and pass, unless `WARDEN_DIFFTEST_REQUIRED` is
+Crate `pemba-difftest` (dev-only, never published). Tests are `#[ignore]` and require
+`PEMBA_SPICEDB_URL` (the HTTP gateway) + `PEMBA_SPICEDB_KEY` (a token prefix). Without
+them the tests print that they did not run and pass, unless `PEMBA_DIFFTEST_REQUIRED` is
 set (CI sets it). CI: `difftest.yml`, weekly and on manual dispatch (`09` §4).
 
 Run SpiceDB (pinned in `difftest.yml`; 1.56.2 when T3.4 landed):
 ```bash
 docker run --rm -p 8443:8443 authzed/spicedb:v1.56.2 serve-testing --http-enabled
-WARDEN_SPICEDB_URL=http://127.0.0.1:8443 WARDEN_SPICEDB_KEY=difftest \
-    cargo test -p warden-difftest -- --ignored
+PEMBA_SPICEDB_URL=http://127.0.0.1:8443 PEMBA_SPICEDB_KEY=difftest \
+    cargo test -p pemba-difftest -- --ignored
 ```
 `serve-testing` gives an isolated, in-memory datastore per bearer token; the harness uses
 a fresh token per case (and per throwaway probe), so cases never see each other's data.
@@ -303,7 +303,7 @@ Procedure per case (every fixture without `expectErrors`, plus generated cases):
    `fresh` object of every type) for every object subject and every subject set in the
    tuples, via `POST /v1/permissions/checkbulk` with `fullyConsistent`; up to 12
    `lookup_resources` (object subjects) and 12 `lookup_subjects`, compared as sets.
-4. Compare with warden (memory store). Two errors agree (the wording differs). A mismatch
+4. Compare with pemba (memory store). Two errors agree (the wording differs). A mismatch
    that a `KNOWN_DIFFERENCES.md` detector explains is counted; any other fails the run and
    prints the case as fixture YAML ready to paste into `testdata/fixtures/regressions/`.
 
@@ -315,11 +315,11 @@ generated case:
 - **At most 16 relationships** per case (after cycle removal). SpiceDB does not memoise
   across branches of one check; on the densest acyclic data one bulk check used up 2.5 GB
   and SpiceDB ran out of memory.
-Cases are generated until at least 500 were compared (`WARDEN_DIFFTEST_CASES` raises it).
+Cases are generated until at least 500 were compared (`PEMBA_DIFFTEST_CASES` raises it).
 Cyclic and larger data are compared through the fixtures. The property tests (§2) have
 neither cap.
 
-Known/expected divergences are listed in `crates/warden-difftest/KNOWN_DIFFERENCES.md`, each
+Known/expected divergences are listed in `crates/pemba-difftest/KNOWN_DIFFERENCES.md`, each
 with a reason, a minimal repro and a detector in `src/known.rs` that needs the exact shape
 of the disagreement; the harness explains only those.
 
@@ -344,7 +344,7 @@ Run each ≥ 10 minutes before a release; corpus committed under `fuzz/corpus/`.
   `StorageError`; autocommit guard.
 - Threads: 8 threads doing checks while 1 thread writes; no errors, results monotone in
   revision.
-- Wheel smoke test in CI on each platform: `pip install <wheel> && python -c "import warden"`.
+- Wheel smoke test in CI on each platform: `pip install <wheel> && python -c "import pemba"`.
 
 ---
 

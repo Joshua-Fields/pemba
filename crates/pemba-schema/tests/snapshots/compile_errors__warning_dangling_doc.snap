@@ -1,5 +1,5 @@
 ---
-source: crates/warden-schema/tests/compile_errors.rs
+source: crates/pemba-schema/tests/compile_errors.rs
 description: "definition user {}\ndefinition doc {\n    relation owner: user\n    permission view = owner /** inside */ + owner\n    /** before close */\n}\n/** at end */\n"
 ---
 warning[W_DANGLING_DOC_COMMENT]: doc comment is not attached to a definition, relation or permission

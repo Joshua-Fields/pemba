@@ -5,8 +5,8 @@
 
 use std::collections::BTreeMap;
 
-use warden_schema::compile;
-use warden_schema::ir::{
+use pemba_schema::compile;
+use pemba_schema::ir::{
     AllowedSubject, ArrowMode, CompiledSchema, Expr, Member, RelId, TypeDef, TypeId,
 };
 

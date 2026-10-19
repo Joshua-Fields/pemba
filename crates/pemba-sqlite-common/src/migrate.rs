@@ -1,12 +1,12 @@
 //! Migrations (`docs/05-storage.md` §4.1), run through any [`WriteTxn`].
 //!
-//! `warden_meta.storage_version` records the table layout. Migrations are an ordered list of
+//! `pemba_meta.storage_version` records the table layout. Migrations are an ordered list of
 //! SQL scripts; migration `n` (1-based) takes a database from version `n - 1` to `n`. A
 //! script runs one statement at a time ([`statements`]) because a driver's `execute` (and
 //! Python's `sqlite3.Cursor.execute`) takes exactly one.
 
-use warden_core::Error;
-use warden_core::store::{SqlValue, StoreError, WriteTxn};
+use pemba_core::Error;
+use pemba_core::store::{SqlValue, StoreError, WriteTxn};
 
 /// The storage version this library creates and reads.
 pub const STORAGE_VERSION: u32 = 1;
@@ -18,7 +18,7 @@ pub const MIGRATIONS: &[&str] = &[include_str!("../migrations/0001_init.sql")];
 ///
 /// A statement ends at a line whose last non-comment character is `;`. Migration scripts
 /// are ours, so this simple rule holds by construction: no `;` ends a line inside a string
-/// or a trigger body (tested against SQLite's own script runner in `warden-store-sqlite`).
+/// or a trigger body (tested against SQLite's own script runner in `pemba-store-sqlite`).
 pub fn statements(script: &str) -> Vec<String> {
     let mut out = Vec::new();
     let mut current = String::new();
@@ -47,21 +47,21 @@ pub fn statements(script: &str) -> Vec<String> {
 pub fn read_version(txn: &mut dyn WriteTxn) -> Result<Option<u32>, Error> {
     // `sqlite_master`, not its 3.33 alias `sqlite_schema`: see MIN_SQLITE_VERSION.
     let has_meta = txn.query(
-        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'warden_meta'",
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'pemba_meta'",
         &[],
     )?;
     if has_meta.is_empty() {
         return Ok(None);
     }
     let rows = txn.query(
-        "SELECT value FROM warden_meta WHERE key = 'storage_version'",
+        "SELECT value FROM pemba_meta WHERE key = 'storage_version'",
         &[],
     )?;
-    // Migrations record the version in the same transaction that creates `warden_meta`,
+    // Migrations record the version in the same transaction that creates `pemba_meta`,
     // so a table without it was not written by us; do not guess its layout.
     let value = match rows.first().map(Vec::as_slice) {
         Some([SqlValue::Text(v)]) => v.clone(),
-        None => return Err(corrupt("warden_meta has no storage_version")),
+        None => return Err(corrupt("pemba_meta has no storage_version")),
         Some(other) => {
             return Err(corrupt(&format!(
                 "storage_version {other:?} is not a version number"
@@ -116,7 +116,7 @@ pub fn migrate(txn: &mut dyn WriteTxn) -> Result<(), Error> {
         }
     }
     txn.execute(
-        "INSERT INTO warden_meta (key, value) VALUES ('storage_version', ?)
+        "INSERT INTO pemba_meta (key, value) VALUES ('storage_version', ?)
          ON CONFLICT (key) DO UPDATE SET value = excluded.value",
         &[SqlValue::Text(STORAGE_VERSION.to_string())],
     )?;
@@ -151,6 +151,6 @@ mod tests {
         // 4 tables, 4 indexes, 1 insert.
         assert_eq!(s.len(), 9, "{s:#?}");
         assert!(s.iter().all(|st| st.ends_with(';') && !st.contains("--")));
-        assert!(s[0].starts_with("CREATE TABLE IF NOT EXISTS warden_meta"));
+        assert!(s[0].starts_with("CREATE TABLE IF NOT EXISTS pemba_meta"));
     }
 }

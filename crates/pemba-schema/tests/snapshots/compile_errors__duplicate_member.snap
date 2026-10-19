@@ -1,5 +1,5 @@
 ---
-source: crates/warden-schema/tests/compile_errors.rs
+source: crates/pemba-schema/tests/compile_errors.rs
 description: "definition user {}\ndefinition doc {\n    relation viewer: user\n    permission viewer = viewer\n}"
 ---
 error[E_DUPLICATE_MEMBER]: `viewer` is defined more than once on `doc`

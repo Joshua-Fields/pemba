@@ -1,15 +1,15 @@
-//! The engine-only runner (what `warden test` uses) and the oracle hook (OQ-024).
+//! The engine-only runner (what `pemba test` uses) and the oracle hook (OQ-024).
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use std::path::{Path, PathBuf};
 
-use warden_core::model::{ObjectRef, RelName, Relationship, SubjectRef};
-use warden_core::{LookupResourcesRequest, LookupSubjectsRequest};
-use warden_fixtures::{
+use pemba_core::model::{ObjectRef, RelName, Relationship, SubjectRef};
+use pemba_core::{LookupResourcesRequest, LookupSubjectsRequest};
+use pemba_fixtures::{
     Oracle, OracleError, OracleView, StoreKind, SubjectsAnswer, run, run_str, run_str_with_oracle,
 };
-use warden_schema::ir::CompiledSchema;
+use pemba_schema::ir::CompiledSchema;
 
 fn yaml_files(dir: &Path, out: &mut Vec<PathBuf>) {
     for entry in std::fs::read_dir(dir).unwrap() {

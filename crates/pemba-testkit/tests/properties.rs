@@ -18,12 +18,12 @@
 use proptest::prelude::*;
 use proptest::strategy::ValueTree;
 use proptest::test_runner::{FileFailurePersistence, TestRunner};
-use warden_core::model::{Consistency, ObjectRef, RelName, SubjectRef, WriteOp, WriteRequest};
-use warden_core::{CheckItem, CheckRequest, Engine, EngineConfig};
-use warden_schema::ir::CompiledSchema;
-use warden_store_memory::MemoryStore;
-use warden_testkit::generate::{self, Case, RawQuery, SubSides};
-use warden_testkit::reference::{self, Reference};
+use pemba_core::model::{Consistency, ObjectRef, RelName, SubjectRef, WriteOp, WriteRequest};
+use pemba_core::{CheckItem, CheckRequest, Engine, EngineConfig};
+use pemba_schema::ir::CompiledSchema;
+use pemba_store_memory::MemoryStore;
+use pemba_testkit::generate::{self, Case, RawQuery, SubSides};
+use pemba_testkit::reference::{self, Reference};
 
 /// At least `min` cases, or `PROPTEST_CASES` if higher.
 fn config(min: u32) -> ProptestConfig {
@@ -38,7 +38,7 @@ fn config(min: u32) -> ProptestConfig {
 }
 
 fn compile(src: &str) -> CompiledSchema {
-    match warden_schema::compile(src) {
+    match pemba_schema::compile(src) {
         Ok(c) => c.schema,
         Err(e) => panic!("generated schema does not compile:\n{src}\n{e}"),
     }
@@ -353,17 +353,17 @@ mod prop5 {
     use std::sync::atomic::{AtomicU32, Ordering};
 
     use proptest::prelude::*;
-    use warden_core::store::{ReadStore, WritableStore};
-    use warden_store_memory::MemoryStore;
-    use warden_store_sqlite::{SqliteConfig, SqliteStore};
-    use warden_testkit::generate::{self, StoreOp};
+    use pemba_core::store::{ReadStore, WritableStore};
+    use pemba_store_memory::MemoryStore;
+    use pemba_store_sqlite::{SqliteConfig, SqliteStore};
+    use pemba_testkit::generate::{self, StoreOp};
 
     use super::config;
 
     fn equivalent(ops: &[StoreOp]) -> Result<(), TestCaseError> {
         let memory = MemoryStore::new();
         let sqlite = TempSqlite::new();
-        warden_testkit::store_equivalence::equivalent(&memory, sqlite.store.as_ref().unwrap(), ops)
+        pemba_testkit::store_equivalence::equivalent(&memory, sqlite.store.as_ref().unwrap(), ops)
     }
 
     /// A SQLite store in a fresh directory, removed on drop (store first).
@@ -376,7 +376,7 @@ mod prop5 {
         pub(super) fn new() -> Self {
             static NEXT: AtomicU32 = AtomicU32::new(0);
             let dir = std::env::temp_dir().join(format!(
-                "warden-prop5-{}-{}",
+                "pemba-prop5-{}-{}",
                 std::process::id(),
                 NEXT.fetch_add(1, Ordering::Relaxed)
             ));
@@ -463,14 +463,14 @@ mod prop4 {
     use std::collections::BTreeSet;
 
     use proptest::prelude::*;
-    use warden_core::model::{
+    use pemba_core::model::{
         Consistency, ObjectRef, RelName, Relationship, Revision, SubjectRef, WriteOp, WriteRequest,
     };
-    use warden_core::store::WritableStore;
-    use warden_core::{CheckRequest, CheckResponse, Engine, Error};
-    use warden_store_memory::MemoryStore;
-    use warden_testkit::generate::{self, Case};
-    use warden_testkit::reference::Reference;
+    use pemba_core::store::WritableStore;
+    use pemba_core::{CheckRequest, CheckResponse, Engine, Error};
+    use pemba_store_memory::MemoryStore;
+    use pemba_testkit::generate::{self, Case};
+    use pemba_testkit::reference::Reference;
 
     use super::{compile, config, query, unlimited};
 
@@ -605,7 +605,7 @@ mod prop4 {
                         prop_assert!(
                             matches!(
                                 got,
-                                Err(warden_core::Error::RevisionExpired { requested, horizon: h })
+                                Err(pemba_core::Error::RevisionExpired { requested, horizon: h })
                                     if requested == rev && h == horizon
                             ),
                             "{}: check at {} below horizon {}: {:?}",
@@ -721,13 +721,13 @@ mod prop4 {
 
 mod prop2 {
     use proptest::prelude::*;
-    use warden_core::model::{Consistency, ObjectRef, RelName, SubjectRef, WriteOp, WriteRequest};
-    use warden_core::store::WritableStore;
-    use warden_core::{Engine, LookupResourcesRequest};
-    use warden_schema::ir::CompiledSchema;
-    use warden_store_memory::MemoryStore;
-    use warden_testkit::generate::{self, Case, RawQuery, SubSides};
-    use warden_testkit::reference::{FRESH_ID, Reference};
+    use pemba_core::model::{Consistency, ObjectRef, RelName, SubjectRef, WriteOp, WriteRequest};
+    use pemba_core::store::WritableStore;
+    use pemba_core::{Engine, LookupResourcesRequest};
+    use pemba_schema::ir::CompiledSchema;
+    use pemba_store_memory::MemoryStore;
+    use pemba_testkit::generate::{self, Case, RawQuery, SubSides};
+    use pemba_testkit::reference::{FRESH_ID, Reference};
 
     use super::{compile, config, query, unlimited};
 
@@ -1051,12 +1051,12 @@ fn generated_ambiguity_is_exercised() {
 
 mod prop3 {
     use proptest::prelude::*;
-    use warden_core::model::{ObjectRef, SubjectRef, WriteOp, WriteRequest};
-    use warden_core::store::WritableStore;
-    use warden_core::{CheckRequest, Engine, LookupSubjectsRequest, LookupSubjectsResponse};
-    use warden_store_memory::MemoryStore;
-    use warden_testkit::generate::{self, Case, SubSides};
-    use warden_testkit::reference::Reference;
+    use pemba_core::model::{ObjectRef, SubjectRef, WriteOp, WriteRequest};
+    use pemba_core::store::WritableStore;
+    use pemba_core::{CheckRequest, Engine, LookupSubjectsRequest, LookupSubjectsResponse};
+    use pemba_store_memory::MemoryStore;
+    use pemba_testkit::generate::{self, Case, SubSides};
+    use pemba_testkit::reference::Reference;
 
     use super::{compile, config, query, unlimited};
 
@@ -1146,7 +1146,7 @@ mod prop3 {
                         resource: resource.clone(),
                         permission: member.clone(),
                         subject,
-                        consistency: warden_core::model::Consistency::Latest,
+                        consistency: pemba_core::model::Consistency::Latest,
                     })
                     .map_err(|e| TestCaseError::fail(format!("check failed: {e}")))?
                     .allowed;
@@ -1205,7 +1205,7 @@ definition doc {
     const WILDCARD_IDS: [&str; 4] = ["a", "b", "c", "d"];
 
     /// 0–30 random tuples over [`WILDCARD_SCHEMA`]; every object and member is looked up.
-    fn wildcard_tuples() -> impl Strategy<Value = Vec<warden_core::model::Relationship>> {
+    fn wildcard_tuples() -> impl Strategy<Value = Vec<pemba_core::model::Relationship>> {
         prop::collection::vec(
             (
                 any::<usize>(),
@@ -1216,7 +1216,7 @@ definition doc {
             0..=30,
         )
         .prop_map(|raw| {
-            let mut out: Vec<warden_core::model::Relationship> = Vec::new();
+            let mut out: Vec<pemba_core::model::Relationship> = Vec::new();
             for (r, a, res, sub) in raw {
                 let (ty, rel, allowed) = WILDCARD_RELATIONS[r % WILDCARD_RELATIONS.len()];
                 let subject = allowed[a % allowed.len()].replace("{}", WILDCARD_IDS[sub]);
@@ -1233,7 +1233,7 @@ definition doc {
 
     /// Property 3 over [`WILDCARD_SCHEMA`]: every object, every member, subject type `user`.
     fn wildcard_lookups_match_check(
-        tuples: &[warden_core::model::Relationship],
+        tuples: &[pemba_core::model::Relationship],
     ) -> Result<usize, TestCaseError> {
         let schema = compile(WILDCARD_SCHEMA);
         let oracle = Reference::new(&schema, tuples)
@@ -1253,12 +1253,12 @@ definition doc {
         setup(&memory, tuples);
         setup(&sqlite, tuples);
         let mut with_exclusions = 0;
-        let user: warden_core::model::TypeName = "user".parse().unwrap();
+        let user: pemba_core::model::TypeName = "user".parse().unwrap();
         let users: Vec<&ObjectRef> = universe.iter().filter(|o| o.object_type == user).collect();
         for resource in universe.iter().filter(|o| o.object_type != user) {
             let t = schema.type_id(resource.object_type.as_str()).unwrap();
             for m in &schema.types[t.index()].members {
-                let member: warden_core::model::RelName = m.name().parse().unwrap();
+                let member: pemba_core::model::RelName = m.name().parse().unwrap();
                 let req =
                     LookupSubjectsRequest::new(resource.clone(), member.clone(), user.clone());
                 let a = memory.lookup_subjects(req.clone());
@@ -1282,7 +1282,7 @@ definition doc {
         Ok(with_exclusions)
     }
 
-    fn setup<S: WritableStore>(engine: &Engine<S>, tuples: &[warden_core::model::Relationship]) {
+    fn setup<S: WritableStore>(engine: &Engine<S>, tuples: &[pemba_core::model::Relationship]) {
         engine.write_schema(WILDCARD_SCHEMA).unwrap();
         if !tuples.is_empty() {
             engine
@@ -1378,8 +1378,8 @@ definition doc {
 /// wildcard answers (with and without exclusions) must occur.
 #[test]
 fn generated_subject_lookups_are_varied() {
-    use warden_core::model::{WriteOp, WriteRequest};
-    use warden_core::{Engine, LookupSubjectsRequest};
+    use pemba_core::model::{WriteOp, WriteRequest};
+    use pemba_core::{Engine, LookupSubjectsRequest};
     let (mut ids, mut wildcard, mut excluded) = (0, 0, 0);
     for case in sample(generate::case(), 300) {
         let src = case.schema.source();
@@ -1429,11 +1429,11 @@ mod schema_change {
     use std::collections::BTreeSet;
 
     use proptest::prelude::*;
-    use warden_core::model::{Consistency, Relationship, WriteOp, WriteRequest};
-    use warden_core::{CheckRequest, Engine, Error};
-    use warden_store_memory::MemoryStore;
-    use warden_testkit::generate::{self, Case, SchemaModel};
-    use warden_testkit::reference::Reference;
+    use pemba_core::model::{Consistency, Relationship, WriteOp, WriteRequest};
+    use pemba_core::{CheckRequest, Engine, Error};
+    use pemba_store_memory::MemoryStore;
+    use pemba_testkit::generate::{self, Case, SchemaModel};
+    use pemba_testkit::reference::Reference;
 
     use super::{compile, config, query, unlimited};
 

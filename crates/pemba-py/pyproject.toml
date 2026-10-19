@@ -3,7 +3,7 @@ requires = ["maturin>=1.15,<2"]
 build-backend = "maturin"
 
 [project]
-name = "warden"
+name = "pemba"
 description = "Embedded, Zanzibar-style authorisation engine."
 requires-python = ">=3.11"
 license = "Apache-2.0"
@@ -20,7 +20,7 @@ bench = ["pytest>=9.1", "pytest-benchmark>=5.3"]
 
 [tool.maturin]
 python-source = "python"
-module-name = "warden._warden"
+module-name = "pemba._pemba"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -20,7 +20,7 @@ use std::collections::BTreeSet;
 use std::fmt::{self, Write as _};
 
 use proptest::prelude::*;
-use warden_core::model::Relationship;
+use pemba_core::model::Relationship;
 
 /// Object ids used in generated tuples: a small alphabet, to force sharing and cycles.
 pub const IDS: [&str; 6] = ["a", "b", "c", "d", "e", "f"];
@@ -675,7 +675,7 @@ const STORE_SUBJECTS: [&str; 5] = [
 #[derive(Clone, Debug)]
 pub enum StoreOp {
     /// `WritableStore::write`.
-    Write(warden_core::model::WriteRequest),
+    Write(pemba_core::model::WriteRequest),
     /// `WritableStore::write_schema` with a source and hash made from the number.
     Schema(u8),
     /// `WritableStore::gc` at [`StoreOp::gc_revision`]: never above head, and at head
@@ -687,10 +687,10 @@ impl StoreOp {
     /// The `keep_from` a [`StoreOp::Gc`] uses with the store at `head`.
     pub fn gc_revision(
         fraction: u8,
-        head: warden_core::model::Revision,
-    ) -> warden_core::model::Revision {
+        head: pemba_core::model::Revision,
+    ) -> pemba_core::model::Revision {
         let f = u64::from(fraction).saturating_mul(2).min(255);
-        warden_core::model::Revision(head.0 * f / 255)
+        pemba_core::model::Revision(head.0 * f / 255)
     }
 }
 
@@ -711,7 +711,7 @@ pub fn store_tuples() -> Vec<Relationship> {
     out
 }
 
-fn store_filter() -> impl Strategy<Value = warden_core::model::RelationshipFilter> {
+fn store_filter() -> impl Strategy<Value = pemba_core::model::RelationshipFilter> {
     let pick = |n: usize| prop::option::of(0..n);
     (
         0..STORE_RESOURCE_TYPES.len(),
@@ -723,7 +723,7 @@ fn store_filter() -> impl Strategy<Value = warden_core::model::RelationshipFilte
     )
         .prop_filter_map("names always parse", |(t, id, rel, st, sid, srel)| {
             let subject = |i: usize| STORE_SUBJECTS[i].split_once(':');
-            Some(warden_core::model::RelationshipFilter {
+            Some(pemba_core::model::RelationshipFilter {
                 resource_type: STORE_RESOURCE_TYPES[t].parse().ok()?,
                 resource_id: id.map(|i| STORE_RESOURCE_IDS[i].parse()).transpose().ok()?,
                 relation: rel.map(|i| STORE_RELATIONS[i].parse()).transpose().ok()?,
@@ -744,8 +744,8 @@ fn store_filter() -> impl Strategy<Value = warden_core::model::RelationshipFilte
         })
 }
 
-fn store_write() -> impl Strategy<Value = warden_core::model::WriteRequest> {
-    use warden_core::model::{Precondition, WriteOp, WriteRequest};
+fn store_write() -> impl Strategy<Value = pemba_core::model::WriteRequest> {
+    use pemba_core::model::{Precondition, WriteOp, WriteRequest};
     let n = store_tuples().len();
     // Weighted towards deletes so that GC finds deleted rows to remove.
     let op = (0u8..5, 0..n);

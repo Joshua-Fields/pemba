@@ -1,7 +1,7 @@
 """SpiceDB side of the benchmark comparison (``docs/07-testing.md`` §7).
 
 Loads every ``bench-data`` scenario into a local SpiceDB and times the same operations the
-warden benches time, over SpiceDB's HTTP gateway on localhost, one call at a time on one
+pemba benches time, over SpiceDB's HTTP gateway on localhost, one call at a time on one
 kept-alive connection. Writes one duration (ns) per call to a JSON file that
 ``benches/results.py`` turns into the SpiceDB table of ``benches/RESULTS.md``.
 
@@ -17,7 +17,7 @@ container. Against a server you already run (e.g. SpiceDB on Postgres)::
 
 where every scenario shares one datastore, so it is emptied before each scenario.
 
-Standard library only. Reads are fully consistent by default, which matches warden's
+Standard library only. Reads are fully consistent by default, which matches pemba's
 ``Consistency::Latest``; ``--consistency minimize_latency`` measures SpiceDB's cached path.
 """
 
@@ -40,7 +40,7 @@ from typing import Any
 REPO = Path(__file__).resolve().parents[2]
 # Same version as .github/workflows/difftest.yml and KNOWN_DIFFERENCES.md.
 VERSION = "v1.56.2"
-CONTAINER = "warden-bench-spicedb"
+CONTAINER = "pemba-bench-spicedb"
 TYPES = ("document", "folder", "group", "user")
 TUPLE = re.compile(r"^([^:]+):([^#]+)#([^@]+)@([^:#]+):([^#]+)(?:#(.+))?$")
 WRITE_CHUNK = 1000  # SpiceDB's default maximum updates per write
@@ -149,7 +149,7 @@ class SpiceDb:
             if not page or len(results) < page:
                 return found
             cursor = results[-1]["afterResultCursor"]["token"]
-            # Later pages read the first page's snapshot, as warden's do.
+            # Later pages read the first page's snapshot, as pemba's do.
             consistency = {"atExactSnapshot": results[0]["lookedUpAt"]}
 
 
@@ -174,7 +174,7 @@ def start_docker(port: int) -> None:
 
 def load_data(data: Path) -> tuple[str, list[list[str]]]:
     if not (data / "manifest.tsv").exists():
-        subprocess.run(["cargo", "run", "--quiet", "-p", "warden-benches", "--bin",
+        subprocess.run(["cargo", "run", "--quiet", "-p", "pemba-benches", "--bin",
                         "bench-data", "--", str(data)], cwd=REPO, check=True)
     rows = [ln.split("\t") for ln in (data / "manifest.tsv").read_text().splitlines()]
     return (data / "schema.zed").read_text(), rows

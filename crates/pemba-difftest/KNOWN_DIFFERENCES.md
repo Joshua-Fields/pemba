@@ -1,6 +1,6 @@
-# Known differences between warden and SpiceDB
+# Known differences between pemba and SpiceDB
 
-The differential test (`docs/07-testing.md` §4, T3.4) compares warden with SpiceDB on every
+The differential test (`docs/07-testing.md` §4, T3.4) compares pemba with SpiceDB on every
 fixture and on at least 500 generated cases. A mismatch fails the run unless one of the
 entries below explains it. Each entry has a detector in `src/known.rs`, and every detector
 needs the exact shape of the disagreement plus a property of the case, so it cannot hide
@@ -13,7 +13,7 @@ Compared against SpiceDB **1.56.2** (`spicedb serve-testing`, HTTP gateway), 202
 | Fixtures | 18 | 18 | 23 621 | KD-1: 85; KD-3: 4 | 0 |
 | Generated | 665 | 500 | 499 517 | KD-2: 165 cases not compared; KD-3: 1 656 | 0 |
 
-Fixtures that expect schema or write errors (`schema_errors/`) are not run here. warden
+Fixtures that expect schema or write errors (`schema_errors/`) are not run here. pemba
 and SpiceDB word their errors differently, so two errors count as agreement.
 
 ## Caps on generated cases
@@ -33,29 +33,29 @@ are restricted before they are compared:
 - **One test at a time.** `serve-testing` keeps every datastore in memory; two runs at
   once more than doubled its peak memory.
 
-warden's own property tests (`07` §2) have none of these caps.
+pemba's own property tests (`07` §2) have none of these caps.
 
 ## KD-1: cyclic data
 
-- **Shape:** warden answers; SpiceDB fails with `max depth exceeded`; the data has a cycle
+- **Shape:** pemba answers; SpiceDB fails with `max depth exceeded`; the data has a cycle
   between objects.
-- **Why:** warden evaluates cycles to a fixed point (ADR-009, `04` §4), so a group that
+- **Why:** pemba evaluates cycles to a fixed point (ADR-009, `04` §4), so a group that
   contains itself is a finite question. SpiceDB keeps dispatching around the cycle until
   it reaches its depth limit and reports an error.
 - **Minimal repro:** `group:a#member@group:a#member`, then check
-  `group:a#member@user:x`: warden `false`; SpiceDB `max depth exceeded`.
+  `group:a#member@user:x`: pemba `false`; SpiceDB `max depth exceeded`.
 - **Seen in:** `nested_groups_cycle.yaml`, `non_monotone_cycle.yaml` (85 questions).
-- **Decision:** keep warden's behaviour. It is the documented fixed-point semantics, and
-  an error from SpiceDB is not an answer warden could match.
+- **Decision:** keep pemba's behaviour. It is the documented fixed-point semantics, and
+  an error from SpiceDB is not an answer pemba could match.
 
 ## KD-2: SpiceDB refuses wildcards reached through a subject set or an arrow, nondeterministically
 
 - **Shape:** SpiceDB's schema write fails with "wildcard relations cannot be transitively
-  included" or "wildcard relations cannot be used on the left side of arrows"; warden
+  included" or "wildcard relations cannot be used on the left side of arrows"; pemba
   accepts the schema. The case is counted, not compared.
 - **Why:** SpiceDB forbids a relation that allows `t:*` from being reached through a
   subject set (`relation viewer: group#member` where `member: user:*`) and, through the
-  left side of an arrow, from a relation that allows a wildcard. warden refuses the arrow
+  left side of an arrow, from a relation that allows a wildcard. pemba refuses the arrow
   case too (`E_ARROW_OVER_WILDCARD`, `03` §4.2, OQ-006), but accepts a wildcard reached
   through a subject set. There a wildcard matches only concrete objects of its type
   (`04` §3.3, KD-3).
@@ -65,7 +65,7 @@ warden's own property tests (`07` §2) have none of these caps.
   schema to 12 throwaway datastores first (`SCHEMA_PROBES`), and a refusal on any of them
   counts as KD-2. Such a schema slips through all 13 writes about once in 150 000 cases.
   It then shows up as an unexplained mismatch, never as a silent pass.
-- **Decision:** keep accepting. Each relationship SpiceDB would refuse here is one warden
+- **Decision:** keep accepting. Each relationship SpiceDB would refuse here is one pemba
   evaluates under KD-3's rule. The nondeterminism is SpiceDB's bug, written up for the
   human to file upstream in `docs/upstream/spicedb-kd2.md`.
 
@@ -74,21 +74,21 @@ warden's own property tests (`07` §2) have none of these caps.
 - **Shape:** a `check` whose subject is a subject set `t:x#r`; the case stores at least
   one `t:*` tuple; the two engines give opposite booleans; asked again with the case's
   `t:*` tuples removed, the two engines agree.
-- **Why:** in warden a stored `t:*` matches every **object** of type `t` and never a
+- **Why:** in pemba a stored `t:*` matches every **object** of type `t` and never a
   subject set (`04` §3.3). SpiceDB matches a subject set `t:x#r` against `t:*` as well.
   This happens in both directions:
-  - **Grant side:** warden `false`, SpiceDB `true`.
+  - **Grant side:** pemba `false`, SpiceDB `true`.
     ```
     definition user {}
     definition grp { relation member: user }
     definition doc { relation viewer: grp:* | grp#member }
 
     doc:d#viewer@grp:*
-    check doc:d#viewer@grp:g#member   -> warden false, SpiceDB true
+    check doc:d#viewer@grp:g#member   -> pemba false, SpiceDB true
     ```
-  - **Subtracted side:** before T3.4b warden said `true` and SpiceDB `false`: the wildcard
-    on the subtracted side removed nothing for warden, so warden allowed what SpiceDB
-    denied. warden now fails with `AMBIGUOUS_WILDCARD_EXCLUSION`.
+  - **Subtracted side:** before T3.4b pemba said `true` and SpiceDB `false`: the wildcard
+    on the subtracted side removed nothing for pemba, so pemba allowed what SpiceDB
+    denied. pemba now fails with `AMBIGUOUS_WILDCARD_EXCLUSION`.
     ```
     definition user {}
     definition grp { relation member: user }
@@ -100,37 +100,37 @@ warden's own property tests (`07` §2) have none of these caps.
 
     doc:d#viewer@grp:g#member
     doc:d#banned@grp:*
-    check doc:d#view@grp:g#member     -> warden AMBIGUOUS_WILDCARD_EXCLUSION (was true), SpiceDB false
+    check doc:d#view@grp:g#member     -> pemba AMBIGUOUS_WILDCARD_EXCLUSION (was true), SpiceDB false
     ```
   Both repros are the fixture `testdata/fixtures/wildcard_subject_set.yaml`.
 - **Seen in:** 1 656 generated questions and 4 in `wildcard_subject_set.yaml`, every one
   recognised by the re-ask (the same counts before and after T3.4b: the subtracted-side ones
-  changed from warden `true` to the error).
+  changed from pemba `true` to the error).
 - **Decision:** the grant side stays as it is: a wildcard never matches a subject set.
-  The subtracted side was the fail-open direction. Since T3.4b warden refuses to answer
+  The subtracted side was the fail-open direction. Since T3.4b pemba refuses to answer
   there with `AMBIGUOUS_WILDCARD_EXCLUSION` (`04` §3.3). The detector therefore accepts
-  only warden `false` / SpiceDB `true`, and warden `AMBIGUOUS_WILDCARD_EXCLUSION` against
-  any SpiceDB answer. warden `true` against SpiceDB `false` is no longer explained.
+  only pemba `false` / SpiceDB `true`, and pemba `AMBIGUOUS_WILDCARD_EXCLUSION` against
+  any SpiceDB answer. pemba `true` against SpiceDB `false` is no longer explained.
 
 ## KD-4: the depth limit, near 50
 
 - **Shape:** one engine answers and the other fails with a depth error; the data is
   acyclic and has a chain of at least 20 objects.
 - **Why:** both engines stop at depth 50, but they count it and order their work
-  differently. warden evaluates left to right and stops at the first operand that grants
+  differently. pemba evaluates left to right and stops at the first operand that grants
   (`04` §3.4), counting depth as in `04` §3.7 and OQ-019 (b). SpiceDB dispatches branches
   concurrently and can fail on a branch past its limit before another branch grants.
 - **Seen in:** `depth_limit.yaml` in the overnight run of 2026-10-16:
-  `check folder:f59#view@user:near`, warden `true` (granted at depth 3), SpiceDB
+  `check folder:f59#view@user:near`, pemba `true` (granted at depth 3), SpiceDB
   `max depth exceeded`. Not seen in the later run that day, so on SpiceDB's side it
   depends on timing.
-- **Decision:** keep warden's behaviour. It is deterministic and pinned by
+- **Decision:** keep pemba's behaviour. It is deterministic and pinned by
   `depth_limit.yaml`.
 
 ## Checked and agreeing (no entry needed)
 
 These open questions were to be settled by this comparison (`docs/OPEN_QUESTIONS.md`).
-SpiceDB 1.56.2 agrees with warden on each:
+SpiceDB 1.56.2 agrees with pemba on each:
 
 - **OQ-004** `.all()` over zero related objects: `false` in both
   (`doc:none#approved@user:anne` with no `approver_group`).
@@ -138,7 +138,7 @@ SpiceDB 1.56.2 agrees with warden on each:
   tuples, `group:x#member@group:y#member` is `false`, and
   `group:empty#is_member@group:empty#member` is `true` (`is_member = member`).
 - **OQ-006** arrows over a relation that allows a wildcard: SpiceDB refuses the schema
-  (60 of 60 writes), as warden does (`E_ARROW_OVER_WILDCARD`).
+  (60 of 60 writes), as pemba does (`E_ARROW_OVER_WILDCARD`).
 - **OQ-007** type names: the same 11 names accepted or refused by both. These covered
   segments of 2, 3, 64 and 65 characters, several prefixes, total lengths of 128 and
   129 bytes, and a segment ending in `_`.

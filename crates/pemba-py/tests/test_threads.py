@@ -5,13 +5,13 @@ from __future__ import annotations
 
 import threading
 
-import warden
+import pemba
 
 DOCS = 200
 CHECKERS = 8
 
 
-def test_checkers_and_a_writer(engine: warden.Engine) -> None:
+def test_checkers_and_a_writer(engine: pemba.Engine) -> None:
     written: dict[int, int] = {}  # doc index -> revision its viewer tuple was written at
     errors: list[BaseException] = []
     seen: list[list[tuple[int, int, bool]]] = [[] for _ in range(CHECKERS)]

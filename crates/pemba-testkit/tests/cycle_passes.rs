@@ -5,16 +5,16 @@
 //! `check_bulk` call per order (shared memo). `check_bulk` reports stats only on its
 //! span, so every test here records spans; a test binary of its own, because a test without
 //! a subscriber can make `tracing` cache "never" for the engine's callsites
-//! (see `crates/warden/tests/check_tracing.rs`).
+//! (see `crates/pemba/tests/check_tracing.rs`).
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use std::sync::{Arc, Mutex};
 
-use warden_core::model::{Consistency, Relationship, SubjectRef, WriteOp, WriteRequest};
-use warden_core::{CheckItem, CheckRequest, Engine};
-use warden_store_memory::MemoryStore;
-use warden_testkit::reference::Reference;
+use pemba_core::model::{Consistency, Relationship, SubjectRef, WriteOp, WriteRequest};
+use pemba_core::{CheckItem, CheckRequest, Engine};
+use pemba_store_memory::MemoryStore;
+use pemba_testkit::reference::Reference;
 
 /// One scenario: a schema, its tuples, and per node `(resource, member, want, passes)` where
 /// `passes` is `cycle_passes` for a fresh check of that node alone.
@@ -38,7 +38,7 @@ fn run(case: &Case) {
             preconditions: Vec::new(),
         })
         .unwrap();
-    let schema = warden_schema::compile(case.schema).unwrap().schema;
+    let schema = pemba_schema::compile(case.schema).unwrap().schema;
     let oracle = Reference::new(&schema, &tuples).unwrap();
     let subject: SubjectRef = SUBJECT.parse().unwrap();
 

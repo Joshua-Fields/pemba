@@ -4,11 +4,11 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use warden_core::model::{ObjectId, ObjectRef, RelName, Relationship, SubjectRef};
-use warden_testkit::reference::{FRESH_ID, Reference, ReferenceError};
+use pemba_core::model::{ObjectId, ObjectRef, RelName, Relationship, SubjectRef};
+use pemba_testkit::reference::{FRESH_ID, Reference, ReferenceError};
 
-fn compile(src: &str) -> warden_schema::ir::CompiledSchema {
-    warden_schema::compile(src).unwrap().schema
+fn compile(src: &str) -> pemba_schema::ir::CompiledSchema {
+    pemba_schema::compile(src).unwrap().schema
 }
 
 fn oracle(src: &str, tuples: &[&str]) -> Reference {
@@ -347,27 +347,27 @@ fn oq020(banned: &str, extra: &[&str]) {
     assert_eq!(subjects(&r, "folder:b", "view"), linked);
 
     // The engine agrees (OQ-020 recorded its answer as `false` for both).
-    let engine = warden_core::Engine::builder()
-        .store(warden_store_memory::MemoryStore::new())
+    let engine = pemba_core::Engine::builder()
+        .store(pemba_store_memory::MemoryStore::new())
         .build()
         .unwrap();
     engine.write_schema(&src).unwrap();
     engine
-        .write(warden_core::model::WriteRequest {
+        .write(pemba_core::model::WriteRequest {
             ops: tuples
                 .iter()
-                .map(|t| warden_core::model::WriteOp::Touch(t.parse().unwrap()))
+                .map(|t| pemba_core::model::WriteOp::Touch(t.parse().unwrap()))
                 .collect(),
             preconditions: Vec::new(),
         })
         .unwrap();
     for folder in ["folder:a", "folder:b"] {
         let res = engine
-            .check(warden_core::CheckRequest {
+            .check(pemba_core::CheckRequest {
                 resource: folder.parse().unwrap(),
                 permission: "view".parse().unwrap(),
                 subject: "user:u".parse().unwrap(),
-                consistency: warden_core::model::Consistency::Latest,
+                consistency: pemba_core::model::Consistency::Latest,
             })
             .unwrap();
         assert!(!res.allowed, "engine: u views {folder}");
@@ -473,7 +473,7 @@ fn exclusion_nested_in_a_subtracted_side_is_negative_on_both_sides() {
 #[test]
 fn strata_put_dependencies_first() {
     let schema = compile(TEAMS);
-    let strata = warden_testkit::reference::strata(&schema).unwrap();
+    let strata = pemba_testkit::reference::strata(&schema).unwrap();
     let pos = |name: &str| {
         strata
             .iter()

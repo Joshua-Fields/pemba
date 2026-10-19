@@ -15,13 +15,13 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use criterion::{Criterion, criterion_group, criterion_main};
-use warden::model::{Consistency, Relationship, SubjectRef, WriteOp, WriteRequest};
-use warden::store::WritableStore;
-use warden::{
+use pemba::model::{Consistency, Relationship, SubjectRef, WriteOp, WriteRequest};
+use pemba::store::WritableStore;
+use pemba::{
     CheckRequest, Engine, EngineConfig, LookupResourcesRequest, MemoryStore, SqliteConfig,
     SqliteStore,
 };
-use warden_benches::{Op, Scenario};
+use pemba_benches::{Op, Scenario};
 
 /// Warm-up then timed operations of the latency pass.
 const LATENCY_WARMUP: usize = 200;
@@ -46,7 +46,7 @@ fn load<S: WritableStore>(store: S, s: &Scenario) -> Engine<S> {
         .config(EngineConfig::default())
         .build()
         .unwrap();
-    e.write_schema(warden_benches::SCHEMA).unwrap();
+    e.write_schema(pemba_benches::SCHEMA).unwrap();
     // `max_write_batch` is 1000.
     for chunk in s.tuples.chunks(1000) {
         e.write(touch(chunk)).unwrap();
@@ -124,7 +124,7 @@ fn run<S: WritableStore>(engine: &Engine<S>, op: &Op) -> Duration {
         }
         Op::WriteBatch { size } => {
             let n = WRITES.fetch_add(1, Ordering::Relaxed);
-            let req = touch(&warden_benches::write_batch(n, *size));
+            let req = touch(&pemba_benches::write_batch(n, *size));
             let t = Instant::now();
             engine.write(req).unwrap();
             t.elapsed()
@@ -163,7 +163,7 @@ fn scenario<S: WritableStore>(c: &mut Criterion, store_name: &str, engine: &Engi
 }
 
 fn memory(c: &mut Criterion) {
-    for s in warden_benches::scenarios() {
+    for s in pemba_benches::scenarios() {
         let engine = load(MemoryStore::new(), &s);
         scenario(c, "memory", &engine, &s);
     }
@@ -172,7 +172,7 @@ fn memory(c: &mut Criterion) {
 fn sqlite(c: &mut Criterion) {
     let dir = target_dir().join(format!("bench-sqlite-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
-    for s in warden_benches::scenarios() {
+    for s in pemba_benches::scenarios() {
         let path = dir.join(format!("{}.db", s.name));
         let engine = load(SqliteStore::open(&path, SqliteConfig::default()).unwrap(), &s);
         scenario(c, "sqlite", &engine, &s);

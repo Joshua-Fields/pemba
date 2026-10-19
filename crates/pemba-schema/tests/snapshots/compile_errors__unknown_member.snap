@@ -1,5 +1,5 @@
 ---
-source: crates/warden-schema/tests/compile_errors.rs
+source: crates/pemba-schema/tests/compile_errors.rs
 description: "definition user {}\ndefinition doc {\n    relation viewer: user\n    permission view = viewr + parnt->view\n}"
 ---
 error[E_UNKNOWN_MEMBER]: `viewr` is not a relation or permission on `doc`

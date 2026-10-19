@@ -1,9 +1,9 @@
-//! SQLite relationship store for warden.
+//! SQLite relationship store for pemba.
 //!
 //! Implements `docs/05-storage.md` §4 (tables, migrations, connections) and §6 (reads).
 //! Every write — [`WritableStore`] on the store's own connection, or `Engine::write_in`
 //! on a caller's transaction through [`SqliteTxn`] — runs the shared algorithm in
-//! [`warden_core::write`]; this crate supplies only connections and SQL text.
+//! [`pemba_core::write`]; this crate supplies only connections and SQL text.
 //!
 //! # Connections
 //!
@@ -13,7 +13,7 @@
 //! [`SqliteConfig::synchronous`]; foreign keys on; a busy timeout.
 //!
 //! In-memory databases are not supported: they cannot use WAL and each connection would
-//! see its own database. Use `warden-store-memory` instead.
+//! see its own database. Use `pemba-store-memory` instead.
 
 #![forbid(unsafe_code)]
 
@@ -31,20 +31,20 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, PoisonError};
 
 use rusqlite::{Connection, ErrorCode, OpenFlags, TransactionBehavior};
-use warden_core::Error;
-use warden_core::model::{RelationshipFilter, Revision, WriteRequest};
-use warden_core::store::{
+use pemba_core::Error;
+use pemba_core::model::{RelationshipFilter, Revision, WriteRequest};
+use pemba_core::store::{
     DeleteResult, ReadStore, SchemaCheck, SqlDialect, SqlStore, StoreError, StoredSchema,
     WritableStore, WriteTxn,
 };
-use warden_sqlite_common::{SqliteDialect, canonical_main_file};
+use pemba_sqlite_common::{SqliteDialect, canonical_main_file};
 
 /// The `rusqlite` this crate is built against: [`SqliteTxn`] takes its `Transaction`, so
 /// open caller connections through this re-export to be sure the versions match.
 pub use rusqlite;
 pub use txn::SqliteTxn;
-pub use warden_sqlite_common::migrate::STORAGE_VERSION;
-pub use warden_sqlite_common::{SqliteConfig, Synchronous};
+pub use pemba_sqlite_common::migrate::STORAGE_VERSION;
+pub use pemba_sqlite_common::{SqliteConfig, Synchronous};
 
 /// Prepared statements kept per connection: the fixed reads and writes, the twelve
 /// `read_reverse` shapes and the common `read_relationships` / precondition shapes.
@@ -167,7 +167,7 @@ impl SqliteStore {
 impl WritableStore for SqliteStore {
     fn write(&self, req: &WriteRequest, schema_version: Option<u64>) -> Result<Revision, Error> {
         let rev = self.with_write_txn(&mut |txn| {
-            warden_core::write::write(txn, &SqliteDialect, req, schema_version)
+            pemba_core::write::write(txn, &SqliteDialect, req, schema_version)
         })?;
         self.cache.observe_head(rev);
         Ok(rev)
@@ -180,7 +180,7 @@ impl WritableStore for SqliteStore {
         check: SchemaCheck<'_>,
     ) -> Result<StoredSchema, Error> {
         let stored = self.with_write_txn(&mut |txn| {
-            warden_core::write::write_schema(txn, &SqliteDialect, source, hash, check)
+            pemba_core::write::write_schema(txn, &SqliteDialect, source, hash, check)
         })?;
         self.cache.observe_head(stored.created_rev);
         Ok(stored)
@@ -192,7 +192,7 @@ impl WritableStore for SqliteStore {
         limit: usize,
     ) -> Result<DeleteResult, Error> {
         let result = self.with_write_txn(&mut |txn| {
-            warden_core::write::delete_matching(txn, &SqliteDialect, filter, limit)
+            pemba_core::write::delete_matching(txn, &SqliteDialect, filter, limit)
         })?;
         self.cache.observe_head(result.revision);
         Ok(result)
@@ -201,14 +201,14 @@ impl WritableStore for SqliteStore {
     /// Its own `BEGIN IMMEDIATE` transaction, committed before any row is removed.
     fn raise_gc_horizon(&self, keep_from: Revision) -> Result<Revision, Error> {
         let horizon = self.with_write_txn(&mut |txn| {
-            warden_core::write::raise_gc_horizon(txn, &SqliteDialect, keep_from)
+            pemba_core::write::raise_gc_horizon(txn, &SqliteDialect, keep_from)
         })?;
         self.cache.horizon.fetch_max(horizon.0, Ordering::AcqRel);
         Ok(horizon)
     }
 
     fn gc_batch(&self, max_rows: usize) -> Result<u64, Error> {
-        self.with_write_txn(&mut |txn| warden_core::write::gc_batch(txn, &SqliteDialect, max_rows))
+        self.with_write_txn(&mut |txn| pemba_core::write::gc_batch(txn, &SqliteDialect, max_rows))
     }
 }
 
@@ -258,7 +258,7 @@ fn configure(conn: &Connection, config: &SqliteConfig) -> Result<(), Error> {
         return Err(Error::InvalidRequest {
             message: format!(
                 "the database cannot use WAL (journal_mode is {mode:?}); in-memory SQLite is \
-                 not supported, use warden-store-memory"
+                 not supported, use pemba-store-memory"
             ),
         });
     }

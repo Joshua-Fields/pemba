@@ -1,6 +1,6 @@
 [package]
-name = "warden-benches"
-description = "Benchmark datasets and Criterion benches for warden (docs/07-testing.md §7)."
+name = "pemba-benches"
+description = "Benchmark datasets and Criterion benches for pemba (docs/07-testing.md §7)."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -20,7 +20,7 @@ name = "engine"
 harness = false
 
 [dependencies]
-warden = { workspace = true, features = ["sqlite", "memory"] }
+pemba = { workspace = true, features = ["sqlite", "memory"] }
 
 [dev-dependencies]
 # Rust benches (docs/09-repo-and-tooling.md §2, approved list). No plots or rayon:

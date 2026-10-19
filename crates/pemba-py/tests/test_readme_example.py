@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-import warden
+import pemba
 from conftest import SCHEMA
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -44,9 +44,9 @@ def test_readme_example_runs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
     engine = scope["engine"]
     conn = scope["conn"]
     rev = scope["rev"]
-    assert isinstance(engine, warden.Engine)
+    assert isinstance(engine, pemba.Engine)
     assert isinstance(conn, sqlite3.Connection)
-    assert isinstance(rev, warden.Revision)
+    assert isinstance(rev, pemba.Revision)
     try:
         assert not conn.in_transaction
         assert engine.head_revision() == rev

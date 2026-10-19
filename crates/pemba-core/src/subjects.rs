@@ -8,7 +8,7 @@
 
 use std::collections::{BTreeSet, HashMap};
 
-use warden_schema::ir::{AllowedSubject, ArrowMode, CompiledSchema, Expr, Member, RelId, TypeId};
+use pemba_schema::ir::{AllowedSubject, ArrowMode, CompiledSchema, Expr, Member, RelId, TypeId};
 
 use crate::engine::read_error;
 use crate::error::Error;

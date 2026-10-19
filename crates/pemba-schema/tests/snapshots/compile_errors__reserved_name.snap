@@ -1,5 +1,5 @@
 ---
-source: crates/warden-schema/tests/compile_errors.rs
+source: crates/pemba-schema/tests/compile_errors.rs
 description: "definition user {}\ndefinition doc {\n    relation nil: user\n    relation any: user\n    permission self = any\n}"
 ---
 error[E_RESERVED_NAME]: `nil` is a reserved word and cannot name a relation

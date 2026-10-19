@@ -1,5 +1,5 @@
 ---
-source: crates/warden-schema/tests/compile_errors.rs
+source: crates/pemba-schema/tests/compile_errors.rs
 description: "definition user {}\ndefinition doc {\n    relation owner: user\n    permission edit = owner\n    permission view = edit->view\n}"
 ---
 error[E_ARROW_LEFT_NOT_RELATION]: the left side of an arrow must be a relation, but `edit` is a permission

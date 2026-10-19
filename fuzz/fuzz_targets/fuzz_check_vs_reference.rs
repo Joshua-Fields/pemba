@@ -1,7 +1,7 @@
 //! `docs/07-testing.md` §5: a small schema + data + queries → engine vs reference, with the
 //! restrictions of §2.2.
 //!
-//! The case comes from `warden-testkit`'s construct-valid generators (the ones property 1
+//! The case comes from `pemba-testkit`'s construct-valid generators (the ones property 1
 //! uses), seeded from a hash of the fuzzer's bytes rather than an `arbitrary` derive
 //! (OQ-039): every input becomes a valid, stratifiable case. A hash gives libFuzzer little
 //! structure to steer by, so this target is in effect an open-ended property-1 run under
@@ -14,12 +14,12 @@
 use libfuzzer_sys::fuzz_target;
 use proptest::strategy::{Strategy, ValueTree};
 use proptest::test_runner::{Config, RngAlgorithm, TestRng, TestRunner};
-use warden_core::model::{Consistency, ObjectRef, RelName, SubjectRef, WriteOp, WriteRequest};
-use warden_core::{CheckItem, CheckRequest, Engine, EngineConfig};
-use warden_schema::ir::CompiledSchema;
-use warden_store_memory::MemoryStore;
-use warden_testkit::generate::{self, Case, RawQuery, SubSides};
-use warden_testkit::reference::Reference;
+use pemba_core::model::{Consistency, ObjectRef, RelName, SubjectRef, WriteOp, WriteRequest};
+use pemba_core::{CheckItem, CheckRequest, Engine, EngineConfig};
+use pemba_schema::ir::CompiledSchema;
+use pemba_store_memory::MemoryStore;
+use pemba_testkit::generate::{self, Case, RawQuery, SubSides};
+use pemba_testkit::reference::Reference;
 
 fuzz_target!(|data: &[u8]| {
     let Some((&mode, rest)) = data.split_first() else {
@@ -112,7 +112,7 @@ fn query(
 
 fn engine_agrees_with_reference(case: &Case) {
     let src = case.schema.source();
-    let schema = warden_schema::compile(&src)
+    let schema = pemba_schema::compile(&src)
         .unwrap_or_else(|e| panic!("generated schema does not compile:\n{src}\n{e}"))
         .schema;
     let oracle = Reference::new(&schema, &case.tuples)

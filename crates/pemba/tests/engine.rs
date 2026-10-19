@@ -3,12 +3,12 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use warden::model::{
+use pemba::model::{
     Consistency, ObjectId, Precondition, RelName, Relationship, RelationshipFilter, Revision,
     TypeName, WriteOp, WriteRequest,
 };
-use warden::store::WritableStore;
-use warden::{Engine, EngineConfig, Error, ErrorCode, MemoryStore, ReadRelationshipsRequest};
+use pemba::store::WritableStore;
+use pemba::{Engine, EngineConfig, Error, ErrorCode, MemoryStore, ReadRelationshipsRequest};
 
 const SCHEMA: &str = "\
 definition user {}

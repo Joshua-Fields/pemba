@@ -1,8 +1,8 @@
-# warden
+# pemba
 
-> **Codename.** The final project name is not chosen yet (`docs/01-decisions.md` ADR-012).
+> pemba was formerly developed under the codename warden.
 
-warden is an **embedded, Zanzibar-style authorisation engine** written in Rust, with Python
+pemba is an **embedded, Zanzibar-style authorisation engine** written in Rust, with Python
 bindings: relationship-based access control (ReBAC) that runs inside your process and keeps
 its data in your database. Think "SQLite for authorisation".
 
@@ -29,8 +29,8 @@ Not on PyPI or crates.io yet; build from source.
 **Python** (3.11 or newer; Rust 1.99, pinned in `rust-toolchain.toml`):
 
 ```bash
-git clone https://github.com/Joshua-Fields/warden
-cd warden/crates/warden-py
+git clone https://github.com/Joshua-Fields/pemba
+cd pemba/crates/pemba-py
 python -m venv .venv && . .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install maturin
 maturin develop --release
@@ -40,17 +40,17 @@ maturin develop --release
 
 ```toml
 [dependencies]
-warden = { git = "https://github.com/Joshua-Fields/warden" }
+pemba = { git = "https://github.com/Joshua-Fields/pemba" }
 ```
 
-The `warden` crate re-exports the engine and both stores (features `sqlite` and `memory`,
+The `pemba` crate re-exports the engine and both stores (features `sqlite` and `memory`,
 both on by default).
 
 ## Python quick start
 
 ```python
 import sqlite3
-from warden import Engine
+from pemba import Engine
 
 engine = Engine.sqlite("app.db")              # or Engine.memory()
 engine.write_schema(open("authz.zed").read())
@@ -70,15 +70,15 @@ rev = engine.write(touch=["document:readme#owner@user:anne"], conn=conn)
 conn.execute("COMMIT")
 ```
 
-This example runs verbatim in CI (`crates/warden-py/tests/test_readme_example.py`), with an
+This example runs verbatim in CI (`crates/pemba-py/tests/test_readme_example.py`), with an
 `authz.zed` schema and a `documents` table set up first. The API is in `docs/06-api.md` §2;
 every method has a docstring, and the package ships type stubs that pass `mypy --strict`.
 
 ## Rust quick start
 
 ```rust
-use warden::model::{Consistency, WriteOp, WriteRequest};
-use warden::{CheckRequest, Engine, LookupResourcesRequest, MemoryStore};
+use pemba::model::{Consistency, WriteOp, WriteRequest};
+use pemba::{CheckRequest, Engine, LookupResourcesRequest, MemoryStore};
 
 let engine = Engine::builder().store(MemoryStore::new()).build()?;
 engine.write_schema(
@@ -113,21 +113,21 @@ let page = engine.lookup_resources(LookupResourcesRequest::new(
 assert_eq!(page.resource_ids.len(), 1);
 ```
 
-The same example is a doctest on the `warden` crate. For persistence, use
+The same example is a doctest on the `pemba` crate. For persistence, use
 `SqliteStore::open("app.db", SqliteConfig::default())` in place of `MemoryStore::new()`.
 
 ## Transactional writes
 
-The headline feature (`docs/05-storage.md` §10, ADR-006). warden's tables live in your
-database, prefixed `warden_`, and a write can run inside a transaction you opened:
+The headline feature (`docs/05-storage.md` §10, ADR-006). pemba's tables live in your
+database, prefixed `pemba_`, and a write can run inside a transaction you opened:
 
 - **Python:** pass `conn=` (a `sqlite3.Connection` on the same file, with a transaction
-  open) to `engine.write`, as in the quick start. warden neither commits nor rolls back.
+  open) to `engine.write`, as in the quick start. pemba neither commits nor rolls back.
   The returned revision becomes readable when you commit and never exists if you roll
   back. Without an open transaction, the write raises `ValueError` unless you pass
   `allow_autocommit=True`.
 - **Rust:** `engine.write_in(&mut SqliteTxn::new(&tx), request)` on your own
-  `rusqlite::Transaction` (use the `rusqlite` version `warden-store-sqlite` depends on):
+  `rusqlite::Transaction` (use the `rusqlite` version `pemba-store-sqlite` depends on):
 
   ```rust
   let mut conn = rusqlite::Connection::open("app.db")?;
@@ -198,23 +198,23 @@ definition document {
   `nil`, permission type annotations, and functions other than `.any` / `.all`.
 - **Arrows** may only walk relations that allow no wildcard (`E_ARROW_OVER_WILDCARD`), and
   cannot be chained (`a->b->c`, `E_ARROW_CHAIN`).
-- **Cycles in data** (a group containing itself) get an answer in warden; SpiceDB reports
+- **Cycles in data** (a group containing itself) get an answer in pemba; SpiceDB reports
   `max depth exceeded`.
 - **Wildcards never match subject sets.** A stored `t:*` grants every *object* of type
   `t`, never a subject set `t:x#r`. Where SpiceDB would apply it to a subject set on the
-  subtracted side of an exclusion, warden fails with `AMBIGUOUS_WILDCARD_EXCLUSION` rather
+  subtracted side of an exclusion, pemba fails with `AMBIGUOUS_WILDCARD_EXCLUSION` rather
   than guess.
 - Every known difference, with repros and how often it appeared in differential testing
   against SpiceDB 1.56.2, is in
-  [`KNOWN_DIFFERENCES.md`](crates/warden-difftest/KNOWN_DIFFERENCES.md).
+  [`KNOWN_DIFFERENCES.md`](crates/pemba-difftest/KNOWN_DIFFERENCES.md).
 
 **Changing a schema** that has data is checked: `write_schema` refuses a change that would
 orphan live relationships, such as removing a relation or an allowed type that is still in
 use (`SchemaChangeOrphansError` in Python, listing each group and its count). Delete those
 relationships first.
 
-**Tooling:** the `warden` CLI validates and formats schemas (`warden schema validate`,
-`warden schema fmt`, which keeps comments) and runs YAML fixture tests (`warden test`).
+**Tooling:** the `pemba` CLI validates and formats schemas (`pemba schema validate`,
+`pemba schema fmt`, which keeps comments) and runs YAML fixture tests (`pemba test`).
 `Engine.validate_schema` returns the same diagnostics from Python.
 
 ## Consistency guide
@@ -240,7 +240,7 @@ snapshot, so one answer never mixes two points in time.
   `ConsistencyError` (`REVISION_EXPIRED`).
 
 **Errors fail closed.** Evaluation never turns a problem (store error, depth limit, an
-undefined cycle) into `False` or `True`. It raises a `WardenError` subclass in Python and
+undefined cycle) into `False` or `True`. It raises a `PembaError` subclass in Python and
 returns an `Err` in Rust, and the caller decides what that means.
 
 ## Limits
@@ -271,7 +271,7 @@ Also:
 
 ## When to use SpiceDB instead
 
-warden is for a single application, or a few services sharing one database, that wants
+pemba is for a single application, or a few services sharing one database, that wants
 fine-grained sharing without running another service. Use
 [SpiceDB](https://github.com/authzed/spicedb) (or another Zanzibar service) when:
 
@@ -279,9 +279,9 @@ fine-grained sharing without running another service. Use
 - you need horizontal scale, multi-region deployment, or more relationships than one
   database comfortably holds;
 - you need caveats (conditional relationships), expiring relationships, or a Watch API;
-- you want a mature, supported product today. warden is pre-alpha.
+- you want a mature, supported product today. pemba is pre-alpha.
 
-warden's schema language is a strict subset of SpiceDB's, so if you outgrow warden your
+pemba's schema language is a strict subset of SpiceDB's, so if you outgrow pemba your
 schema and relationships move over as they are. The exceptions are listed in
 `KNOWN_DIFFERENCES.md`: SpiceDB refuses some schemas where a wildcard relation is reached
 through a subject set (KD-2), and answers differ for cyclic data and for wildcards against
@@ -296,11 +296,11 @@ force for each are in [`docs/OPEN_QUESTIONS.md`](docs/OPEN_QUESTIONS.md).
 
 ## Credits
 
-warden's design draws on:
+pemba's design draws on:
 
 - [Zanzibar: Google's Consistent, Global Authorization System](https://research.google/pubs/zanzibar-googles-consistent-global-authorization-system/)
   (Pang et al., USENIX ATC 2019), for the relationship-based authorisation model.
-- [SpiceDB](https://github.com/authzed/spicedb) by AuthZed, whose schema language warden
+- [SpiceDB](https://github.com/authzed/spicedb) by AuthZed, whose schema language pemba
   accepts a strict subset of. SpiceDB is used as a design reference and as the oracle for
   differential testing only: no SpiceDB code is copied or translated into this project.
 

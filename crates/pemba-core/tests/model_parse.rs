@@ -1,13 +1,13 @@
 //! Example-based tests for the canonical string syntax (`docs/02-data-model.md` §1–3).
 //!
-//! The identifier rules themselves are unit-tested in `warden_schema::ident`; here we
+//! The identifier rules themselves are unit-tested in `pemba_schema::ident`; here we
 //! check they are applied to every identifier slot with positions into the full input.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use std::str::FromStr;
 
-use warden_core::model::{
+use pemba_core::model::{
     Component, Consistency, IdentErrorKind, ObjectId, ObjectRef, ParseError, ParseErrorReason,
     RelName, Relationship, RelationshipFilter, Revision, SubjectRef, TypeName, WriteOp,
 };

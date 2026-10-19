@@ -1,5 +1,5 @@
 ---
-source: crates/warden-schema/tests/compile_errors.rs
+source: crates/pemba-schema/tests/compile_errors.rs
 description: "definition user {}\ndefinition doc {\n    relation trailing_: user\n    permission vw = trailing_\n}"
 ---
 error[E_IDENT_FORMAT]: relation name `trailing_` must end with a lowercase letter or digit, found '_'

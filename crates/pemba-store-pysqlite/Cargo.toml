@@ -1,6 +1,6 @@
 [package]
-name = "warden-store-pysqlite"
-description = "SQLite relationship store for warden over CPython's own sqlite3 module."
+name = "pemba-store-pysqlite"
+description = "SQLite relationship store for pemba over CPython's own sqlite3 module."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -25,14 +25,14 @@ module_name_repetitions = "allow"
 must_use_candidate = "allow"
 
 [dependencies]
-warden-core.workspace = true
-warden-sqlite-common.workspace = true
+pemba-core.workspace = true
+pemba-sqlite-common.workspace = true
 # Calls CPython's `sqlite3` module (ADR-006 amendment, OQ-032): this store links no SQLite.
 pyo3 = { version = "0.30.1", features = ["abi3-py311"] }
 
 [dev-dependencies]
 # The tests embed an interpreter to run the conformance suite and property 5.
 pyo3 = { version = "0.30.1", features = ["abi3-py311", "auto-initialize"] }
-warden-store-memory.workspace = true
-warden-testkit.workspace = true
+pemba-store-memory.workspace = true
+pemba-testkit.workspace = true
 proptest.workspace = true

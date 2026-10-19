@@ -1,5 +1,5 @@
 //! Identifier rules (`docs/02-data-model.md` §1.1), the single implementation shared by
-//! the schema validator (`E_IDENT_FORMAT`) and `warden-core`'s tuple parser.
+//! the schema validator (`E_IDENT_FORMAT`) and `pemba-core`'s tuple parser.
 
 /// Minimum length of one identifier segment, in characters.
 pub const IDENT_MIN_LEN: usize = 3;

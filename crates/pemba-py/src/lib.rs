@@ -1,9 +1,9 @@
-//! Python bindings for warden (`docs/06-api.md` §2), built by maturin as `warden._warden`.
+//! Python bindings for pemba (`docs/06-api.md` §2), built by maturin as `pemba._pemba`.
 //!
-//! `Engine.sqlite()` runs on CPython's own `sqlite3` module (`warden-store-pysqlite`), so
+//! `Engine.sqlite()` runs on CPython's own `sqlite3` module (`pemba-store-pysqlite`), so
 //! the process has one SQLite library and the app's connections cannot break the engine's
 //! locks (ADR-006, OQ-032). Its requests run one at a time holding the GIL; memory-engine
-//! calls release the GIL. The pure-Python half of the package (`python/warden/`) holds the
+//! calls release the GIL. The pure-Python half of the package (`python/pemba/`) holds the
 //! exception classes, `Revision` and the type stubs.
 //!
 //! `unsafe_code` is allowed in this crate only because PyO3's macros expand to `unsafe`
@@ -20,15 +20,15 @@ use std::time::Duration;
 use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyInt, PyString, PyTuple};
-use warden::model::{
+use pemba::model::{
     Consistency, ObjectId, ObjectRef, RelName, Revision, SubjectRef, TypeName, WriteOp,
     WriteRequest,
 };
-use warden::{
+use pemba::{
     CheckItem, CheckRequest, EngineConfig, LookupResourcesRequest, LookupSubjectsRequest,
     MemoryStore, ReadRelationshipsRequest,
 };
-use warden_store_pysqlite::{PySqliteConfig, PySqliteStore, PyTxn};
+use pemba_store_pysqlite::{PySqliteConfig, PySqliteStore, PyTxn};
 
 use crate::errors::{IntoPy, parse_err};
 use crate::types::{
@@ -39,13 +39,13 @@ use crate::types::{
 /// The engine over whichever store it was opened with.
 enum Inner {
     Sqlite(SqliteEngine),
-    Memory(warden::Engine<MemoryStore>),
+    Memory(pemba::Engine<MemoryStore>),
 }
 
 /// An engine over CPython's own `sqlite3` (OQ-032), and the lock that serialises its
 /// requests.
 struct SqliteEngine {
-    engine: warden::Engine<PySqliteStore>,
+    engine: pemba::Engine<PySqliteStore>,
     /// Taken without the GIL, then held with it for the whole request. Every statement
     /// is a Python call, so a request holds the GIL anyway; holding it throughout spares
     /// the per-statement hand-offs, which convoy badly under threads (OQ-032: 190 checks/s
@@ -80,7 +80,7 @@ fn config(max_depth: u32) -> EngineConfig {
     }
 }
 
-fn parse<T: std::str::FromStr<Err = warden::model::ParseError>>(s: &str) -> PyResult<T> {
+fn parse<T: std::str::FromStr<Err = pemba::model::ParseError>>(s: &str) -> PyResult<T> {
     s.parse().map_err(|e| parse_err(&e))
 }
 
@@ -110,7 +110,7 @@ fn consistency(
 }
 
 /// A relationship argument: a tuple string or a `Relationship`.
-fn relationship(v: &Bound<'_, PyAny>) -> PyResult<warden::model::Relationship> {
+fn relationship(v: &Bound<'_, PyAny>) -> PyResult<pemba::model::Relationship> {
     if let Ok(r) = v.cast::<Relationship>() {
         return Ok(r.get().inner.clone());
     }
@@ -125,7 +125,7 @@ fn relationship(v: &Bound<'_, PyAny>) -> PyResult<warden::model::Relationship> {
 fn ops(
     into: &mut Vec<WriteOp>,
     items: &Bound<'_, PyAny>,
-    op: fn(warden::model::Relationship) -> WriteOp,
+    op: fn(pemba::model::Relationship) -> WriteOp,
 ) -> PyResult<()> {
     if items.is_instance_of::<PyString>() {
         return Err(PyTypeError::new_err(
@@ -148,7 +148,7 @@ fn check_item(resource: &str, permission: &str, subject: &str) -> PyResult<Check
 
 /// An embedded authorisation engine. Thread-safe: share one per process, created after
 /// any `fork`.
-#[pyclass(frozen, module = "warden")]
+#[pyclass(frozen, module = "pemba")]
 struct Engine {
     inner: Arc<Inner>,
 }
@@ -156,7 +156,7 @@ struct Engine {
 impl Engine {
     /// The application connection for a foreign-transaction write (`docs/05-storage.md`
     /// §10), after the argument checks. The same-file check runs in
-    /// [`warden::Engine::write_in`] on every write: a cache keyed by `id(conn)` would trust a
+    /// [`pemba::Engine::write_in`] on every write: a cache keyed by `id(conn)` would trust a
     /// new connection that reuses a dropped one's id (OQ-034 (a)).
     fn foreign_conn(&self, conn: &Bound<'_, PyAny>, allow_autocommit: bool) -> PyResult<Py<PyAny>> {
         let py = conn.py();
@@ -190,7 +190,7 @@ impl Engine {
         let item = match args.len() {
             1 => {
                 let s: String = args.get_item(0)?.extract()?;
-                let rel: warden::model::Relationship = parse(&s)?;
+                let rel: pemba::model::Relationship = parse(&s)?;
                 CheckItem {
                     resource: rel.resource,
                     permission: rel.relation,
@@ -237,7 +237,7 @@ impl Engine {
         // With the GIL held: every statement is a `sqlite3` call (see `SqliteEngine`).
         let engine = PySqliteStore::open(path, cfg)
             .and_then(|store| {
-                warden::Engine::builder()
+                pemba::Engine::builder()
                     .store(store)
                     .config(config(max_depth))
                     .build()
@@ -255,7 +255,7 @@ impl Engine {
     #[staticmethod]
     #[pyo3(signature = (*, max_depth=50))]
     fn memory(py: Python<'_>, max_depth: u32) -> PyResult<Self> {
-        let engine = warden::Engine::builder()
+        let engine = pemba::Engine::builder()
             .store(MemoryStore::new())
             .config(config(max_depth))
             .build()
@@ -284,7 +284,7 @@ impl Engine {
     /// Compiles `source` without a store; errors and warnings, never raises.
     #[staticmethod]
     fn validate_schema(py: Python<'_>, source: &str) -> Vec<Diagnostic> {
-        py.detach(|| match warden_schema::compile(source) {
+        py.detach(|| match pemba_schema::compile(source) {
             Ok(c) => c
                 .warnings
                 .iter()
@@ -393,7 +393,7 @@ impl Engine {
     /// Takes `(resource, permission, subject)`, e.g. `("document:readme", "view",
     /// "user:anne")`, or one tuple string, `"document:readme#view@user:anne"`. Evaluates at
     /// head, or at a revision at least `at_least`, or exactly `at_exactly` (mutually
-    /// exclusive). Fails closed: any evaluation problem raises a `WardenError`, never
+    /// exclusive). Fails closed: any evaluation problem raises a `PembaError`, never
     /// returns `False`.
     #[pyo3(signature = (*args, at_least=None, at_exactly=None))]
     fn check(
@@ -428,7 +428,7 @@ impl Engine {
 
     /// Checks many `(resource, permission, subject)` items at one revision.
     ///
-    /// Returns one entry per item, in order: `True`/`False`, or the `WardenError` that
+    /// Returns one entry per item, in order: `True`/`False`, or the `PembaError` that
     /// item failed with (one item's error does not fail the others).
     #[pyo3(signature = (items, /, *, at_least=None, at_exactly=None))]
     #[allow(clippy::needless_pass_by_value)] // PyO3 extracts arguments as owned values
@@ -600,7 +600,7 @@ impl Engine {
 
 /// `iter_resources`: pages lazily, every page after the first at `Exact` of the first
 /// page's revision, until the cursor runs out (pages may be empty, `06` §1).
-#[pyclass(module = "warden")]
+#[pyclass(module = "pemba")]
 struct ResourceIter {
     inner: Arc<Inner>,
     req: LookupResourcesRequest,
@@ -634,9 +634,9 @@ fn _exception_class_name(code: &str) -> Option<&'static str> {
     errors::class_name(code)
 }
 
-/// The native module `warden._warden`.
+/// The native module `pemba._pemba`.
 #[pymodule]
-fn _warden(m: &Bound<'_, PyModule>) -> PyResult<()> {
+fn _pemba(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<Engine>()?;
     m.add_class::<ResourceIter>()?;
     m.add_class::<Relationship>()?;
@@ -648,8 +648,8 @@ fn _warden(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<OrphanReport>()?;
     m.add_class::<GcStats>()?;
     m.add_class::<DeleteResult>()?;
-    m.add("ERROR_CODES", warden::Error::CODES.to_vec())?;
-    let (a, b, c) = warden_sqlite_common::MIN_SQLITE_VERSION;
+    m.add("ERROR_CODES", pemba::Error::CODES.to_vec())?;
+    let (a, b, c) = pemba_sqlite_common::MIN_SQLITE_VERSION;
     m.add("MIN_SQLITE_VERSION", format!("{a}.{b}.{c}"))?;
     m.add_function(wrap_pyfunction!(_exception_class_name, m)?)?;
     Ok(())

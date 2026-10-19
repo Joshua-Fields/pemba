@@ -2,37 +2,37 @@
 //! only; each store runs them on its own driver.
 //!
 //! `?R` (the read revision) is a numbered parameter so the visibility predicate can use it
-//! twice. The forward queries' `ORDER BY` follows `warden_rel_fwd`'s column order, so SQLite
+//! twice. The forward queries' `ORDER BY` follows `pemba_rel_fwd`'s column order, so SQLite
 //! returns rows straight from the index without sorting; the tests below pin that with
 //! `EXPLAIN QUERY PLAN`. Every query names its index with `INDEXED BY`: without it the
-//! planner reads `read_reverse` with a resource type through `warden_rel_fwd` (ordered,
+//! planner reads `read_reverse` with a resource type through `pemba_rel_fwd` (ordered,
 //! but a range over every resource of that type), and statistics from an app's
 //! `ANALYZE` could move any query; `INDEXED BY` makes a lost index a prepare error.
 
 use std::fmt::Write as _;
 
-use warden_core::model::RelationshipFilter;
-use warden_core::store::{ReverseFilter, SubjectRelMatch};
+use pemba_core::model::RelationshipFilter;
+use pemba_core::store::{ReverseFilter, SubjectRelMatch};
 
 /// Head revision and stored GC horizon, read in one statement so both come from one
 /// snapshot.
 pub const HEAD_AND_HORIZON: &str = "\
-SELECT (SELECT COALESCE(MAX(rev), 0) FROM warden_revisions),
-       (SELECT value FROM warden_meta WHERE key = 'gc_horizon')";
+SELECT (SELECT COALESCE(MAX(rev), 0) FROM pemba_revisions),
+       (SELECT value FROM pemba_meta WHERE key = 'gc_horizon')";
 
 /// The latest schema version number, `0` if none.
-pub const SCHEMA_VERSION: &str = "SELECT COALESCE(MAX(version), 0) FROM warden_schema";
+pub const SCHEMA_VERSION: &str = "SELECT COALESCE(MAX(version), 0) FROM pemba_schema";
 
 /// The latest schema version, if any.
 pub const CURRENT_SCHEMA: &str = "\
-SELECT version, source, hash, created_rev FROM warden_schema ORDER BY version DESC LIMIT 1";
+SELECT version, source, hash, created_rev FROM pemba_schema ORDER BY version DESC LIMIT 1";
 
 /// `count_by_relation`, in `RelationCount` order (`None` subject relation is `''`, which
 /// sorts first, as `None` does). Param `?1` = revision.
 pub const COUNT_BY_RELATION: &str = "\
 SELECT resource_type, relation, subject_type, subject_relation, subject_id = '*' AS wildcard,
        COUNT(*)
-FROM warden_relationships
+FROM pemba_relationships
 WHERE created_rev <= ?1 AND (deleted_rev IS NULL OR deleted_rev > ?1)
 GROUP BY resource_type, relation, subject_type, subject_relation, wildcard
 ORDER BY resource_type, relation, subject_type, subject_relation, wildcard";
@@ -46,7 +46,7 @@ ORDER BY resource_type, relation, subject_type, subject_relation, wildcard";
 pub fn read_relationships(f: &RelationshipFilter, after: bool) -> String {
     let mut sql = String::from(
         "SELECT resource_type, resource_id, relation, subject_type, subject_id, subject_relation
-FROM warden_relationships INDEXED BY warden_rel_fwd
+FROM pemba_relationships INDEXED BY pemba_rel_fwd
 WHERE resource_type = ?1",
     );
     let mut n = 3;
@@ -86,7 +86,7 @@ LIMIT ?3",
 
 /// §6.1. Params: resource type, id, relation, subject type, id, relation, `?7` = revision.
 pub const EXISTS: &str = "\
-SELECT 1 FROM warden_relationships INDEXED BY warden_rel_fwd
+SELECT 1 FROM pemba_relationships INDEXED BY pemba_rel_fwd
 WHERE resource_type = ?1 AND resource_id = ?2 AND relation = ?3
   AND subject_type = ?4 AND subject_id = ?5 AND subject_relation = ?6
   AND created_rev <= ?7 AND (deleted_rev IS NULL OR deleted_rev > ?7)
@@ -94,14 +94,14 @@ LIMIT 1";
 
 /// §6.2 `read_tuples`. Params: resource type, id, relation, `?4` = revision.
 pub const READ_TUPLES: &str = "\
-SELECT subject_type, subject_id, subject_relation FROM warden_relationships INDEXED BY warden_rel_fwd
+SELECT subject_type, subject_id, subject_relation FROM pemba_relationships INDEXED BY pemba_rel_fwd
 WHERE resource_type = ?1 AND resource_id = ?2 AND relation = ?3
   AND created_rev <= ?4 AND (deleted_rev IS NULL OR deleted_rev > ?4)
 ORDER BY subject_type, subject_id, subject_relation";
 
 /// §6.2 `read_subject_sets`. Params as [`READ_TUPLES`].
 pub const READ_SUBJECT_SETS: &str = "\
-SELECT subject_type, subject_id, subject_relation FROM warden_relationships INDEXED BY warden_rel_fwd
+SELECT subject_type, subject_id, subject_relation FROM pemba_relationships INDEXED BY pemba_rel_fwd
 WHERE resource_type = ?1 AND resource_id = ?2 AND relation = ?3
   AND created_rev <= ?4 AND (deleted_rev IS NULL OR deleted_rev > ?4)
   AND subject_relation <> ''
@@ -109,7 +109,7 @@ ORDER BY subject_type, subject_id, subject_relation";
 
 /// §6.2 `read_related_objects`. Params as [`READ_TUPLES`].
 pub const READ_RELATED_OBJECTS: &str = "\
-SELECT DISTINCT subject_type, subject_id FROM warden_relationships INDEXED BY warden_rel_fwd
+SELECT DISTINCT subject_type, subject_id FROM pemba_relationships INDEXED BY pemba_rel_fwd
 WHERE resource_type = ?1 AND resource_id = ?2 AND relation = ?3
   AND created_rev <= ?4 AND (deleted_rev IS NULL OR deleted_rev > ?4)
   AND subject_id <> '*'
@@ -121,7 +121,7 @@ ORDER BY subject_type, subject_id";
 /// when present: subject relation (`Exact` only), resource type, relation.
 pub fn read_reverse(f: &ReverseFilter) -> String {
     let mut sql = String::from(
-        "SELECT DISTINCT resource_type, resource_id, relation FROM warden_relationships INDEXED BY warden_rel_rev
+        "SELECT DISTINCT resource_type, resource_id, relation FROM pemba_relationships INDEXED BY pemba_rel_rev
 WHERE subject_type = ?1 AND subject_id = ?2",
     );
     let mut columns = Vec::new();

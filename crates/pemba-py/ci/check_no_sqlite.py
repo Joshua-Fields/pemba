@@ -1,13 +1,13 @@
 """Fails if the built extension contains a SQLite library (ADR-006, OQ-032).
 
-warden-py must share CPython's ``sqlite3``: a second SQLite copy in the process silently
+pemba-py must share CPython's ``sqlite3``: a second SQLite copy in the process silently
 breaks locks on database files the app also opens. A bundled SQLite is not visible in the
 extension's exported symbols (a cdylib exports only the module init), so scan the bytes
 for markers every SQLite build contains: the database header magic, which is data and
 survives stripping, and the API names in the symbol table and error strings.
 
 Usage: ``python ci/check_no_sqlite.py [path/to/extension]`` (default: the installed
-``warden._warden``). Exit 1 if any marker is found.
+``pemba._pemba``). Exit 1 if any marker is found.
 """
 
 from __future__ import annotations
@@ -22,9 +22,9 @@ def main() -> int:
     if len(sys.argv) > 1:
         path = Path(sys.argv[1])
     else:
-        import warden._warden
+        import pemba._pemba
 
-        path = Path(warden._warden.__file__)
+        path = Path(pemba._pemba.__file__)
     data = path.read_bytes()
     found = [m.decode(errors="replace") for m in MARKERS if m in data]
     if found:

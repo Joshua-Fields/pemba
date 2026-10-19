@@ -5,7 +5,7 @@ use std::fmt;
 use std::str::FromStr;
 use std::sync::Arc;
 
-use warden_schema::ident::{IdentError, validate_identifier, validate_type_name};
+use pemba_schema::ident::{IdentError, validate_identifier, validate_type_name};
 
 use super::error::{Component, Fail, ParseError, ParseErrorReason};
 
@@ -139,7 +139,7 @@ impl ObjectId {
 
 impl TypeName {
     /// Shares a type name from a compiled schema without re-validating it: the schema
-    /// compiler checks names with the same rules (`warden_schema::ident`).
+    /// compiler checks names with the same rules (`pemba_schema::ident`).
     pub(crate) fn from_schema(name: &Arc<str>) -> Self {
         debug_assert!(check_type_name(name).is_ok(), "schema type name {name:?}");
         Self(Arc::clone(name))

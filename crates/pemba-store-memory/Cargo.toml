@@ -1,6 +1,6 @@
 [package]
-name = "warden-store-memory"
-description = "In-memory relationship store for warden."
+name = "pemba-store-memory"
+description = "In-memory relationship store for pemba."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -11,7 +11,7 @@ authors.workspace = true
 workspace = true
 
 [dependencies]
-warden-core.workspace = true
+pemba-core.workspace = true
 
 [dev-dependencies]
-warden-testkit.workspace = true
+pemba-testkit.workspace = true

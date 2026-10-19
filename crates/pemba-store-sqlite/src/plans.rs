@@ -1,12 +1,12 @@
 //! `EXPLAIN QUERY PLAN` and ordering tests for the shared read queries
-//! (`warden_sqlite_common::sql`, `docs/05-storage.md` §6) on the bundled SQLite.
+//! (`pemba_sqlite_common::sql`, `docs/05-storage.md` §6) on the bundled SQLite.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use rusqlite::{Connection, params};
-use warden_core::store::{ReverseFilter, SubjectRelMatch};
+use pemba_core::store::{ReverseFilter, SubjectRelMatch};
 
-use warden_sqlite_common::sql::*;
+use pemba_sqlite_common::sql::*;
 
 use crate::migrate;
 
@@ -50,14 +50,14 @@ fn reverse_shapes() -> Vec<ReverseFilter> {
     out
 }
 
-/// Asserts each §6 query's plan: the forward reads seek `warden_rel_fwd` as a covering
-/// index with no sort step, the reverse reads seek `warden_rel_rev`; nothing scans.
+/// Asserts each §6 query's plan: the forward reads seek `pemba_rel_fwd` as a covering
+/// index with no sort step, the reverse reads seek `pemba_rel_rev`; nothing scans.
 fn assert_plans(conn: &Connection) {
     let exists = plan(conn, EXISTS);
     assert_eq!(
         exists,
         [
-            "SEARCH warden_relationships USING COVERING INDEX warden_rel_fwd \
+            "SEARCH pemba_relationships USING COVERING INDEX pemba_rel_fwd \
              (resource_type=? AND resource_id=? AND relation=? AND subject_type=? \
              AND subject_id=? AND subject_relation=? AND created_rev<?)"
         ],
@@ -72,7 +72,7 @@ fn assert_plans(conn: &Connection) {
         assert_eq!(
             plan(conn, sql),
             [
-                "SEARCH warden_relationships USING COVERING INDEX warden_rel_fwd \
+                "SEARCH pemba_relationships USING COVERING INDEX pemba_rel_fwd \
                  (resource_type=? AND resource_id=? AND relation=?)"
             ],
             "{name}"
@@ -82,7 +82,7 @@ fn assert_plans(conn: &Connection) {
         let sql = read_reverse(&f);
         let steps = plan(conn, &sql);
         assert!(
-            steps[0].starts_with("SEARCH warden_relationships USING INDEX warden_rel_rev ("),
+            steps[0].starts_with("SEARCH pemba_relationships USING INDEX pemba_rel_rev ("),
             "{f:?}: {steps:?}"
         );
         // Sorting the distinct results is expected (resource_id is not in the index);
@@ -106,7 +106,7 @@ fn query_plans_survive_analyze() {
     let conn = migrated();
     let mut insert = conn
         .prepare(
-            "INSERT INTO warden_relationships VALUES ('doc', ?1, 'viewer', 'user', ?2, ?3, ?4, ?5)",
+            "INSERT INTO pemba_relationships VALUES ('doc', ?1, 'viewer', 'user', ?2, ?3, ?4, ?5)",
         )
         .unwrap();
     for i in 0..2000_i64 {
@@ -195,15 +195,15 @@ fn forward_reads_are_in_column_order() {
     ];
     for (st, sid, srel) in tuples {
         conn.execute(
-            "INSERT INTO warden_relationships VALUES ('doc', '1', 'viewer', ?1, ?2, ?3, 1, NULL)",
+            "INSERT INTO pemba_relationships VALUES ('doc', '1', 'viewer', ?1, ?2, ?3, 1, NULL)",
             params![st, sid, srel],
         )
         .unwrap();
     }
     // Invisible at revision 1: created later, or deleted at 1.
     conn.execute_batch(
-        "INSERT INTO warden_relationships VALUES ('doc', '1', 'viewer', 'aaa', 'x', 'yy', 2, NULL);
-         INSERT INTO warden_relationships VALUES ('doc', '1', 'viewer', 'aaa', 'y', '', 0, 1);",
+        "INSERT INTO pemba_relationships VALUES ('doc', '1', 'viewer', 'aaa', 'x', 'yy', 2, NULL);
+         INSERT INTO pemba_relationships VALUES ('doc', '1', 'viewer', 'aaa', 'y', '', 0, 1);",
     )
     .unwrap();
     assert_eq!(

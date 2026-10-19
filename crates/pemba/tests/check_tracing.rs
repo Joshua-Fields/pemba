@@ -9,8 +9,8 @@
 
 use std::sync::{Arc, Mutex};
 
-use warden::model::{Consistency, Relationship, WriteOp, WriteRequest};
-use warden::{CheckItem, CheckRequest, Engine, MemoryStore};
+use pemba::model::{Consistency, Relationship, WriteOp, WriteRequest};
+use pemba::{CheckItem, CheckRequest, Engine, MemoryStore};
 
 const SCHEMA: &str = "\
 definition user {}

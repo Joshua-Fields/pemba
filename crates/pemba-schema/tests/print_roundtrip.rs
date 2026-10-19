@@ -9,8 +9,8 @@
 use std::fmt::Write as _;
 
 use proptest::prelude::*;
-use warden_schema::ir::{AllowedSubject, ArrowMode, CompiledSchema, Expr, Member, TypeDef};
-use warden_schema::{compile, format};
+use pemba_schema::ir::{AllowedSubject, ArrowMode, CompiledSchema, Expr, Member, TypeDef};
+use pemba_schema::{compile, format};
 
 // ---- generated schemas ----
 //
@@ -375,7 +375,7 @@ fn type_by_name(s: &CompiledSchema, t: &TypeDef) -> String {
 }
 
 fn expr_by_name(s: &CompiledSchema, t: &TypeDef, e: &Expr) -> String {
-    let name = |rel: warden_schema::ir::RelId| t.members[rel.index()].name().to_owned();
+    let name = |rel: pemba_schema::ir::RelId| t.members[rel.index()].name().to_owned();
     match e {
         Expr::Computed(rel) => name(*rel),
         Expr::Arrow {

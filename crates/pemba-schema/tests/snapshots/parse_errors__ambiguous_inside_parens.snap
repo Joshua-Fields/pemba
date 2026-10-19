@@ -1,5 +1,5 @@
 ---
-source: crates/warden-schema/tests/parse_errors.rs
+source: crates/pemba-schema/tests/parse_errors.rs
 description: "definition doc {\n    permission view = (viewer + parent->view & member) - banned\n}"
 ---
 error[E_AMBIGUOUS_OPERATORS]: `+` and `&` cannot be mixed without parentheses

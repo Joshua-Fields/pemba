@@ -10,10 +10,10 @@ use std::thread;
 use std::time::Duration;
 
 use rusqlite::Connection;
-use warden_core::Error;
-use warden_core::store::StoreError;
+use pemba_core::Error;
+use pemba_core::store::StoreError;
 
-use warden_sqlite_common::migrate;
+use pemba_sqlite_common::migrate;
 
 use crate::{SqliteConfig, SqliteStore, Synchronous};
 
@@ -27,7 +27,7 @@ impl TempDb {
     fn new() -> Self {
         static NEXT: AtomicU32 = AtomicU32::new(0);
         let dir = std::env::temp_dir().join(format!(
-            "warden-store-sqlite-{}-{}",
+            "pemba-store-sqlite-{}-{}",
             std::process::id(),
             NEXT.fetch_add(1, Ordering::Relaxed)
         ));
@@ -59,7 +59,7 @@ fn manual() -> SqliteConfig {
 }
 
 fn meta(conn: &Connection, key: &str) -> Option<String> {
-    conn.query_row("SELECT value FROM warden_meta WHERE key = ?1", [key], |r| {
+    conn.query_row("SELECT value FROM pemba_meta WHERE key = ?1", [key], |r| {
         r.get(0)
     })
     .ok()
@@ -68,7 +68,7 @@ fn meta(conn: &Connection, key: &str) -> Option<String> {
 fn set_version(db: &TempDb, version: &str) {
     db.raw()
         .execute(
-            "UPDATE warden_meta SET value = ?1 WHERE key = 'storage_version'",
+            "UPDATE pemba_meta SET value = ?1 WHERE key = 'storage_version'",
             [version],
         )
         .unwrap();
@@ -111,7 +111,7 @@ fn open_creates_tables_and_meta() {
     let conn = db.raw();
     let mut stmt = conn
         .prepare(
-            "SELECT type, name FROM sqlite_schema WHERE name LIKE 'warden%' ORDER BY type, name",
+            "SELECT type, name FROM sqlite_schema WHERE name LIKE 'pemba%' ORDER BY type, name",
         )
         .unwrap();
     let objects: Vec<(String, String)> = stmt
@@ -126,14 +126,14 @@ fn open_creates_tables_and_meta() {
     assert_eq!(
         objects,
         [
-            ("index", "warden_rel_deleted"),
-            ("index", "warden_rel_fwd"),
-            ("index", "warden_rel_live"),
-            ("index", "warden_rel_rev"),
-            ("table", "warden_meta"),
-            ("table", "warden_relationships"),
-            ("table", "warden_revisions"),
-            ("table", "warden_schema"),
+            ("index", "pemba_rel_deleted"),
+            ("index", "pemba_rel_fwd"),
+            ("index", "pemba_rel_live"),
+            ("index", "pemba_rel_rev"),
+            ("table", "pemba_meta"),
+            ("table", "pemba_relationships"),
+            ("table", "pemba_revisions"),
+            ("table", "pemba_schema"),
         ]
     );
     assert_eq!(meta(&conn, "storage_version").as_deref(), Some("1"));
@@ -227,7 +227,7 @@ fn unreadable_version_is_corrupt() {
         );
     }
     db.raw()
-        .execute("DELETE FROM warden_meta WHERE key = 'storage_version'", [])
+        .execute("DELETE FROM pemba_meta WHERE key = 'storage_version'", [])
         .unwrap();
     let err = SqliteStore::open(db.path(), SqliteConfig::default()).unwrap_err();
     assert!(
@@ -241,7 +241,7 @@ fn failed_migration_rolls_back() {
     let db = TempDb::new();
     // A conflicting object makes the migration script fail half-way.
     db.raw()
-        .execute_batch("CREATE VIEW warden_relationships AS SELECT 1")
+        .execute_batch("CREATE VIEW pemba_relationships AS SELECT 1")
         .unwrap();
     let err = SqliteStore::open(db.path(), SqliteConfig::default()).unwrap_err();
     assert!(
@@ -251,7 +251,7 @@ fn failed_migration_rolls_back() {
     let conn = db.raw();
     let tables: i64 = conn
         .query_row(
-            "SELECT count(*) FROM sqlite_schema WHERE name IN ('warden_meta', 'warden_revisions')",
+            "SELECT count(*) FROM sqlite_schema WHERE name IN ('pemba_meta', 'pemba_revisions')",
             [],
             |r| r.get(0),
         )
@@ -318,7 +318,7 @@ fn pragmas_on_every_connection() {
                 store.readers.with(|c| {
                     for conn in [a, b, c] {
                         assert_eq!(pragmas(conn), want);
-                        assert!(conn.execute("DELETE FROM warden_meta", []).is_err());
+                        assert!(conn.execute("DELETE FROM pemba_meta", []).is_err());
                     }
                     Ok(())
                 })
@@ -385,7 +385,7 @@ fn leases_come_back_clean_after_errors_and_panics() {
     };
     let store = SqliteStore::open(db.path(), config).unwrap();
     let in_txn = |conn: &Connection| {
-        conn.execute_batch("BEGIN; SELECT count(*) FROM warden_meta;")
+        conn.execute_batch("BEGIN; SELECT count(*) FROM pemba_meta;")
             .unwrap();
     };
     // An error return leaves a transaction open; a panic unwinds through the lease.
@@ -415,8 +415,8 @@ fn leases_come_back_clean_after_errors_and_panics() {
 /// before rollback: the backstop still treats its revision as above head.
 #[test]
 fn foreign_write_does_not_touch_the_cache() {
-    use warden_core::model::{Relationship, Revision, WriteOp, WriteRequest};
-    use warden_core::store::{ReadStore, SqlStore};
+    use pemba_core::model::{Relationship, Revision, WriteOp, WriteRequest};
+    use pemba_core::store::{ReadStore, SqlStore};
 
     let db = TempDb::new();
     let store = SqliteStore::open(db.path(), SqliteConfig::default()).unwrap();
@@ -428,7 +428,7 @@ fn foreign_write_does_not_touch_the_cache() {
     let mut app = db.raw();
     let tx = app.transaction().unwrap();
     let rev =
-        warden_core::write::write(&mut crate::SqliteTxn::new(&tx), store.dialect(), &req, None)
+        pemba_core::write::write(&mut crate::SqliteTxn::new(&tx), store.dialect(), &req, None)
             .unwrap();
     assert_eq!(rev, Revision(1));
     let out_of_range = |r: Result<bool, StoreError>| {
@@ -445,13 +445,13 @@ fn foreign_write_does_not_touch_the_cache() {
 }
 
 /// The shared runner executes migration scripts one statement at a time
-/// (`warden_sqlite_common::migrate::statements`); that must build exactly what SQLite's own
+/// (`pemba_sqlite_common::migrate::statements`); that must build exactly what SQLite's own
 /// script runner builds from the whole script.
 #[test]
 fn split_migrations_match_the_whole_script() {
     let schema = |conn: &Connection| -> Vec<(String, String)> {
         let mut stmt = conn
-            .prepare("SELECT name, sql FROM sqlite_master WHERE name LIKE 'warden%' ORDER BY name")
+            .prepare("SELECT name, sql FROM sqlite_master WHERE name LIKE 'pemba%' ORDER BY name")
             .unwrap();
         stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
             .unwrap()

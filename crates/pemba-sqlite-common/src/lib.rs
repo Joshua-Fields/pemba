@@ -1,10 +1,10 @@
-//! What warden's SQLite stores share, independent of the driver that runs it: statement
+//! What pemba's SQLite stores share, independent of the driver that runs it: statement
 //! text ([`sql`]), the migration scripts and runner ([`migrate`]), row decoding for every
-//! [`ReadStore`](warden_core::store::ReadStore) read ([`reads`]) and the SQLite
+//! [`ReadStore`](pemba_core::store::ReadStore) read ([`reads`]) and the SQLite
 //! [`SqlDialect`].
 //!
-//! Two stores use it: `warden-store-sqlite` (Rust, `rusqlite` with a bundled SQLite) and
-//! `warden-store-pysqlite` (Python, CPython's own `sqlite3`). The split exists so the
+//! Two stores use it: `pemba-store-sqlite` (Rust, `rusqlite` with a bundled SQLite) and
+//! `pemba-store-pysqlite` (Python, CPython's own `sqlite3`). The split exists so the
 //! Python store links no SQLite of its own: one process must have exactly one SQLite copy
 //! on a database file (ADR-006, OQ-032). Everything here goes through
 //! [`WriteTxn`], so nothing here can link one.
@@ -18,8 +18,8 @@ pub mod sql;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use warden_core::Error;
-use warden_core::store::{SqlDialect, SqlValue, WriteTxn};
+use pemba_core::Error;
+use pemba_core::store::{SqlDialect, SqlValue, WriteTxn};
 
 /// `PRAGMA synchronous` level (`docs/05-storage.md` §4).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]

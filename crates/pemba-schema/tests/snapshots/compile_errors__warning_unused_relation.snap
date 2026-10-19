@@ -1,5 +1,5 @@
 ---
-source: crates/warden-schema/tests/compile_errors.rs
+source: crates/pemba-schema/tests/compile_errors.rs
 description: "definition user {}\ndefinition doc {\n    relation owner: user\n    relation legacy_viewer: user\n    permission edit = owner\n}"
 ---
 warning[W_UNUSED_RELATION]: relation `legacy_viewer` is not used by any permission, arrow or subject set

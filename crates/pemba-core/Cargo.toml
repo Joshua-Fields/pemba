@@ -1,6 +1,6 @@
 [package]
-name = "warden-core"
-description = "Core of warden: model types, store traits, write logic, evaluator and Engine."
+name = "pemba-core"
+description = "Core of pemba: model types, store traits, write logic, evaluator and Engine."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -11,7 +11,7 @@ authors.workspace = true
 workspace = true
 
 [dependencies]
-warden-schema.workspace = true
+pemba-schema.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 

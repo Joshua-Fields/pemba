@@ -12,12 +12,12 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Barrier;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use warden_core::Error;
-use warden_core::model::{
+use pemba_core::Error;
+use pemba_core::model::{
     ObjectRef, Precondition, RelName, Relationship, RelationshipFilter, Revision, TypeName,
     WriteOp, WriteRequest,
 };
-use warden_core::store::{
+use pemba_core::store::{
     RelationCount, ReverseFilter, StoreError, SubjectRelMatch, WritableStore, cmp_relationships,
 };
 
@@ -575,7 +575,7 @@ fn read_tuples(s: &dyn WritableStore) {
 
 /// The forward reads' order is byte-wise column order (`docs/05-storage.md` §2): type before
 /// id before relation, uppercase before lowercase, `"10"` before `"9"`, a prefix first.
-/// `warden-store-sqlite`'s `forward_reads_are_in_column_order` uses the same data.
+/// `pemba-store-sqlite`'s `forward_reads_are_in_column_order` uses the same data.
 fn read_order_bytewise(s: &dyn WritableStore) {
     let rev = write(
         s,

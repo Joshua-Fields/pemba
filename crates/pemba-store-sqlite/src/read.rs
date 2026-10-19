@@ -11,16 +11,16 @@
 use std::sync::Mutex;
 
 use rusqlite::{Connection, OptionalExtension, Row, ToSql};
-use warden_core::model::{
+use pemba_core::model::{
     ObjectId, ObjectRef, RelName, Relationship, RelationshipFilter, Revision, SubjectRef, TypeName,
 };
-use warden_core::store::{
+use pemba_core::store::{
     ReadStore, RelationCount, ReverseFilter, StoreError, StoredSchema, SubjectRelMatch,
     relationship_columns, subject_columns,
 };
 
 use crate::pool::Lease;
-use warden_sqlite_common::sql;
+use pemba_sqlite_common::sql;
 
 use crate::{SqliteStore, poisoned, store_err};
 
@@ -101,7 +101,7 @@ fn head_and_horizon(conn: &Connection) -> Result<(Revision, Revision), StoreErro
         .and_then(|mut s| s.query_row([], |r| Ok((r.get(0)?, r.get(1)?))))
         .map_err(|e| store_err(&e))?;
     let head = revision(head)?;
-    let horizon = horizon.ok_or_else(|| corrupt("warden_meta has no gc_horizon".into()))?;
+    let horizon = horizon.ok_or_else(|| corrupt("pemba_meta has no gc_horizon".into()))?;
     Ok((head, Revision(parse(&horizon, "gc_horizon")?)))
 }
 

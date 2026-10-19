@@ -11,15 +11,15 @@ authors = ["Joshua Fields"]
 
 # Internal crates carry a version so `cargo deny` does not treat them as wildcard deps.
 [workspace.dependencies]
-warden-schema = { path = "crates/warden-schema", version = "0.0.0" }
-warden-core = { path = "crates/warden-core", version = "0.0.0" }
-warden-store-memory = { path = "crates/warden-store-memory", version = "0.0.0" }
-warden-store-sqlite = { path = "crates/warden-store-sqlite", version = "0.0.0" }
-warden-sqlite-common = { path = "crates/warden-sqlite-common", version = "0.0.0" }
-warden-store-pysqlite = { path = "crates/warden-store-pysqlite", version = "0.0.0" }
-warden = { path = "crates/warden", version = "0.0.0", default-features = false }
-warden-fixtures = { path = "crates/warden-fixtures", version = "0.0.0" }
-warden-testkit = { path = "crates/warden-testkit" }
+pemba-schema = { path = "crates/pemba-schema", version = "0.0.0" }
+pemba-core = { path = "crates/pemba-core", version = "0.0.0" }
+pemba-store-memory = { path = "crates/pemba-store-memory", version = "0.0.0" }
+pemba-store-sqlite = { path = "crates/pemba-store-sqlite", version = "0.0.0" }
+pemba-sqlite-common = { path = "crates/pemba-sqlite-common", version = "0.0.0" }
+pemba-store-pysqlite = { path = "crates/pemba-store-pysqlite", version = "0.0.0" }
+pemba = { path = "crates/pemba", version = "0.0.0", default-features = false }
+pemba-fixtures = { path = "crates/pemba-fixtures", version = "0.0.0" }
+pemba-testkit = { path = "crates/pemba-testkit" }
 
 thiserror = "2.0.21"
 proptest = "1.12.0"
@@ -31,7 +31,7 @@ serde = { version = "1.0.229", features = ["derive"] }
 serde-saphyr = { version = "2.0.0", default-features = false, features = ["deserialize"] }
 
 [workspace.lints.rust]
-unsafe_code = "forbid"          # overridden to "allow" only in warden-py if PyO3 requires
+unsafe_code = "forbid"          # overridden to "allow" only in pemba-py if PyO3 requires
 missing_docs = "warn"
 unreachable_pub = "warn"
 
@@ -47,14 +47,14 @@ must_use_candidate = "allow"
 # Property tests (`docs/07-testing.md` §2.3) run 1 000+ generated cases through the engine,
 # whose uncached re-evaluation of cyclic data makes that slow unoptimised. Only affects
 # `cargo test` builds.
-[profile.test.package.warden-testkit]
+[profile.test.package.pemba-testkit]
 opt-level = 3
 
-[profile.test.package.warden-core]
+[profile.test.package.pemba-core]
 opt-level = 3
 
-[profile.test.package.warden-store-memory]
+[profile.test.package.pemba-store-memory]
 opt-level = 3
 
-[profile.test.package.warden-schema]
+[profile.test.package.pemba-schema]
 opt-level = 3

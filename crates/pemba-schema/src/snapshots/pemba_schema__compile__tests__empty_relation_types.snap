@@ -1,5 +1,5 @@
 ---
-source: crates/warden-schema/src/compile.rs
+source: crates/pemba-schema/src/compile.rs
 expression: rendered
 ---
 error[E_EMPTY_RELATION_TYPES]: relation `viewer` allows no subject types

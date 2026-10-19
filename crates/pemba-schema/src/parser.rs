@@ -319,7 +319,7 @@ impl<'s> Parser<'s> {
         self.unsupported(
             format!("caveats are not supported (`{}`)", self.text(span)),
             span,
-            "warden stores unconditional relationships only; remove the caveat definition \
+            "pemba stores unconditional relationships only; remove the caveat definition \
              and any `with` clause that uses it",
         )
     }
@@ -460,7 +460,7 @@ impl<'s> Parser<'s> {
     }
 
     fn with_clause(&self, with: Token) -> SchemaError {
-        let help = "remove the `with` clause; warden stores unconditional, non-expiring \
+        let help = "remove the `with` clause; pemba stores unconditional, non-expiring \
                     relationships only";
         let first = self.token_at(1);
         if first.kind != TokenKind::Ident {

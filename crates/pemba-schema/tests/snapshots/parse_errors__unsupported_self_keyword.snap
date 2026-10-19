@@ -1,5 +1,5 @@
 ---
-source: crates/warden-schema/tests/parse_errors.rs
+source: crates/pemba-schema/tests/parse_errors.rs
 description: "definition user {\n    permission view = self + friend\n}"
 ---
 error[E_UNSUPPORTED_FEATURE]: the `self` keyword is not supported

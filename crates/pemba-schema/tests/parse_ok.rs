@@ -3,8 +3,8 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use warden_schema::ast::{AllowedKind, ArrowMode, Definition, Expr, ExprKind, Member, Schema};
-use warden_schema::parse;
+use pemba_schema::ast::{AllowedKind, ArrowMode, Definition, Expr, ExprKind, Member, Schema};
+use pemba_schema::parse;
 
 const SPEC_EXAMPLE: &str = r"/** a person */
 definition user {}
@@ -90,7 +90,7 @@ fn expr_shape(src_expr: &str) -> String {
     shape(perm_expr(&s.definitions[0], "p_ab"))
 }
 
-fn text(src: &str, span: warden_schema::Span) -> &str {
+fn text(src: &str, span: pemba_schema::Span) -> &str {
     &src[span.start..span.end]
 }
 

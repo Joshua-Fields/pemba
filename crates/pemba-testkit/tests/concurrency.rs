@@ -11,15 +11,15 @@ use std::sync::{Arc, Barrier};
 use std::thread;
 use std::time::Duration;
 
-use warden_core::model::{
+use pemba_core::model::{
     Consistency, ObjectRef, RelName, Relationship, RelationshipFilter, Revision, SubjectRef,
     WriteOp, WriteRequest,
 };
-use warden_core::store::WritableStore;
-use warden_core::{CheckItem, CheckRequest, Engine, ReadRelationshipsRequest};
-use warden_store_memory::MemoryStore;
-use warden_store_sqlite::{SqliteConfig, SqliteStore};
-use warden_testkit::reference::Reference;
+use pemba_core::store::WritableStore;
+use pemba_core::{CheckItem, CheckRequest, Engine, ReadRelationshipsRequest};
+use pemba_store_memory::MemoryStore;
+use pemba_store_sqlite::{SqliteConfig, SqliteStore};
+use pemba_testkit::reference::Reference;
 
 const SCHEMA: &str = "\
 definition user {}
@@ -137,7 +137,7 @@ fn queries() -> Vec<(ObjectRef, SubjectRef)> {
 
 /// `expected[r][q]`: the oracle's answer to query `q` at revision `r`.
 fn expected(sets: &[BTreeSet<Relationship>]) -> Vec<Vec<bool>> {
-    let schema = warden_schema::compile(SCHEMA).unwrap().schema;
+    let schema = pemba_schema::compile(SCHEMA).unwrap().schema;
     let view: RelName = "view".parse().unwrap();
     let objects: Vec<ObjectRef> = queries()
         .into_iter()
@@ -297,7 +297,7 @@ fn readers_and_a_writer_memory_store() {
 fn readers_and_a_writer_sqlite_store() {
     static NEXT: AtomicU32 = AtomicU32::new(0);
     let dir: PathBuf = std::env::temp_dir().join(format!(
-        "warden-concurrency-{}-{}",
+        "pemba-concurrency-{}-{}",
         std::process::id(),
         NEXT.fetch_add(1, Ordering::Relaxed)
     ));

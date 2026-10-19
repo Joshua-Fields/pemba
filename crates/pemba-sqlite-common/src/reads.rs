@@ -1,17 +1,17 @@
-//! Every [`ReadStore`](warden_core::store::ReadStore) read as a function of a
+//! Every [`ReadStore`](pemba_core::store::ReadStore) read as a function of a
 //! [`WriteTxn`]: the [`sql`] text, its parameters, and the decoding of the
 //! rows into model types, failing closed ([`StoreError::Corrupt`]) on anything the engine
 //! did not write.
 //!
 //! These functions do not check the revision against the readable range; the store does
-//! that first (`docs/05-storage.md` §2, "Revision checks"). `warden-store-sqlite` keeps
+//! that first (`docs/05-storage.md` §2, "Revision checks"). `pemba-store-sqlite` keeps
 //! its own typed `rusqlite` decoding on the hot path; the conformance suite and property 5
 //! hold both to the same answers.
 
-use warden_core::model::{
+use pemba_core::model::{
     ObjectId, ObjectRef, RelName, Relationship, RelationshipFilter, Revision, SubjectRef, TypeName,
 };
-use warden_core::store::{
+use pemba_core::store::{
     RelationCount, ReverseFilter, SqlValue, StoreError, StoredSchema, SubjectRelMatch, WriteTxn,
     relationship_columns,
 };
@@ -118,7 +118,7 @@ pub fn head_and_horizon(txn: &mut dyn WriteTxn) -> Result<(Revision, Revision), 
     let horizon = match row.get(1) {
         Some(SqlValue::Text(h)) => h,
         Some(SqlValue::Null) | None => {
-            return Err(corrupt("warden_meta has no gc_horizon".into()));
+            return Err(corrupt("pemba_meta has no gc_horizon".into()));
         }
         Some(other) => return Err(corrupt(format!("gc_horizon is {other:?}"))),
     };

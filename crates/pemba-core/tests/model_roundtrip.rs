@@ -8,7 +8,7 @@ use std::fmt::Display;
 use std::str::FromStr;
 
 use proptest::prelude::*;
-use warden_core::model::{
+use pemba_core::model::{
     ObjectId, ObjectRef, ParseError, RelName, Relationship, Revision, SubjectRef, TypeName,
 };
 

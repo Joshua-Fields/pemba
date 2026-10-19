@@ -1,9 +1,9 @@
 //! Migration runner (`docs/05-storage.md` §4.1): the shared runner of
-//! `warden_sqlite_common::migrate`, on a `rusqlite` connection.
+//! `pemba_sqlite_common::migrate`, on a `rusqlite` connection.
 
 use rusqlite::{Connection, TransactionBehavior};
-use warden_core::Error;
-use warden_sqlite_common::migrate;
+use pemba_core::Error;
+use pemba_sqlite_common::migrate;
 
 use crate::db;
 use crate::txn::{Autocommit, SqliteTxn};

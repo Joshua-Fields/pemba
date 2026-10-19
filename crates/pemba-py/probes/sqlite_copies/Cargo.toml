@@ -1,5 +1,5 @@
 # OQ-032 probe (T3.2 phase 0): a second, bundled SQLite copy inside a Python process,
-# built exactly like warden-py's (same rusqlite, `bundled`). Not a workspace member and
+# built exactly like pemba-py's (same rusqlite, `bundled`). Not a workspace member and
 # never shipped; `run_probe.py` drives it.
 [package]
 name = "sqlite-copies-probe"

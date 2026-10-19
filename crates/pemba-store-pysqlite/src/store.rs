@@ -6,22 +6,22 @@ use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
-use warden_core::Error;
-use warden_core::model::{
+use pemba_core::Error;
+use pemba_core::model::{
     ObjectRef, RelName, Relationship, RelationshipFilter, Revision, SubjectRef, WriteRequest,
 };
-use warden_core::store::{
+use pemba_core::store::{
     DeleteResult, ReadStore, RelationCount, ReverseFilter, SchemaCheck, SqlDialect, SqlStore,
     StoreError, StoredSchema, WritableStore, WriteTxn,
 };
-use warden_sqlite_common::{
+use pemba_sqlite_common::{
     MIN_SQLITE_VERSION, SqliteDialect, canonical_main_file, migrate, parse_sqlite_version, reads,
 };
-pub use warden_sqlite_common::{SqliteConfig as PySqliteConfig, Synchronous};
+pub use pemba_sqlite_common::{SqliteConfig as PySqliteConfig, Synchronous};
 
 use crate::txn::{PyTxn, store_err};
 
-/// Statements kept in each connection's `sqlite3` statement cache (as `warden-store-sqlite`).
+/// Statements kept in each connection's `sqlite3` statement cache (as `pemba-store-sqlite`).
 const STATEMENT_CACHE: usize = 128;
 
 /// A relationship store in a SQLite database file, driven through CPython's `sqlite3`.
@@ -243,7 +243,7 @@ fn check_library(py: Python<'_>) -> Result<(), Error> {
         Some(found) if found >= MIN_SQLITE_VERSION => {}
         _ => {
             return Err(backend(format!(
-                "CPython's sqlite3 module uses SQLite {version}, but warden needs SQLite \
+                "CPython's sqlite3 module uses SQLite {version}, but pemba needs SQLite \
                  {a}.{b}.{c} or newer; use a Python built against a newer SQLite"
             )));
         }
@@ -251,7 +251,7 @@ fn check_library(py: Python<'_>) -> Result<(), Error> {
     if threadsafety == 0 {
         return Err(backend(format!(
             "CPython's sqlite3 module uses SQLite {version} built without thread support \
-             (sqlite3.threadsafety == 0); warden needs a thread-safe build"
+             (sqlite3.threadsafety == 0); pemba needs a thread-safe build"
         )));
     }
     Ok(())
@@ -418,7 +418,7 @@ impl Source for PySqliteStore {
     }
 }
 
-/// One read transaction on one leased connection, as in `warden-store-sqlite`
+/// One read transaction on one leased connection, as in `pemba-store-sqlite`
 /// (`docs/05-storage.md` §2, "Revision checks"): the first statement reads head and
 /// horizon, and WAL pins every later read to that state. Dropping it rolls back and
 /// returns the connection.
@@ -570,7 +570,7 @@ impl ReadStore for Snapshot<'_> {
 impl WritableStore for PySqliteStore {
     fn write(&self, req: &WriteRequest, schema_version: Option<u64>) -> Result<Revision, Error> {
         let rev = self.with_write_txn(&mut |txn| {
-            warden_core::write::write(txn, &SqliteDialect, req, schema_version)
+            pemba_core::write::write(txn, &SqliteDialect, req, schema_version)
         })?;
         self.cache.head.fetch_max(rev.0, Ordering::AcqRel);
         Ok(rev)
@@ -583,7 +583,7 @@ impl WritableStore for PySqliteStore {
         check: SchemaCheck<'_>,
     ) -> Result<StoredSchema, Error> {
         let stored = self.with_write_txn(&mut |txn| {
-            warden_core::write::write_schema(txn, &SqliteDialect, source, hash, check)
+            pemba_core::write::write_schema(txn, &SqliteDialect, source, hash, check)
         })?;
         self.cache
             .head
@@ -597,7 +597,7 @@ impl WritableStore for PySqliteStore {
         limit: usize,
     ) -> Result<DeleteResult, Error> {
         let result = self.with_write_txn(&mut |txn| {
-            warden_core::write::delete_matching(txn, &SqliteDialect, filter, limit)
+            pemba_core::write::delete_matching(txn, &SqliteDialect, filter, limit)
         })?;
         self.cache
             .head
@@ -609,14 +609,14 @@ impl WritableStore for PySqliteStore {
     /// (`docs/05-storage.md` §8).
     fn raise_gc_horizon(&self, keep_from: Revision) -> Result<Revision, Error> {
         let horizon = self.with_write_txn(&mut |txn| {
-            warden_core::write::raise_gc_horizon(txn, &SqliteDialect, keep_from)
+            pemba_core::write::raise_gc_horizon(txn, &SqliteDialect, keep_from)
         })?;
         self.cache.horizon.fetch_max(horizon.0, Ordering::AcqRel);
         Ok(horizon)
     }
 
     fn gc_batch(&self, max_rows: usize) -> Result<u64, Error> {
-        self.with_write_txn(&mut |txn| warden_core::write::gc_batch(txn, &SqliteDialect, max_rows))
+        self.with_write_txn(&mut |txn| pemba_core::write::gc_batch(txn, &SqliteDialect, max_rows))
     }
 }
 

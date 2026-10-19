@@ -8,12 +8,12 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use rusqlite::{Connection, Transaction, TransactionBehavior};
-use warden_core::model::{
+use pemba_core::model::{
     Consistency, Precondition, RelationshipFilter, Revision, WriteOp, WriteRequest,
 };
-use warden_core::store::{SqlValue, StoreError, WriteTxn};
-use warden_core::{CheckRequest, Engine, Error, ReadRelationshipsRequest};
-use warden_store_sqlite::{SqliteConfig, SqliteStore, SqliteTxn};
+use pemba_core::store::{SqlValue, StoreError, WriteTxn};
+use pemba_core::{CheckRequest, Engine, Error, ReadRelationshipsRequest};
+use pemba_store_sqlite::{SqliteConfig, SqliteStore, SqliteTxn};
 
 const SCHEMA: &str = "\
 definition user {}
@@ -30,7 +30,7 @@ impl TempDir {
     fn new() -> Self {
         static NEXT: AtomicU32 = AtomicU32::new(0);
         let dir = std::env::temp_dir().join(format!(
-            "warden-write-in-{}-{}",
+            "pemba-write-in-{}-{}",
             std::process::id(),
             NEXT.fetch_add(1, Ordering::Relaxed)
         ));
@@ -211,7 +211,7 @@ fn uncommitted_write_in_is_invisible_to_other_connections() {
     assert_eq!(tuples(&e), 0);
     let raw = Connection::open(dir.db()).unwrap();
     let rows: i64 = raw
-        .query_row("SELECT COUNT(*) FROM warden_relationships", [], |r| {
+        .query_row("SELECT COUNT(*) FROM pemba_relationships", [], |r| {
             r.get(0)
         })
         .unwrap();
@@ -278,7 +278,7 @@ impl<F: FnMut()> WriteTxn for RaceAfterPrecondition<'_, F> {
 
     fn query(&mut self, sql: &str, params: &[SqlValue]) -> Result<Vec<Vec<SqlValue>>, StoreError> {
         let rows = self.inner.query(sql, params)?;
-        if sql.starts_with("SELECT 1 FROM warden_relationships")
+        if sql.starts_with("SELECT 1 FROM pemba_relationships")
             && let Some(mut f) = self.interleave.take()
         {
             f();
@@ -356,7 +356,7 @@ fn write_in_on_another_database_is_rejected() {
     assert!(matches!(err, Error::ForeignConnectionMismatch), "{err:?}");
     tx.commit().unwrap();
     let revisions: i64 = conn
-        .query_row("SELECT COUNT(*) FROM warden_revisions", [], |r| r.get(0))
+        .query_row("SELECT COUNT(*) FROM pemba_revisions", [], |r| r.get(0))
         .unwrap();
     assert_eq!(revisions, 0);
 

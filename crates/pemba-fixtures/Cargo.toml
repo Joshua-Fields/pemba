@@ -1,6 +1,6 @@
 [package]
-name = "warden-fixtures"
-description = "Fixture format and runner for warden (`warden test`)."
+name = "pemba-fixtures"
+description = "Fixture format and runner for pemba (`pemba test`)."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -11,9 +11,9 @@ authors.workspace = true
 workspace = true
 
 [dependencies]
-warden-core.workspace = true
-warden-schema.workspace = true
-warden-store-memory.workspace = true
+pemba-core.workspace = true
+pemba-schema.workspace = true
+pemba-store-memory.workspace = true
 # Fixture files (`docs/07-testing.md` §3) are YAML.
 serde.workspace = true
 serde-saphyr.workspace = true

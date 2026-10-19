@@ -1,5 +1,5 @@
 ---
-source: crates/warden-schema/tests/parse_errors.rs
+source: crates/pemba-schema/tests/parse_errors.rs
 description: "definition doc {\n    permission view = folder->parent.all(view)\n}"
 ---
 error[E_ARROW_CHAIN]: arrows cannot be chained: the right side of an arrow must be a single relation or permission name

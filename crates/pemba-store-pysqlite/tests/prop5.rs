@@ -7,9 +7,9 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use proptest::prelude::*;
-use warden_store_memory::MemoryStore;
-use warden_store_pysqlite::{PySqliteConfig, PySqliteStore};
-use warden_testkit::generate::{self, StoreOp};
+use pemba_store_memory::MemoryStore;
+use pemba_store_pysqlite::{PySqliteConfig, PySqliteStore};
+use pemba_testkit::generate::{self, StoreOp};
 
 /// A store in a fresh directory, removed on drop (store first).
 struct TempStore {
@@ -21,7 +21,7 @@ impl TempStore {
     fn new() -> Self {
         static NEXT: AtomicU32 = AtomicU32::new(0);
         let dir = std::env::temp_dir().join(format!(
-            "warden-pyprop5-{}-{}",
+            "pemba-pyprop5-{}-{}",
             std::process::id(),
             NEXT.fetch_add(1, Ordering::Relaxed)
         ));
@@ -46,7 +46,7 @@ impl Drop for TempStore {
 fn equivalent(ops: &[StoreOp]) -> Result<(), TestCaseError> {
     let memory = MemoryStore::new();
     let py = TempStore::new();
-    warden_testkit::store_equivalence::equivalent(&memory, py.store.as_ref().unwrap(), ops)
+    pemba_testkit::store_equivalence::equivalent(&memory, py.store.as_ref().unwrap(), ops)
 }
 
 fn config(cases: u32) -> ProptestConfig {

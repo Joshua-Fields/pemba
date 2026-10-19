@@ -2,7 +2,7 @@
 # Depth counting (OQ-019 (b)): the root node is depth 1 and each nested eval adds one, and
 # `max_depth = 50` allows 50 nested nodes. From folder fk, `view` reaches f00#view at depth
 # k + 1 and f00#viewer at depth k + 2. So f48 (f00#viewer at 50) answers; f49 (51) does not.
-# Uses the warden `expectCheckErrors:` extension (docs/07-testing.md §3.2).
+# Uses the pemba `expectCheckErrors:` extension (docs/07-testing.md §3.2).
 schema: |-
   definition user {}
 

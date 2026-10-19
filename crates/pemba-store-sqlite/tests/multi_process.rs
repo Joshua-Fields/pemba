@@ -19,16 +19,16 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
-use warden_core::model::{
+use pemba_core::model::{
     Consistency, ObjectRef, RelName, Relationship, RelationshipFilter, Revision, SubjectRef,
     WriteOp, WriteRequest,
 };
-use warden_core::store::{
+use pemba_core::store::{
     DeleteResult, ReadStore, RelationCount, ReverseFilter, SchemaCheck, StoreError, StoredSchema,
     WritableStore,
 };
-use warden_core::{CheckRequest, Engine, Error, ErrorCode, LookupResourcesRequest};
-use warden_store_sqlite::{SqliteConfig, SqliteStore};
+use pemba_core::{CheckRequest, Engine, Error, ErrorCode, LookupResourcesRequest};
+use pemba_store_sqlite::{SqliteConfig, SqliteStore};
 
 const WAIT: Duration = Duration::from_secs(20);
 
@@ -38,7 +38,7 @@ impl TempDir {
     fn new() -> Self {
         static NEXT: AtomicU32 = AtomicU32::new(0);
         let dir = std::env::temp_dir().join(format!(
-            "warden-multiproc-{}-{}",
+            "pemba-multiproc-{}-{}",
             std::process::id(),
             NEXT.fetch_add(1, Ordering::Relaxed)
         ));
@@ -160,7 +160,7 @@ fn a_write_validated_against_a_replaced_schema_never_commits() {
     assert_eq!(b.head_revision().unwrap(), head);
     // No live tuple contradicts the current schema.
     let all = b
-        .read_relationships(warden_core::ReadRelationshipsRequest::new(
+        .read_relationships(pemba_core::ReadRelationshipsRequest::new(
             RelationshipFilter::new("doc".parse().unwrap()),
         ))
         .unwrap();

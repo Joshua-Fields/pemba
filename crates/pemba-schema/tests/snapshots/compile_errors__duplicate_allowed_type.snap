@@ -1,5 +1,5 @@
 ---
-source: crates/warden-schema/tests/compile_errors.rs
+source: crates/pemba-schema/tests/compile_errors.rs
 description: "definition user {}\ndefinition group {\n    relation member: user | group#member | user:* | user | group#member | user:*\n}"
 ---
 error[E_DUPLICATE_ALLOWED_TYPE]: `user` is listed more than once on relation `member`

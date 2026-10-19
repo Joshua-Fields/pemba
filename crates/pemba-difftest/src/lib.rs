@@ -1,6 +1,6 @@
-//! Differential tests of warden against SpiceDB (`docs/07-testing.md` §4).
+//! Differential tests of pemba against SpiceDB (`docs/07-testing.md` §4).
 //!
-//! A [`DiffCase`] (a schema, its tuples and the questions to ask) is answered by warden's
+//! A [`DiffCase`] (a schema, its tuples and the questions to ask) is answered by pemba's
 //! engine over the memory store and by a SpiceDB server over its HTTP API, and every
 //! answer is compared. Each case gets its own SpiceDB datastore: the harness talks to
 //! `spicedb serve-testing`, which isolates datastores per bearer token, and uses a fresh
@@ -8,8 +8,8 @@
 //! (`KNOWN_DIFFERENCES.md`, [`known`]) are counted, not failed; any other mismatch is a
 //! failure, printed as fixture YAML ready for `testdata/fixtures/regressions/`.
 //!
-//! The tests are `#[ignore]` and need `WARDEN_SPICEDB_URL` (the HTTP gateway, e.g.
-//! `http://127.0.0.1:8443`) and `WARDEN_SPICEDB_KEY` (a token prefix).
+//! The tests are `#[ignore]` and need `PEMBA_SPICEDB_URL` (the HTTP gateway, e.g.
+//! `http://127.0.0.1:8443`) and `PEMBA_SPICEDB_KEY` (a token prefix).
 
 #![forbid(unsafe_code)]
 
@@ -19,15 +19,15 @@ mod spicedb;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::{self, Write as _};
 
-use warden_core::model::{
+use pemba_core::model::{
     Consistency, ObjectId, ObjectRef, RelName, Relationship, SubjectRef, TypeName, WriteOp,
     WriteRequest,
 };
-use warden_core::{
+use pemba_core::{
     CheckRequest, Engine, EngineConfig, LookupResourcesRequest, LookupSubjectsRequest,
 };
-use warden_schema::ir::CompiledSchema;
-use warden_store_memory::MemoryStore;
+use pemba_schema::ir::CompiledSchema;
+use pemba_store_memory::MemoryStore;
 
 pub use crate::spicedb::SpiceDb;
 
@@ -118,8 +118,8 @@ impl fmt::Display for Answer {
 pub struct Mismatch {
     /// The question.
     pub question: Question,
-    /// warden's answer.
-    pub warden: Answer,
+    /// pemba's answer.
+    pub pemba: Answer,
     /// SpiceDB's answer.
     pub spicedb: Answer,
     /// The `KNOWN_DIFFERENCES.md` entry that explains it, if any.
@@ -130,7 +130,7 @@ pub struct Mismatch {
 #[derive(Debug, Default)]
 pub struct Outcome {
     /// The known difference that stopped the case before any question (SpiceDB refused a
-    /// schema warden accepts, `KD-2`).
+    /// schema pemba accepts, `KD-2`).
     pub not_compared: Option<&'static str>,
     /// Questions asked.
     pub asked: usize,
@@ -145,17 +145,17 @@ impl Outcome {
     }
 }
 
-/// Runs `case` on warden and on SpiceDB under the datastore of `token`.
+/// Runs `case` on pemba and on SpiceDB under the datastore of `token`.
 ///
 /// # Errors
 ///
 /// A message if the case could not be set up on either side (schema or tuples refused,
 /// SpiceDB unreachable). Answers that are errors are compared, not returned.
 pub fn run(spicedb: &SpiceDb, token: &str, case: &DiffCase) -> Result<Outcome, String> {
-    let compiled = warden_schema::compile(&case.schema)
-        .map_err(|e| format!("warden refused the schema: {e}"))?
+    let compiled = pemba_schema::compile(&case.schema)
+        .map_err(|e| format!("pemba refused the schema: {e}"))?
         .schema;
-    let engine = warden_engine(case)?;
+    let engine = pemba_engine(case)?;
     // SpiceDB's check behind KD-2 is nondeterministic: the same schema is sometimes
     // accepted. Probe a few throwaway datastores so a case it would refuse is never
     // compared by luck (and its KD-3 re-check never fails by luck).
@@ -198,7 +198,7 @@ pub fn run(spicedb: &SpiceDb, token: &str, case: &DiffCase) -> Result<Outcome, S
                 ..case.clone()
             };
             let token = format!("{token}-no-{}", ty.as_str().replace('/', "_"));
-            let engine = warden_engine(&less).ok()?;
+            let engine = pemba_engine(&less).ok()?;
             spicedb.write_schema(&token, &less.schema).ok()?;
             spicedb.write_tuples(&token, &less.tuples).ok()?;
             Some((engine, token))
@@ -208,7 +208,7 @@ pub fn run(spicedb: &SpiceDb, token: &str, case: &DiffCase) -> Result<Outcome, S
             Question::Check(..) => spicedb.check_bulk(token, &[q]).ok()?.pop()?,
             _ => return None,
         };
-        Some((ask_warden(engine, q), theirs))
+        Some((ask_pemba(engine, q), theirs))
     };
 
     let mut outcome = Outcome::default();
@@ -220,19 +220,19 @@ pub fn run(spicedb: &SpiceDb, token: &str, case: &DiffCase) -> Result<Outcome, S
             Question::LookupResources(t, p, s) => spicedb.lookup_resources(token, t, p, s),
             Question::LookupSubjects(r, p, t) => spicedb.lookup_subjects(token, r, p, t),
         };
-        let warden_answer = ask_warden(&engine, q);
+        let pemba_answer = ask_pemba(&engine, q);
         outcome.asked += 1;
-        if !warden_answer.agrees(&spicedb_answer) {
+        if !pemba_answer.agrees(&spicedb_answer) {
             outcome.mismatches.push(Mismatch {
                 known: known::explain(
                     &mut without_wildcards,
                     case,
                     q,
-                    &warden_answer,
+                    &pemba_answer,
                     &spicedb_answer,
                 ),
                 question: q.clone(),
-                warden: warden_answer,
+                pemba: pemba_answer,
                 spicedb: spicedb_answer,
             });
         }
@@ -250,8 +250,8 @@ pub fn run(spicedb: &SpiceDb, token: &str, case: &DiffCase) -> Result<Outcome, S
     Ok(outcome)
 }
 
-/// warden's engine over the memory store with `case`'s schema and tuples.
-fn warden_engine(case: &DiffCase) -> Result<Engine<MemoryStore>, String> {
+/// pemba's engine over the memory store with `case`'s schema and tuples.
+fn pemba_engine(case: &DiffCase) -> Result<Engine<MemoryStore>, String> {
     let engine = Engine::builder()
         .store(MemoryStore::new())
         .config(EngineConfig::default())
@@ -259,14 +259,14 @@ fn warden_engine(case: &DiffCase) -> Result<Engine<MemoryStore>, String> {
         .map_err(|e| e.to_string())?;
     engine
         .write_schema(&case.schema)
-        .map_err(|e| format!("warden refused the schema: {e}"))?;
+        .map_err(|e| format!("pemba refused the schema: {e}"))?;
     if !case.tuples.is_empty() {
         engine
             .write(WriteRequest {
                 ops: case.tuples.iter().cloned().map(WriteOp::Touch).collect(),
                 preconditions: Vec::new(),
             })
-            .map_err(|e| format!("warden refused the tuples: {e}"))?;
+            .map_err(|e| format!("pemba refused the tuples: {e}"))?;
     }
     Ok(engine)
 }
@@ -436,7 +436,7 @@ fn spread<T>(items: Vec<T>, n: usize) -> Vec<T> {
         .collect()
 }
 
-fn ask_warden(engine: &Engine<MemoryStore>, q: &Question) -> Answer {
+fn ask_pemba(engine: &Engine<MemoryStore>, q: &Question) -> Answer {
     match q {
         Question::Check(resource, permission, subject) => match engine.check(CheckRequest {
             resource: resource.clone(),
@@ -487,7 +487,7 @@ fn ask_warden(engine: &Engine<MemoryStore>, q: &Question) -> Answer {
 }
 
 /// `case` and its unexplained mismatches as a fixture (`docs/07-testing.md` §3), with each
-/// check listed under warden's answer and SpiceDB's in a comment, ready to paste into
+/// check listed under pemba's answer and SpiceDB's in a comment, ready to paste into
 /// `testdata/fixtures/regressions/` once someone decides who is right.
 pub fn repro_yaml(case: &DiffCase, mismatches: &[&Mismatch]) -> String {
     let mut out = String::new();
@@ -502,11 +502,11 @@ pub fn repro_yaml(case: &DiffCase, mismatches: &[&Mismatch]) -> String {
     }
     let (mut yes, mut no) = (Vec::new(), Vec::new());
     for m in mismatches {
-        match (&m.question, &m.warden) {
+        match (&m.question, &m.pemba) {
             (Question::Check(r, p, s), Answer::Allowed(true)) => yes.push((r, p, s, &m.spicedb)),
             (Question::Check(r, p, s), Answer::Allowed(false)) => no.push((r, p, s, &m.spicedb)),
             (q, w) => {
-                let _ = writeln!(out, "# {q}: warden {w}, SpiceDB {}", m.spicedb);
+                let _ = writeln!(out, "# {q}: pemba {w}, SpiceDB {}", m.spicedb);
             }
         }
     }

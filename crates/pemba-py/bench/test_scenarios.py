@@ -2,7 +2,7 @@
 
 The datasets are the ones the Rust benches use, written by ``bench-data`` (see
 ``benches/src/lib.rs``); they are generated into ``target/bench-data`` on first use, or read
-from ``WARDEN_BENCH_DATA``. Every operation is timed alone (``iterations=1``), so with
+from ``PEMBA_BENCH_DATA``. Every operation is timed alone (``iterations=1``), so with
 ``--benchmark-save-data`` the JSON holds one duration per call and ``benches/results.py``
 reports true p50/p99. Build with ``maturin develop --release`` first.
 
@@ -24,7 +24,7 @@ from pathlib import Path
 import pytest
 from pytest_benchmark.fixture import BenchmarkFixture
 
-import warden
+import pemba
 
 REPO = Path(__file__).resolve().parents[3]
 ROUNDS = 2000
@@ -45,11 +45,11 @@ class Scenario:
 
 
 def data_dir() -> Path:
-    env = os.environ.get("WARDEN_BENCH_DATA")
+    env = os.environ.get("PEMBA_BENCH_DATA")
     d = Path(env) if env else REPO / "target" / "bench-data"
     if not (d / "manifest.tsv").exists():
         subprocess.run(
-            ["cargo", "run", "--quiet", "-p", "warden-benches", "--bin", "bench-data", "--",
+            ["cargo", "run", "--quiet", "-p", "pemba-benches", "--bin", "bench-data", "--",
              str(d)],
             cwd=REPO,
             check=True,
@@ -74,7 +74,7 @@ class Engines:
     """One loaded engine per (store, scenario), built on first use and kept for the module."""
 
     tmp: Path
-    loaded: dict[str, warden.Engine]
+    loaded: dict[str, pemba.Engine]
 
 
 @pytest.fixture(scope="module")
@@ -84,10 +84,10 @@ def engines(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Engines]:
     cache.loaded.clear()
 
 
-def load(engines: Engines, store: str, s: Scenario) -> warden.Engine:
+def load(engines: Engines, store: str, s: Scenario) -> pemba.Engine:
     key = f"{store}/{s.name}"
     if key not in engines.loaded:
-        e = warden.Engine.memory() if store == "memory" else warden.Engine.sqlite(
+        e = pemba.Engine.memory() if store == "memory" else pemba.Engine.sqlite(
             engines.tmp / f"{s.name}.db")
         e.write_schema((data_dir() / "schema.zed").read_text())
         tuples = (data_dir() / f"{s.name}.tuples").read_text().split()
@@ -97,7 +97,7 @@ def load(engines: Engines, store: str, s: Scenario) -> warden.Engine:
     return engines.loaded[key]
 
 
-def lookup_all(e: warden.Engine, s: Scenario) -> int:
+def lookup_all(e: pemba.Engine, s: Scenario) -> int:
     found = 0
     r = e.lookup_resources(s.a, s.b, s.c, limit=s.page_size)
     found += len(r.ids)

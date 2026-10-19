@@ -1,14 +1,14 @@
-//! warden against SpiceDB on every fixture and on generated cases (`docs/07-testing.md`
+//! pemba against SpiceDB on every fixture and on generated cases (`docs/07-testing.md`
 //! §4, T3.4). `#[ignore]`: run with `--ignored` and a SpiceDB to talk to:
 //!
 //! ```bash
 //! docker run --rm -p 8443:8443 authzed/spicedb:v1.56.2 serve-testing --http-enabled
-//! WARDEN_SPICEDB_URL=http://127.0.0.1:8443 WARDEN_SPICEDB_KEY=difftest \
-//!     cargo test -p warden-difftest -- --ignored
+//! PEMBA_SPICEDB_URL=http://127.0.0.1:8443 PEMBA_SPICEDB_KEY=difftest \
+//!     cargo test -p pemba-difftest -- --ignored
 //! ```
 //!
 //! Without the variables the tests report that they did not run and pass, unless
-//! `WARDEN_DIFFTEST_REQUIRED` is set (CI sets it), so `cargo test --workspace -- --ignored`
+//! `PEMBA_DIFFTEST_REQUIRED` is set (CI sets it), so `cargo test --workspace -- --ignored`
 //! works on a machine without SpiceDB.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
@@ -20,9 +20,9 @@ use std::path::{Path, PathBuf};
 use proptest::strategy::{Strategy, ValueTree};
 use proptest::test_runner::TestRunner;
 use serde::Deserialize;
-use warden_core::model::{ObjectRef, Relationship, SubjectRef};
-use warden_difftest::{DiffCase, Outcome, SpiceDb, repro_yaml, run, without_cycles};
-use warden_testkit::generate::{self, SubSides};
+use pemba_core::model::{ObjectRef, Relationship, SubjectRef};
+use pemba_difftest::{DiffCase, Outcome, SpiceDb, repro_yaml, run, without_cycles};
+use pemba_testkit::generate::{self, SubSides};
 
 /// Generated cases keep their first tuples only (after cycle removal). SpiceDB does not
 /// memoise across branches of one check, and on the generator's densest acyclic data
@@ -31,9 +31,9 @@ use warden_testkit::generate::{self, SubSides};
 const MAX_GENERATED_TUPLES: usize = 16;
 
 /// Generated cases that must be compared (not stopped by `KD-2`): at least 500 (T3.4);
-/// `WARDEN_DIFFTEST_CASES` raises it.
+/// `PEMBA_DIFFTEST_CASES` raises it.
 fn generated_cases() -> usize {
-    std::env::var("WARDEN_DIFFTEST_CASES")
+    std::env::var("PEMBA_DIFFTEST_CASES")
         .ok()
         .and_then(|n| n.parse().ok())
         .unwrap_or(500)
@@ -48,10 +48,10 @@ fn spicedb() -> Option<SpiceDb> {
     let s = SpiceDb::from_env();
     if s.is_none() {
         assert!(
-            std::env::var_os("WARDEN_DIFFTEST_REQUIRED").is_none(),
-            "WARDEN_DIFFTEST_REQUIRED is set but WARDEN_SPICEDB_URL / WARDEN_SPICEDB_KEY are not"
+            std::env::var_os("PEMBA_DIFFTEST_REQUIRED").is_none(),
+            "PEMBA_DIFFTEST_REQUIRED is set but PEMBA_SPICEDB_URL / PEMBA_SPICEDB_KEY are not"
         );
-        eprintln!("not run: set WARDEN_SPICEDB_URL and WARDEN_SPICEDB_KEY (docs/07-testing.md §4)");
+        eprintln!("not run: set PEMBA_SPICEDB_URL and PEMBA_SPICEDB_KEY (docs/07-testing.md §4)");
     }
     s
 }
@@ -93,8 +93,8 @@ fn run_all(spicedb: &SpiceDb, run_id: &str, cases: &[DiffCase]) -> usize {
             for m in unexplained.iter().take(10) {
                 let _ = writeln!(
                     msg,
-                    "  {}: warden {}, SpiceDB {}",
-                    m.question, m.warden, m.spicedb
+                    "  {}: pemba {}, SpiceDB {}",
+                    m.question, m.pemba, m.spicedb
                 );
             }
             msg.push_str(&repro_yaml(case, &unexplained));

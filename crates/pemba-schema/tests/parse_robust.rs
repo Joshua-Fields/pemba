@@ -4,7 +4,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use proptest::prelude::*;
-use warden_schema::{SchemaError, compile, parse};
+use pemba_schema::{SchemaError, compile, parse};
 
 /// Fragments that steer random input towards the interesting parts of the grammar.
 const PIECES: &[&str] = &[

@@ -25,7 +25,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 use std::time::Duration;
 
-use warden_schema::ir::{AllowedSubject, ArrowMode, CompiledSchema, Expr, Member, RelId, TypeId};
+use pemba_schema::ir::{AllowedSubject, ArrowMode, CompiledSchema, Expr, Member, RelId, TypeId};
 
 use crate::engine::read_error;
 use crate::error::Error;
@@ -440,8 +440,8 @@ impl<'a> Evaluator<'a> {
         }
 
         // A wildcard `t:*` never matches a subject set `t:x#r` (below), but SpiceDB matches
-        // it. On a granting path that only makes warden say `false` where SpiceDB says
-        // `true`; under a subtracted side warden would say `true` where SpiceDB says `false`,
+        // it. On a granting path that only makes pemba say `false` where SpiceDB says
+        // `true`; under a subtracted side pemba would say `true` where SpiceDB says `false`,
         // so the answer is ambiguous and evaluation fails closed (KD-3, T3.4b).
         if let Some(set) = &self.subject.set
             && self.negated()
@@ -936,7 +936,7 @@ mod tests {
     /// computed assuming A was `false`.
     #[test]
     fn tainted_nodes_never_enter_the_memo() {
-        let schema = warden_schema::compile(GROUPS).unwrap().schema;
+        let schema = pemba_schema::compile(GROUPS).unwrap().schema;
         let store = Tuples(
             [
                 "group:a#member@group:b#member",
@@ -986,7 +986,7 @@ mod tests {
     /// (as for the next `check_bulk` item) starts clean.
     #[test]
     fn unsettled_state_is_cleared_after_an_error() {
-        let schema = warden_schema::compile(GROUPS).unwrap().schema;
+        let schema = pemba_schema::compile(GROUPS).unwrap().schema;
         let store = Tuples(
             [
                 "group:a#member@group:b#member",

@@ -1,5 +1,5 @@
 ---
-source: crates/warden-schema/tests/compile_errors.rs
+source: crates/pemba-schema/tests/compile_errors.rs
 description: "definition user {}\ndefinition doc {\n    relation x_rel: user\n    permission aaa = bbb\n    permission bbb = aaa + x_rel\n}"
 ---
 error[E_DIRECT_CYCLE]: permission `aaa` depends on itself: `aaa` → `bbb` → `aaa`

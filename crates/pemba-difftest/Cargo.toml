@@ -1,6 +1,6 @@
 [package]
-name = "warden-difftest"
-description = "Differential tests of warden against SpiceDB."
+name = "pemba-difftest"
+description = "Differential tests of pemba against SpiceDB."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -12,10 +12,10 @@ publish = false
 workspace = true
 
 [dependencies]
-warden-core.workspace = true
-warden-schema.workspace = true
-warden-store-memory.workspace = true
-warden-testkit.workspace = true
+pemba-core.workspace = true
+pemba-schema.workspace = true
+pemba-store-memory.workspace = true
+pemba-testkit.workspace = true
 proptest.workspace = true
 serde.workspace = true
 serde-saphyr.workspace = true

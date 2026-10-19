@@ -4,12 +4,12 @@
 //! enum is `#[non_exhaustive]`, so the remaining ones from `06` §1.1 are added with the
 //! code that raises them.
 
-use warden_schema::{ErrorCode, SchemaErrors};
+use pemba_schema::{ErrorCode, SchemaErrors};
 
 use crate::model::{RelName, Revision, TypeName};
 use crate::store::StoreError;
 
-/// Everything that can go wrong in `warden-core`.
+/// Everything that can go wrong in `pemba-core`.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum Error {
@@ -116,9 +116,9 @@ pub enum Error {
         relation: String,
     },
     /// A `check` (or a `lookup_resources` candidate) with a subject-set subject `t:x#r`
-    /// reached a stored wildcard `t:*` under the subtracted side of an exclusion. warden's
+    /// reached a stored wildcard `t:*` under the subtracted side of an exclusion. pemba's
     /// wildcards never match subject sets, SpiceDB's do, so the answer would differ between
-    /// them and warden's would be the more permissive one; it refuses to answer
+    /// them and pemba's would be the more permissive one; it refuses to answer
     /// (`docs/04-evaluation.md` §3.3, KD-3).
     #[error(
         "ambiguous: wildcard {wildcard} on the subtracted side of an exclusion; whether it \
@@ -296,7 +296,7 @@ mod tests {
         let r = Revision(1);
         let s = String::new;
         vec![
-            Error::Schema(warden_schema::compile("?").err().unwrap()),
+            Error::Schema(pemba_schema::compile("?").err().unwrap()),
             Error::SchemaChangeOrphans(Vec::new()),
             Error::NoSchema,
             Error::InvalidRelationship {

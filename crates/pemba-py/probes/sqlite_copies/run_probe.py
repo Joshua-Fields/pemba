@@ -2,7 +2,7 @@
 
 Deterministic, no timing race. For each scenario:
 
-1. A bundled-SQLite connection (``sqlite_copies_probe.Writer``, built like warden-py)
+1. A bundled-SQLite connection (``sqlite_copies_probe.Writer``, built like pemba-py)
    opens a WAL database, runs ``BEGIN IMMEDIATE`` and inserts a row: it holds the write
    lock and believes it keeps holding it until COMMIT.
 2. Control: a separate process tries ``BEGIN IMMEDIATE`` (busy timeout 0) and must fail.

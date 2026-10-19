@@ -1,18 +1,18 @@
-//! Maps [`warden::Error`] to the Python exception hierarchy of `docs/06-api.md` §2.3.
+//! Maps [`pemba::Error`] to the Python exception hierarchy of `docs/06-api.md` §2.3.
 //!
-//! The classes live in `warden/_errors.py` so they are ordinary Python exceptions (picklable,
+//! The classes live in `pemba/_errors.py` so they are ordinary Python exceptions (picklable,
 //! subclassable, typed by the stubs); this module only picks the class by
 //! [`Error::code`] and fills in its attributes.
 
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
-use warden::Error;
-use warden::model::ParseError;
+use pemba::Error;
+use pemba::model::ParseError;
 
 use crate::types::{Diagnostic, OrphanReport};
 
-/// The `warden._errors` class raised for `code` (every `Error::CODES` entry is checked
+/// The `pemba._errors` class raised for `code` (every `Error::CODES` entry is checked
 /// by `tests/test_errors.py`), or `None` for a code this build does not
 /// know (the caller falls back to the base class, so a new code still fails closed).
 pub(crate) fn class_name(code: &str) -> Option<&'static str> {
@@ -44,8 +44,8 @@ pub(crate) fn class_name(code: &str) -> Option<&'static str> {
 pub(crate) fn exception<'py>(py: Python<'py>, err: &Error) -> PyResult<Bound<'py, PyAny>> {
     let code = err.code();
     let class = py
-        .import("warden._errors")?
-        .getattr(class_name(code).unwrap_or("WardenError"))?;
+        .import("pemba._errors")?
+        .getattr(class_name(code).unwrap_or("PembaError"))?;
     let details = PyDict::new(py);
     match err {
         Error::Schema(errs) => {

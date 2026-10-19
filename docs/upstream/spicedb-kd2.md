@@ -1,8 +1,8 @@
 # Draft upstream issue: nondeterministic schema validation ("wildcard relations cannot be transitively included")
 
 Status: **draft for a human to file** at https://github.com/authzed/spicedb/issues. Not
-filed by the agent. Found by warden's differential test (T3.4, KD-2 in
-`crates/warden-difftest/KNOWN_DIFFERENCES.md`).
+filed by the agent. Found by pemba's differential test (T3.4, KD-2 in
+`crates/pemba-difftest/KNOWN_DIFFERENCES.md`).
 
 ---
 

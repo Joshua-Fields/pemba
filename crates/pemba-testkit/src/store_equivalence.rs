@@ -1,13 +1,13 @@
 //! Property 5 (`docs/07-testing.md` §2): two stores give identical results for identical
 //! op sequences. Shared by the memory ≡ SQLite property in this crate's tests and by every
-//! other store's tests (`warden-store-pysqlite`).
+//! other store's tests (`pemba-store-pysqlite`).
 
 // Test-support code: a failed expectation must panic so the test fails.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use proptest::prelude::*;
-use warden_core::model::Revision;
-use warden_core::store::{ReadStore, ReverseFilter, SubjectRelMatch, WritableStore};
+use pemba_core::model::Revision;
+use pemba_core::store::{ReadStore, ReverseFilter, SubjectRelMatch, WritableStore};
 
 use crate::generate::{self, StoreOp};
 
@@ -30,7 +30,7 @@ pub fn reads(s: &dyn WritableStore, rev: Revision) -> Vec<String> {
     let tuples = generate::store_tuples();
     let mut out = Vec::new();
     for t in ["doc", "folder"] {
-        let f = warden_core::model::RelationshipFilter::new(t.parse().unwrap());
+        let f = pemba_core::model::RelationshipFilter::new(t.parse().unwrap());
         out.push(outcome(s.read_relationships(rev, &f, u32::MAX, None)));
         // Pages of 2 through the keyset cursor.
         let mut after = None;
@@ -60,7 +60,7 @@ pub fn reads(s: &dyn WritableStore, rev: Revision) -> Vec<String> {
     subjects.sort();
     subjects.dedup();
     for subject in &subjects {
-        let (subject_type, subject_id, _) = warden_core::store::subject_columns(subject);
+        let (subject_type, subject_id, _) = pemba_core::store::subject_columns(subject);
         for m in [
             SubjectRelMatch::None,
             SubjectRelMatch::Any,

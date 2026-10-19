@@ -1,6 +1,6 @@
 # 04 — Evaluation: check, lookup_resources, lookup_subjects
 
-Crate: `warden-core::eval`. Inputs: a `CompiledSchema` (`docs/03` §6), a `ReadStore`
+Crate: `pemba-core::eval`. Inputs: a `CompiledSchema` (`docs/03` §6), a `ReadStore`
 (`docs/05` §2) and a resolved `Revision`.
 
 Every algorithm here must agree with the reference evaluator (`docs/07` §2) on every input.
@@ -51,9 +51,9 @@ For object `o`, member `m`, subject `s`, at revision `R`, `S(o, m)` is the set o
 
 Additional rule — **wildcards and subject sets**: a stored wildcard `t:*` contributes
 objects of type `t` only, never a subject set `t:x#r`. SpiceDB matches the subject set as
-well (KD-3, `crates/warden-difftest/KNOWN_DIFFERENCES.md`). Where that wildcard sits on a
-granting path, warden's answer is the stricter one. Where it sits under the subtracted side
-of an exclusion, warden's would be the more permissive one, so `check` (and
+well (KD-3, `crates/pemba-difftest/KNOWN_DIFFERENCES.md`). Where that wildcard sits on a
+granting path, pemba's answer is the stricter one. Where it sits under the subtracted side
+of an exclusion, pemba's would be the more permissive one, so `check` (and
 `lookup_resources`, whose candidates are checked) fails with
 `AmbiguousWildcardExclusion` instead of answering (§3.3 step 2a, T3.4b). The reason is
 that an error can later become an answer without breaking callers, but an answer cannot
@@ -426,7 +426,7 @@ Unit-test every cell, and property-test the algebra against a finite universe mo
   An intersection stops at the first `Ids(∅)` operand and an exclusion does not evaluate its
   `sub` side when the base is `Ids(∅)`, as `check` short-circuits on `false`.
 - **Cycles: exactly §3.6's SCC fixed-point iteration, with `SubjectSet` values in place of
-  booleans.** One implementation serves both (`warden-core::scc`, generic over the value):
+  booleans.** One implementation serves both (`pemba-core::scc`, generic over the value):
   - *Order.* Values are compared by `≤` (subset of the denoted sets): `Ids(a) ≤ Ids(b)` iff
     `a ⊆ b`; `Ids(a) ≤ AllExcept(x)` iff `a ∩ x = ∅`; `AllExcept(x) ≤ AllExcept(y)` iff
     `y ⊆ x`; `AllExcept(x) ≤ Ids(b)` never (the universe of ids is unbounded). `⊥` is

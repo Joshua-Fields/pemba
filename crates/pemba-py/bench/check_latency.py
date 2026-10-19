@@ -26,7 +26,7 @@ from pathlib import Path
 
 import yaml
 
-import warden
+import pemba
 
 FIXTURE = Path(__file__).resolve().parents[3] / "testdata/fixtures/google_docs.yaml"
 TUPLE = re.compile(r"^([^#]+)#([^@]+)@(.+)$")
@@ -75,8 +75,8 @@ def main() -> None:
           f"{THREADS}T checks/s |", flush=True)
     with tempfile.TemporaryDirectory() as d:
         for name, engine in (
-            ("Engine.sqlite()", warden.Engine.sqlite(os.path.join(d, "bench.db"))),
-            ("Engine.memory()", warden.Engine.memory()),
+            ("Engine.sqlite()", pemba.Engine.sqlite(os.path.join(d, "bench.db"))),
+            ("Engine.memory()", pemba.Engine.memory()),
         ):
             engine.write_schema(schema)
             engine.write(touch=rels)

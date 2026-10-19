@@ -1,4 +1,4 @@
-//! In-memory relationship store for warden (`docs/05-storage.md` §3).
+//! In-memory relationship store for pemba (`docs/05-storage.md` §3).
 //!
 //! Not persistent; per-process. Implements the write algorithm natively under one write
 //! lock, so a batch is applied atomically with respect to every reader. Rows are never
@@ -10,12 +10,12 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
-use warden_core::Error;
-use warden_core::model::{
+use pemba_core::Error;
+use pemba_core::model::{
     ObjectRef, Precondition, RelName, Relationship, RelationshipFilter, Revision, SubjectRef,
     TypeName, WriteOp, WriteRequest,
 };
-use warden_core::store::{
+use pemba_core::store::{
     DeleteResult, ReadStore, RelationCount, ReverseFilter, SchemaCheck, StoreError, StoredSchema,
     SubjectRelMatch, WritableStore, cmp_relationships, subject_columns,
 };

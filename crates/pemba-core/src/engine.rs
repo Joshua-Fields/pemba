@@ -5,8 +5,8 @@ use std::fmt::Write as _;
 use std::sync::{Arc, PoisonError, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::time::Instant;
 
-use warden_schema::ir::CompiledSchema;
-use warden_schema::{ErrorCode, SchemaError};
+use pemba_schema::ir::CompiledSchema;
+use pemba_schema::{ErrorCode, SchemaError};
 
 use crate::error::{Error, OrphanReport};
 use crate::eval::{
@@ -188,7 +188,7 @@ impl Loaded {
             version: stored.version,
             created_rev: stored.created_rev,
             compiled: Arc::new(
-                warden_schema::compile(&stored.source)
+                pemba_schema::compile(&stored.source)
                     .map_err(Error::Schema)?
                     .schema,
             ),
@@ -232,7 +232,7 @@ impl<S: WritableStore> Engine<S> {
     /// each orphaned group of live relationships; [`Error::Store`] if the store fails.
     pub fn write_schema(&self, source: &str) -> Result<SchemaWriteResult, Error> {
         let _span = tracing::info_span!("write_schema", bytes = source.len()).entered();
-        let compiled = warden_schema::compile(source).map_err(Error::Schema)?;
+        let compiled = pemba_schema::compile(source).map_err(Error::Schema)?;
         if let Some(stored) = self.store.current_schema()?
             && stored.hash == hex(&compiled.schema.hash)
         {

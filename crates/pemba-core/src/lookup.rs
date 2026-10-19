@@ -27,7 +27,7 @@
 
 use std::collections::{BTreeSet, HashSet, VecDeque};
 
-use warden_schema::ir::{CompiledSchema, Member, RelId, TypeId};
+use pemba_schema::ir::{CompiledSchema, Member, RelId, TypeId};
 
 use crate::EvalStats;
 use crate::engine::read_error;

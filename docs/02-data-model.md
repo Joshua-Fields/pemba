@@ -1,6 +1,6 @@
 # 02 — Data model
 
-All types in this document live in `warden-core::model` unless stated. Names are fixed.
+All types in this document live in `pemba-core::model` unless stated. Names are fixed.
 
 ## 1. Identifiers
 
@@ -90,7 +90,7 @@ Implementation notes:
   `Relationship` and `Revision`, parsing the canonical string syntax below.
   `Consistency`, `WriteOp` and `RelationshipFilter` (§5) implement `Display` for debugging
   only; that output is not a stable format and cannot be parsed (OQ-009).
-- The §1.1 identifier rules live in `warden-schema` (`warden_schema::ident`), shared by the
+- The §1.1 identifier rules live in `pemba-schema` (`pemba_schema::ident`), shared by the
   schema validator and the tuple parser.
 
 ## 3. Canonical string syntax
@@ -210,7 +210,7 @@ A `Relationship` is valid iff (checked in this order; the error is
    - `Wildcard(t)` matches allowed `t:*`.
 4. IDs satisfy §1.2 (guaranteed by construction: `ObjectId` cannot hold an invalid id).
 
-The codes are variants of `warden_schema::ErrorCode`, so schema and write failures share one
+The codes are variants of `pemba_schema::ErrorCode`, so schema and write failures share one
 code namespace (`expectErrors` in fixtures, `docs/07-testing.md` §3). OQ-017.
 
 ## 7. Limits (defaults in `EngineConfig`)

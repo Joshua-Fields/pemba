@@ -1,6 +1,6 @@
 [package]
-name = "warden-schema"
-description = "Schema language for warden: lexer, parser, validator, compiled IR and printer."
+name = "pemba-schema"
+description = "Schema language for pemba: lexer, parser, validator, compiled IR and printer."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
