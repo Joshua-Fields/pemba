@@ -101,9 +101,11 @@ def metadata() -> list[tuple[str, str]]:
     commit = run("git", "rev-parse", "HEAD")
     dirty = run("git", "status", "--porcelain", "--untracked-files=no")
     return [
-        ("Date", datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%d %H:%M UTC")),
-        ("Commit", commit + (" (with uncommitted changes)" if dirty not in ("", "unknown")
-                             else "")),
+        ("Generated", datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%d %H:%M UTC")),
+        # The commit this file was generated at. Each section below says when its input
+        # was measured, which can be earlier: regenerating keeps older inputs.
+        ("Generated at commit", commit + (" (with uncommitted changes)"
+                                          if dirty not in ("", "unknown") else "")),
         ("CPU", f"{cpu()}, {os.cpu_count()} logical CPUs"),
         ("Memory", memory_gib()),
         ("OS", platform.platform()),
@@ -111,6 +113,13 @@ def metadata() -> list[tuple[str, str]]:
         ("Python", f"{platform.python_implementation()} {platform.python_version()}"),
         ("SQLite (Python's sqlite3)", sqlite3.sqlite_version),
     ]
+
+
+def measured(src: Path) -> str:
+    """When an input was written: its mtime (for a directory, its newest file's)."""
+    files = list(src.glob("*")) if src.is_dir() else [src]
+    t = max(f.stat().st_mtime for f in files)
+    return datetime.datetime.fromtimestamp(t, datetime.UTC).strftime("%Y-%m-%d %H:%M UTC")
 
 
 def stats(ns: list[float]) -> dict[str, float]:
@@ -206,13 +215,16 @@ def main() -> None:
           "", "## Machine", "", "| | |", "|---|---|"]
     md += [f"| {k} | {v} |" for k, v in metadata()]
     sections = [
-        ("Rust (Criterion bench, latency pass)", "rust", r, ["memory", "sqlite"]),
+        ("Rust (Criterion bench, latency pass)", "rust", r, ["memory", "sqlite"],
+         a.target / "bench-latency"),
         ("Python (pytest-benchmark, `maturin develop --release`)", "python", py,
-         ["memory", "sqlite"]),
-        ("SpiceDB", "spicedb", sp, ["spicedb"]),
+         ["memory", "sqlite"], a.target / "bench-py.json"),
+        ("SpiceDB", "spicedb", sp, ["spicedb"], a.target / "bench-spicedb.json"),
     ]
-    for title, key, raw, stores in sections:
+    for title, key, raw, stores, src in sections:
         md += ["", f"## {title}", "", f"Command: `{COMMANDS[key]}`", ""]
+        if raw:
+            md += [f"Measured: {measured(src)}", ""]
         if key == "spicedb" and sp_meta:
             md += [f"- {k}: {v}" for k, v in sp_meta.items()] + [""]
         md += table(raw, stores, order) if raw else ["Not run."]
