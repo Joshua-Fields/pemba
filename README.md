@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="https://raw.githubusercontent.com/Joshua-Fields/pemba/main/assets/pemba-logo.png" alt="pemba logo: a fruit bat hanging from a branch, with a keyhole on its folded wings" width="420">
+</p>
+
 # pemba
 
 > pemba was formerly developed under the codename warden.

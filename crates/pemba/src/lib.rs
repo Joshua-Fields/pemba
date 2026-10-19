@@ -60,6 +60,10 @@
 //! `false` (or `true`); it returns an [`Error`] and the caller decides. The specification
 //! lives in the repository's `docs/` directory, starting at `docs/00-overview.md`.
 
+#![doc(
+    html_logo_url = "https://raw.githubusercontent.com/Joshua-Fields/pemba/main/assets/pemba-mark.png",
+    html_favicon_url = "https://raw.githubusercontent.com/Joshua-Fields/pemba/main/assets/pemba-favicon.png"
+)]
 #![forbid(unsafe_code)]
 
 pub use pemba_core::*;
