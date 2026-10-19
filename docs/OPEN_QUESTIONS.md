@@ -559,6 +559,20 @@ it is resolved.
   tells callers to loop until `next_cursor` is `None` and that any page, not only the last,
   may be empty. Whether to cache phase 1 candidates per (revision, query) across pages, given
   (d), is a T3.5 benchmark question.
+  (d) resolved after T3.5 by the human: **no phase-1 cache in 0.1**. The T3.5 benchmarks
+  (`benches/RESULTS.md`, 2026-10-19, i5-14600KF, Windows 11; p50, all 10k ids of one
+  lookup) put re-running phase 1 on every page at about 3× the single-page cost, not 100×:
+
+  | | one page | pages of 100 | ratio | extra per page |
+  |---|---:|---:|---:|---:|
+  | Rust, memory | 485 µs | 1,435 µs | 3.0× | ~9.6 µs |
+  | Rust, SQLite | 1,200 µs | 3,440 µs | 2.9× | ~22.6 µs |
+  | Python, memory | 497 µs | 1,438 µs | 2.9× | ~9.5 µs |
+  | Python, SQLite | 2,383 µs | 6,025 µs | 2.5× | ~36.8 µs |
+
+  The overhead is small and linear in the page count, and a cache would bring invalidation
+  and memory questions of its own. Revisit if a workload pages through much larger result
+  sets.
 
 ## OQ-029 — `lookup_subjects` details (T2.5)
 - Raised in: T2.5 (`docs/04-evaluation.md` §6, `docs/06-api.md` §1, `docs/07-testing.md` §3)
