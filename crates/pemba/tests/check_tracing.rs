@@ -158,7 +158,15 @@ fn check_bulk_emits_span_with_stats_fields() {
     assert_eq!(field(fields, "items"), "2");
     assert_eq!(field(fields, "store_reads"), "1");
     assert_eq!(field(fields, "memo_hits"), "1");
-    field(fields, "tuples_read");
+    // The second item is a memo hit, so the total is exactly one `check`'s count: the
+    // per-item counters must be summed into the span, not lost (cargo-mutants, T3.6).
+    let one = e
+        .check(request("document:d#owner@user:anne", Consistency::Latest))
+        .unwrap()
+        .stats
+        .tuples_read;
+    assert!(one > 0, "a direct hit reads at least the matching tuple");
+    assert_eq!(field(fields, "tuples_read"), one.to_string());
     field(fields, "max_depth_reached");
     field(fields, "elapsed_us");
 }
