@@ -12,3 +12,7 @@
 # rustfmt.toml sets newline_style = "Unix", so `cargo fmt --check` fails on every Rust file a
 # Windows checkout with core.autocrlf=true converts to CRLF.
 *.rs text eol=lf
+
+# Fuzz inputs are raw bytes named by their SHA-1 (libFuzzer, fuzz/seed_corpus.py): never
+# convert line endings in either direction, or an input stops being the one that was found.
+fuzz/corpus/** -text
