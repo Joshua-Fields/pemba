@@ -12,9 +12,9 @@ fuzz_target!(|data: &[u8]| {
     };
     if let Ok(rel) = s.parse::<Relationship>() {
         let printed = rel.to_string();
-        let again: Relationship = printed
-            .parse()
-            .unwrap_or_else(|e| panic!("{s:?} parsed, but its printed form {printed:?} did not: {e}"));
+        let again: Relationship = printed.parse().unwrap_or_else(|e| {
+            panic!("{s:?} parsed, but its printed form {printed:?} did not: {e}")
+        });
         assert_eq!(rel, again, "{s:?} does not round-trip through {printed:?}");
     }
 });
