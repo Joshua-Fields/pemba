@@ -1030,3 +1030,16 @@ it is resolved.
   `fuzz.yml` (09 §1) nor the weekly `cargo-mutants` job has been written.
 - Resolve by: human review after the first 10-minute runs
 - Resolution: (fill in)
+
+## OQ-040 — Rust and Python write benchmarks measure different table sizes
+- Raised in: T3.5 benchmarks, pre-release sweep (2026-10-19)
+- Blocking: no
+- Current choice: `benches/RESULTS.md` says the `write_batch_*` figures are not comparable
+  across languages. Criterion runs `write_batch_*` thousands of times (3,360 iterations for
+  memory on the benchmark machine), each writing a fresh batch into the same database, and
+  the Rust latency pass then runs on that grown database; pytest-benchmark writes 30
+  batches. Same SQL and pragmas, different table sizes: SQLite `write_batch_1000` p50 was
+  51.7 ms in Rust and 7.0 ms in Python, while `write_batch_100` was close (2.1 ms and 1.8 ms).
+- Resolve by: make both measure the same table size (a fixed number of batches per sample,
+  or a fresh database per sample), then compare
+- Resolution: (fill in)
