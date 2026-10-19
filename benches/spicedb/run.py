@@ -30,6 +30,7 @@ import json
 import platform
 import re
 import shutil
+import socket
 import subprocess
 import sys
 import time
@@ -78,8 +79,8 @@ def relationship(t: str) -> dict[str, Any]:
 class SpiceDb:
     def __init__(self, url: str, key: str, isolated: bool, consistency: str) -> None:
         u = urllib.parse.urlsplit(url)
-        self.conn = http.client.HTTPConnection(u.hostname or "127.0.0.1", u.port or 8443,
-                                               timeout=120)
+        self.host, self.port = u.hostname or "127.0.0.1", u.port or 8443
+        self.sock = socket.create_connection((self.host, self.port), timeout=120)
         self.key = key
         self.isolated = isolated
         self.token = key
@@ -97,12 +98,21 @@ class SpiceDb:
                           {"relationshipFilter": {"resourceType": t}})
 
     def post(self, path: str, body: dict[str, Any]) -> str:
-        self.conn.request("POST", path, json.dumps(body), {
-            "Authorization": f"Bearer {self.token}",
-            "Content-Type": "application/json",
-        })
-        resp = self.conn.getresponse()
+        data = json.dumps(body).encode()
+        head = (f"POST {path} HTTP/1.1\r\nHost: {self.host}:{self.port}\r\n"
+                f"Authorization: Bearer {self.token}\r\nContent-Type: application/json\r\n"
+                f"Content-Length: {len(data)}\r\n\r\n").encode()
+        # One write for the whole request. http.client sends the headers and the body in
+        # two writes, and through Docker Desktop's port forwarding the second then waits
+        # for a delayed ACK: every call measured ~44 ms (direct_hit included) instead of
+        # ~0.5 ms, i.e. the transport, not SpiceDB. curl and gRPC clients send one write.
+        self.sock.sendall(head + data)
+        resp = http.client.HTTPResponse(self.sock)
+        resp.begin()
         text = resp.read().decode()
+        if resp.will_close:
+            self.sock.close()
+            self.sock = socket.create_connection((self.host, self.port), timeout=120)
         if resp.status != 200:
             raise RuntimeError(f"POST {path}: HTTP {resp.status}: {text[:500]}")
         return text
