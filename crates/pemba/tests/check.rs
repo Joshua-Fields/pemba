@@ -283,6 +283,48 @@ fn stats_count_memo_hits() {
     assert_eq!(s.max_depth_reached, 3);
 }
 
+/// The same reuse under a subtracted side, for a subject-set subject: values settled there
+/// are memoised apart from the plain ones (`Memo`), and must still be reused there
+/// (cargo-mutants, T3.6).
+#[test]
+fn stats_count_memo_hits_under_a_subtracted_side() {
+    const SCHEMA: &str = "\
+definition user {}
+
+definition group {
+    relation member: user | group#member
+}
+
+definition resource {
+    relation viewer: group#member
+    relation first: group#member
+    relation second: group#member
+    permission view = viewer - (first & second)
+}
+";
+    let e = engine(
+        SCHEMA,
+        &[
+            "group:c#member@group:x#member",
+            "resource:r#viewer@group:x#member",
+            "resource:r#first@group:c#member",
+            "resource:r#second@group:c#member",
+        ],
+    );
+    let resp = e
+        .check(request(
+            "resource:r#view@group:x#member",
+            Consistency::Latest,
+        ))
+        .unwrap();
+    assert!(
+        !resp.allowed,
+        "group:x#member is in both `first` and `second`"
+    );
+    // `second` reaches group:c#member, already settled under the subtracted side.
+    assert_eq!(resp.stats.memo_hits, 1);
+}
+
 // ---------------------------------------------------------------------------------------
 // §2 / §3.3 Direct relations
 // ---------------------------------------------------------------------------------------
