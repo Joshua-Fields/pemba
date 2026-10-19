@@ -23,5 +23,5 @@ pub use engine::{
 pub use error::{Error, OrphanReport};
 pub use eval::{CheckItem, CheckRequest, CheckResponse, EvalStats};
 pub use lookup::{LookupResourcesRequest, LookupResourcesResponse};
-pub use subjects::{LookupSubjectsRequest, LookupSubjectsResponse};
 pub use pemba_schema::{ErrorCode, SchemaError, SchemaErrors};
+pub use subjects::{LookupSubjectsRequest, LookupSubjectsResponse};

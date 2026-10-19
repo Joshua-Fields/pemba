@@ -9,9 +9,9 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
 
-use rusqlite::Connection;
 use pemba_core::Error;
 use pemba_core::store::StoreError;
+use rusqlite::Connection;
 
 use pemba_sqlite_common::migrate;
 

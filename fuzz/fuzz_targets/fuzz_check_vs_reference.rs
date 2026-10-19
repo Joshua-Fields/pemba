@@ -12,14 +12,14 @@
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
-use proptest::strategy::{Strategy, ValueTree};
-use proptest::test_runner::{Config, RngAlgorithm, TestRng, TestRunner};
 use pemba_core::model::{Consistency, ObjectRef, RelName, SubjectRef, WriteOp, WriteRequest};
 use pemba_core::{CheckItem, CheckRequest, Engine, EngineConfig};
 use pemba_schema::ir::CompiledSchema;
 use pemba_store_memory::MemoryStore;
 use pemba_testkit::generate::{self, Case, RawQuery, SubSides};
 use pemba_testkit::reference::Reference;
+use proptest::strategy::{Strategy, ValueTree};
+use proptest::test_runner::{Config, RngAlgorithm, TestRng, TestRunner};
 
 fuzz_target!(|data: &[u8]| {
     let Some((&mode, rest)) = data.split_first() else {

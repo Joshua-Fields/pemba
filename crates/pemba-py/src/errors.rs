@@ -4,11 +4,11 @@
 //! subclassable, typed by the stubs); this module only picks the class by
 //! [`Error::code`] and fills in its attributes.
 
+use pemba::Error;
+use pemba::model::ParseError;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
-use pemba::Error;
-use pemba::model::ParseError;
 
 use crate::types::{Diagnostic, OrphanReport};
 

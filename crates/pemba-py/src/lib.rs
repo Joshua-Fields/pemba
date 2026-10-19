@@ -17,9 +17,6 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
-use pyo3::exceptions::{PyTypeError, PyValueError};
-use pyo3::prelude::*;
-use pyo3::types::{PyInt, PyString, PyTuple};
 use pemba::model::{
     Consistency, ObjectId, ObjectRef, RelName, Revision, SubjectRef, TypeName, WriteOp,
     WriteRequest,
@@ -29,6 +26,9 @@ use pemba::{
     MemoryStore, ReadRelationshipsRequest,
 };
 use pemba_store_pysqlite::{PySqliteConfig, PySqliteStore, PyTxn};
+use pyo3::exceptions::{PyTypeError, PyValueError};
+use pyo3::prelude::*;
+use pyo3::types::{PyInt, PyString, PyTuple};
 
 use crate::errors::{IntoPy, parse_err};
 use crate::types::{

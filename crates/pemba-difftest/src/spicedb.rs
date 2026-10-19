@@ -4,8 +4,8 @@
 use std::collections::BTreeSet;
 use std::time::Duration;
 
-use serde_json::{Value, json};
 use pemba_core::model::{ObjectRef, RelName, Relationship, SubjectRef, TypeName};
+use serde_json::{Value, json};
 
 use crate::{Answer, Question};
 

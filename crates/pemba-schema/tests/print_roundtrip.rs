@@ -8,9 +8,9 @@
 
 use std::fmt::Write as _;
 
-use proptest::prelude::*;
 use pemba_schema::ir::{AllowedSubject, ArrowMode, CompiledSchema, Expr, Member, TypeDef};
 use pemba_schema::{compile, format};
+use proptest::prelude::*;
 
 // ---- generated schemas ----
 //

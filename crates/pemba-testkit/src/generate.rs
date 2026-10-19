@@ -19,8 +19,8 @@
 use std::collections::BTreeSet;
 use std::fmt::{self, Write as _};
 
-use proptest::prelude::*;
 use pemba_core::model::Relationship;
+use proptest::prelude::*;
 
 /// Object ids used in generated tuples: a small alphabet, to force sharing and cycles.
 pub const IDS: [&str; 6] = ["a", "b", "c", "d", "e", "f"];

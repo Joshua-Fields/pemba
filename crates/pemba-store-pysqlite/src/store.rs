@@ -4,8 +4,6 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
-use pyo3::prelude::*;
-use pyo3::types::PyDict;
 use pemba_core::Error;
 use pemba_core::model::{
     ObjectRef, RelName, Relationship, RelationshipFilter, Revision, SubjectRef, WriteRequest,
@@ -18,6 +16,8 @@ use pemba_sqlite_common::{
     MIN_SQLITE_VERSION, SqliteDialect, canonical_main_file, migrate, parse_sqlite_version, reads,
 };
 pub use pemba_sqlite_common::{SqliteConfig as PySqliteConfig, Synchronous};
+use pyo3::prelude::*;
+use pyo3::types::PyDict;
 
 use crate::txn::{PyTxn, store_err};
 

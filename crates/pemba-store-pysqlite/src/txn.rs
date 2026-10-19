@@ -1,8 +1,8 @@
 //! [`WriteTxn`] over a Python `sqlite3.Connection`.
 
+use pemba_core::store::{SqlValue, StoreError, WriteTxn};
 use pyo3::prelude::*;
 use pyo3::types::{PyInt, PyString, PyTuple};
-use pemba_core::store::{SqlValue, StoreError, WriteTxn};
 
 /// `SQLITE_CONSTRAINT_UNIQUE`, an extended result code.
 const CONSTRAINT_UNIQUE: i64 = 2067;

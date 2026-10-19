@@ -15,15 +15,15 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use proptest::prelude::*;
-use proptest::strategy::ValueTree;
-use proptest::test_runner::{FileFailurePersistence, TestRunner};
 use pemba_core::model::{Consistency, ObjectRef, RelName, SubjectRef, WriteOp, WriteRequest};
 use pemba_core::{CheckItem, CheckRequest, Engine, EngineConfig};
 use pemba_schema::ir::CompiledSchema;
 use pemba_store_memory::MemoryStore;
 use pemba_testkit::generate::{self, Case, RawQuery, SubSides};
 use pemba_testkit::reference::{self, Reference};
+use proptest::prelude::*;
+use proptest::strategy::ValueTree;
+use proptest::test_runner::{FileFailurePersistence, TestRunner};
 
 /// At least `min` cases, or `PROPTEST_CASES` if higher.
 fn config(min: u32) -> ProptestConfig {
@@ -352,11 +352,11 @@ mod prop5 {
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicU32, Ordering};
 
-    use proptest::prelude::*;
     use pemba_core::store::{ReadStore, WritableStore};
     use pemba_store_memory::MemoryStore;
     use pemba_store_sqlite::{SqliteConfig, SqliteStore};
     use pemba_testkit::generate::{self, StoreOp};
+    use proptest::prelude::*;
 
     use super::config;
 
@@ -462,7 +462,6 @@ mod prop5 {
 mod prop4 {
     use std::collections::BTreeSet;
 
-    use proptest::prelude::*;
     use pemba_core::model::{
         Consistency, ObjectRef, RelName, Relationship, Revision, SubjectRef, WriteOp, WriteRequest,
     };
@@ -471,6 +470,7 @@ mod prop4 {
     use pemba_store_memory::MemoryStore;
     use pemba_testkit::generate::{self, Case};
     use pemba_testkit::reference::Reference;
+    use proptest::prelude::*;
 
     use super::{compile, config, query, unlimited};
 
@@ -720,7 +720,6 @@ mod prop4 {
 // ---- property 2: lookup_resources ----
 
 mod prop2 {
-    use proptest::prelude::*;
     use pemba_core::model::{Consistency, ObjectRef, RelName, SubjectRef, WriteOp, WriteRequest};
     use pemba_core::store::WritableStore;
     use pemba_core::{Engine, LookupResourcesRequest};
@@ -728,6 +727,7 @@ mod prop2 {
     use pemba_store_memory::MemoryStore;
     use pemba_testkit::generate::{self, Case, RawQuery, SubSides};
     use pemba_testkit::reference::{FRESH_ID, Reference};
+    use proptest::prelude::*;
 
     use super::{compile, config, query, unlimited};
 
@@ -1050,13 +1050,13 @@ fn generated_ambiguity_is_exercised() {
 // ---- property 3: lookup_subjects ----
 
 mod prop3 {
-    use proptest::prelude::*;
     use pemba_core::model::{ObjectRef, SubjectRef, WriteOp, WriteRequest};
     use pemba_core::store::WritableStore;
     use pemba_core::{CheckRequest, Engine, LookupSubjectsRequest, LookupSubjectsResponse};
     use pemba_store_memory::MemoryStore;
     use pemba_testkit::generate::{self, Case, SubSides};
     use pemba_testkit::reference::Reference;
+    use proptest::prelude::*;
 
     use super::{compile, config, query, unlimited};
 
@@ -1428,12 +1428,12 @@ fn generated_subject_lookups_are_varied() {
 mod schema_change {
     use std::collections::BTreeSet;
 
-    use proptest::prelude::*;
     use pemba_core::model::{Consistency, Relationship, WriteOp, WriteRequest};
     use pemba_core::{CheckRequest, Engine, Error};
     use pemba_store_memory::MemoryStore;
     use pemba_testkit::generate::{self, Case, SchemaModel};
     use pemba_testkit::reference::Reference;
+    use proptest::prelude::*;
 
     use super::{compile, config, query, unlimited};
 

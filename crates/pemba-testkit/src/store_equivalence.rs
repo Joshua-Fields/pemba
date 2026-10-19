@@ -5,9 +5,9 @@
 // Test-support code: a failed expectation must panic so the test fails.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use proptest::prelude::*;
 use pemba_core::model::Revision;
 use pemba_core::store::{ReadStore, ReverseFilter, SubjectRelMatch, WritableStore};
+use proptest::prelude::*;
 
 use crate::generate::{self, StoreOp};
 

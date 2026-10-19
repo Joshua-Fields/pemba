@@ -3,8 +3,8 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use rusqlite::{Connection, params};
 use pemba_core::store::{ReverseFilter, SubjectRelMatch};
+use rusqlite::{Connection, params};
 
 use pemba_sqlite_common::sql::*;
 

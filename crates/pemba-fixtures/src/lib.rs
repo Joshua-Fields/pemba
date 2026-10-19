@@ -22,8 +22,6 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::path::{Path, PathBuf};
 
-use serde::Deserialize;
-use serde::de::IgnoredAny;
 use pemba_core::model::{
     Consistency, ObjectRef, RelName, Relationship, SubjectRef, WriteOp, WriteRequest,
 };
@@ -34,6 +32,8 @@ use pemba_core::{
 };
 use pemba_schema::ir::CompiledSchema;
 use pemba_store_memory::MemoryStore;
+use serde::Deserialize;
+use serde::de::IgnoredAny;
 
 /// A second evaluator the runner cross-checks the engine and the file against.
 pub trait Oracle {

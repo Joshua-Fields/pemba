@@ -6,10 +6,10 @@
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU32, Ordering};
 
-use proptest::prelude::*;
 use pemba_store_memory::MemoryStore;
 use pemba_store_pysqlite::{PySqliteConfig, PySqliteStore};
 use pemba_testkit::generate::{self, StoreOp};
+use proptest::prelude::*;
 
 /// A store in a fresh directory, removed on drop (store first).
 struct TempStore {

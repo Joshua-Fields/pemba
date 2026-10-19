@@ -7,13 +7,13 @@
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU32, Ordering};
 
-use rusqlite::{Connection, Transaction, TransactionBehavior};
 use pemba_core::model::{
     Consistency, Precondition, RelationshipFilter, Revision, WriteOp, WriteRequest,
 };
 use pemba_core::store::{SqlValue, StoreError, WriteTxn};
 use pemba_core::{CheckRequest, Engine, Error, ReadRelationshipsRequest};
 use pemba_store_sqlite::{SqliteConfig, SqliteStore, SqliteTxn};
+use rusqlite::{Connection, Transaction, TransactionBehavior};
 
 const SCHEMA: &str = "\
 definition user {}
@@ -211,9 +211,7 @@ fn uncommitted_write_in_is_invisible_to_other_connections() {
     assert_eq!(tuples(&e), 0);
     let raw = Connection::open(dir.db()).unwrap();
     let rows: i64 = raw
-        .query_row("SELECT COUNT(*) FROM pemba_relationships", [], |r| {
-            r.get(0)
-        })
+        .query_row("SELECT COUNT(*) FROM pemba_relationships", [], |r| r.get(0))
         .unwrap();
     assert_eq!(rows, 0);
 

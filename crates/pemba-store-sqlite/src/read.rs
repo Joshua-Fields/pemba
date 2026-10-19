@@ -10,7 +10,6 @@
 
 use std::sync::Mutex;
 
-use rusqlite::{Connection, OptionalExtension, Row, ToSql};
 use pemba_core::model::{
     ObjectId, ObjectRef, RelName, Relationship, RelationshipFilter, Revision, SubjectRef, TypeName,
 };
@@ -18,6 +17,7 @@ use pemba_core::store::{
     ReadStore, RelationCount, ReverseFilter, StoreError, StoredSchema, SubjectRelMatch,
     relationship_columns, subject_columns,
 };
+use rusqlite::{Connection, OptionalExtension, Row, ToSql};
 
 use crate::pool::Lease;
 use pemba_sqlite_common::sql;

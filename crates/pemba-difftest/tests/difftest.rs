@@ -17,12 +17,12 @@ use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
-use proptest::strategy::{Strategy, ValueTree};
-use proptest::test_runner::TestRunner;
-use serde::Deserialize;
 use pemba_core::model::{ObjectRef, Relationship, SubjectRef};
 use pemba_difftest::{DiffCase, Outcome, SpiceDb, repro_yaml, run, without_cycles};
 use pemba_testkit::generate::{self, SubSides};
+use proptest::strategy::{Strategy, ValueTree};
+use proptest::test_runner::TestRunner;
+use serde::Deserialize;
 
 /// Generated cases keep their first tuples only (after cycle removal). SpiceDB does not
 /// memoise across branches of one check, and on the generator's densest acyclic data

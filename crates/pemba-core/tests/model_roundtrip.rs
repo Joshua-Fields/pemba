@@ -7,10 +7,10 @@
 use std::fmt::Display;
 use std::str::FromStr;
 
-use proptest::prelude::*;
 use pemba_core::model::{
     ObjectId, ObjectRef, ParseError, RelName, Relationship, Revision, SubjectRef, TypeName,
 };
+use proptest::prelude::*;
 
 /// 1 000+ cases by default (`docs/07-testing.md` §2.3); `PROPTEST_CASES` overrides.
 fn config() -> ProptestConfig {

@@ -4,14 +4,14 @@
 //! `pemba.Revision` (an `int` subclass, defined in Python because PyO3 cannot subclass
 //! `int`).
 
-use pyo3::prelude::*;
-use pyo3::sync::PyOnceLock;
-use pyo3::types::PyType;
 use pemba::SchemaError;
 use pemba::model::{
     self, ObjectId, Precondition as CorePrecondition, RelName, RelationshipFilter, SubjectRef,
     TypeName,
 };
+use pyo3::prelude::*;
+use pyo3::sync::PyOnceLock;
+use pyo3::types::PyType;
 
 use crate::errors::parse_err;
 

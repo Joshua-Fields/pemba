@@ -4,9 +4,9 @@
 //! caller's transaction passed to `Engine::write_in`, so both run the one write algorithm
 //! in `pemba_core::write` (`docs/05-storage.md` §5, ADR-006).
 
+use pemba_core::store::{SqlValue, StoreError, WriteTxn};
 use rusqlite::types::ValueRef;
 use rusqlite::{Connection, Transaction};
-use pemba_core::store::{SqlValue, StoreError, WriteTxn};
 
 use crate::store_err;
 

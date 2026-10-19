@@ -3,8 +3,8 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use proptest::prelude::*;
 use pemba_schema::{SchemaError, compile, parse};
+use proptest::prelude::*;
 
 /// Fragments that steer random input towards the interesting parts of the grammar.
 const PIECES: &[&str] = &[

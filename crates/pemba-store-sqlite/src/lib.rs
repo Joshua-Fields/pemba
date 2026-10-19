@@ -30,7 +30,6 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, PoisonError};
 
-use rusqlite::{Connection, ErrorCode, OpenFlags, TransactionBehavior};
 use pemba_core::Error;
 use pemba_core::model::{RelationshipFilter, Revision, WriteRequest};
 use pemba_core::store::{
@@ -38,13 +37,14 @@ use pemba_core::store::{
     WritableStore, WriteTxn,
 };
 use pemba_sqlite_common::{SqliteDialect, canonical_main_file};
+use rusqlite::{Connection, ErrorCode, OpenFlags, TransactionBehavior};
 
+pub use pemba_sqlite_common::migrate::STORAGE_VERSION;
+pub use pemba_sqlite_common::{SqliteConfig, Synchronous};
 /// The `rusqlite` this crate is built against: [`SqliteTxn`] takes its `Transaction`, so
 /// open caller connections through this re-export to be sure the versions match.
 pub use rusqlite;
 pub use txn::SqliteTxn;
-pub use pemba_sqlite_common::migrate::STORAGE_VERSION;
-pub use pemba_sqlite_common::{SqliteConfig, Synchronous};
 
 /// Prepared statements kept per connection: the fixed reads and writes, the twelve
 /// `read_reverse` shapes and the common `read_relationships` / precondition shapes.
