@@ -201,6 +201,11 @@ if ((Test-Command 'cargo-fuzz') -and $AsanDir) {
 # Most evaluator tests live in other crates (pemba/tests, pemba-testkit), so every mutant
 # runs the whole workspace's tests. Exit 2 = surviving mutants, 3 = timeouts: review them
 # in mutants.out and kill or justify them in docs/MUTANTS.md (T3.6).
+# --minimum-test-timeout: cargo-mutants derives its timeout from an uncontended baseline
+# (3 s here, so 20 s), but a surviving mutant runs every test binary while the other jobs
+# compete for the CPU, and survivors took 52-75 s. Under 20 s they were reported as
+# timeouts, hiding them; with this floor they finish and show as MISSED. A mutant that
+# really hangs still times out.
 $mutants = @(
     @{ Name = 'mutants pemba-core eval'; File = 'crates/pemba-core/src/eval.rs'; Out = 'mutants-eval' },
     @{ Name = 'mutants pemba-schema validator'; File = 'crates/pemba-schema/src/compile.rs'; Out = 'mutants-schema' }
@@ -208,7 +213,7 @@ $mutants = @(
 foreach ($m in $mutants) {
     if (Test-Command 'cargo-mutants') {
         $out = Join-Path $LogDir $m.Out
-        Invoke-Step $m.Name "cargo mutants --test-workspace=true --jobs $MutantsJobs -f $($m.File) -o `"$out`""
+        Invoke-Step $m.Name "cargo mutants --test-workspace=true --jobs $MutantsJobs --minimum-test-timeout 120 -f $($m.File) -o `"$out`""
     } else {
         Skip-Step $m.Name 'cargo-mutants not installed'
     }
