@@ -1,0 +1,4 @@
+definition group {
+    relation mem_: user
+    permission app = approvegroup.all(member)
+}

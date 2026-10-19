@@ -1,0 +1,6 @@
+definition user {}
+
+definition iam/user {}
+
+definition iam/group {  relation memberwer: iam    permission view = viewer + parent->view
+}

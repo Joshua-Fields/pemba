@@ -1,0 +1,6 @@
+definition user {}
+
+definition organization {
+    relation admin: user
+    relation editor: user | z  permission view = (comment + viewer + folder->view) - b&okked
+}

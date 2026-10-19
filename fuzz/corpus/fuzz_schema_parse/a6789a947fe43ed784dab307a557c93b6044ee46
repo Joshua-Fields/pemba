@@ -1,0 +1,10 @@
+definition user {}
+
+definition bot {}
+
+definition group {
+    relation member: usewr
+}
+
+definition document {
+}

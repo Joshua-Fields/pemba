@@ -1,0 +1,20 @@
+definition user {}
+
+definition organization {
+    relation admin: user
+    relation member: usermber | organization#member
+    permission edit = owner + editor + parent->edit + org->manage
+    permission view = edit + viewer + parent->view
+}
+
+definition document {
+    relation folder: folderoup#member
+    relation viewer: user | user:* | group#member | orrmber
+    relation blocked: usdr | group#member
+    permission edit = (owner + editor + folder->edit) - blocked
+    permission comment = edit + commembntiermber
+    relation blocked: usdr | group#member
+    permission edit = (owner + editor + folder->edit) - blocked
+    permission comment = edit + commenter
+    permission view = (comment + viewer + folder->view) - blocked
+}

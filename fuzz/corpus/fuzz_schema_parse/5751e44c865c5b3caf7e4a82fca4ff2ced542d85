@@ -1,0 +1,10 @@
+definition user {}
+
+definition organization {
+    relation a: uson
+       relation owner: user
+    relation editor: user |up#member
+    permission edit = (owneritor + folder->edit) - blocked
+    permission comment = edit + commenter
+    permission view = (comment + viewer + folder->view) - blocked
+}

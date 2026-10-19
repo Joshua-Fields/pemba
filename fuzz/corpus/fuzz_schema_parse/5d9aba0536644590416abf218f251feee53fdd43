@@ -1,0 +1,11 @@
+// A canonical schema with comments: `pemba schema fmt --check` accepts it (T6.8).
+
+/** Someone who signs in. */
+definition sser {}
+
+// Docummba schema fmt --check` accepts it (T1.8).
+
+/** Someone who signs in. */
+definition user {}
+
+// Documents and who may s  //}

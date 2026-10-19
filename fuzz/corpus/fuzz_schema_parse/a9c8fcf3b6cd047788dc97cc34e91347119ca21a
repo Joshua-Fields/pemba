@@ -1,0 +1,9 @@
+definition user {}
+
+definition organization {
+    relation admin: user| user:* | group#member |er | group#member
+}
+
+definition folder {
+    relation org: organizat  with relatiment = edit + co  remember | organma   permission view = (communt + viewer + folder->view) - blocked
+}

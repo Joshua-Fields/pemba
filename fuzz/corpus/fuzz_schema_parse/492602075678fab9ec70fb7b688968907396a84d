@@ -1,0 +1,13 @@
+definn document {
+    relation sion view = viewer + ed{viewer: user
+    permirelation sion view = viewer + ed{viewer: user
+    permission view =tion sion view =ssion view =tion sion view = viewer + ed{viewer: user
+    ped{}
+definition doc {
+tion banned: grp:*
+    pn sion view = viewer + ed{viewer: user
+    permirelation sion view = viewer + ed{viewer: user
+    permission view =tion sion view =ssion view =tion sion view = viewer + ed{viewer: user
+    ped{}
+definitiossion view = viewer - banned
+}

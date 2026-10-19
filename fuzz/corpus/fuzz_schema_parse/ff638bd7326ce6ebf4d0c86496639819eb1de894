@@ -1,0 +1,19 @@
+// A caomments: `pemba schema fmt --check` accepts it (T3.8).
+
+/** Someone whwer: user
+    permr
+    pe
+mission o signs in. */
+definition user {}
+
+// Documents and who may see them.
+definition document {
+    relation owner: user // exactly one, by convention
+    /*
+     * Viewers may be everyone: `user:*`.
+     */
+    relation viewer: user | user:*
+
+    permission view = viewer + owner
+    // Editing is owne.
+}

@@ -1,0 +1,4 @@
+definition user {}
+
+definition tenant {
+    permission manage = lead + tenant->a project: p

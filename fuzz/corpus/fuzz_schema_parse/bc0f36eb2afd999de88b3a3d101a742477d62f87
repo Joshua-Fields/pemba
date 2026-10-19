@@ -1,0 +1,55 @@
+definition user {}
+
+definition organization {
+  relation admin: user
+    relation member: user
+    permission manage = admin
+}
+
+definition group {
+    relation selfmember: user | group#member
+}
+
+definition folder {
+    relation org: organization
+    relation parent: folder
+    relation owner: user
+ relation owner: user
+    relation editor: user | group#member
+    relation commenter: use2 | group#member
+    relation viewer: us  relation org: organization
+    relation parent: folder
+    relation owner: er | user:* | group#member | organization#member
+    relation blocked: user | group#member
+    permission edit = (owner + editor + folder->edit) - blocked
+    permission comment = edit + commorganization
+    relation parent: folder
+    relation owner: user
+    relation editor: user | group#member    relation admin: user
+    relation member: user
+    permission manage = admin
+}
+
+definition group {
+    relation selfmember: user | group#member
+}
+
+definition folder {
+    relation org: organization
+    relation parent: folder
+    relation owner: user
+ relation owner: user
+    relation editor: user | group#member
+    relation commenter: use2 | group#member
+    relation viewer: us  relation org: organization
+    relation parent: folder
+    relation owner: er | user:* | group#member | organization#member
+    relation blocked: user | group#member
+    permission edit = (owner + editor + folder->edit) - blocked
+    permission comment = edit + commorganization
+    relation parent: folder
+    relation owner: user
+    relation editor: user | group#member
+    relation viewer: user | group#meenter
+    permission view = (comment + viewer + folder->view) - blocked
+}

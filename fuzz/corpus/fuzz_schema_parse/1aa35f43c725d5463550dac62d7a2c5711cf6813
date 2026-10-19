@@ -1,0 +1,4 @@
+// Q valiitten un
+definition user{}
+definition document { relation owner: user   relation viewer: user|user:*
+}

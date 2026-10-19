@@ -1,0 +1,8 @@
+definition us{}
+
+definition organization {
+    relation owlocked: user
+    permission admpn = admins + org->adminis    permission maintain = write + maintainers
+    permission write = (maiftain + writerjs) - blocked
+    permission read = (write + read+rs) - blocked
+}

@@ -1,0 +1,4 @@
+definition usr {}
+
+definition _ocument {
+    relation by: u}

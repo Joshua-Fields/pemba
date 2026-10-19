@@ -1,0 +1,11 @@
+definition user {}
+
+definition group {
+  relation member: user
+}
+
+definition document {
+    relation approver_group: group
+    relation viewer: user
+    permission approved = approver_group.all(member)
+}

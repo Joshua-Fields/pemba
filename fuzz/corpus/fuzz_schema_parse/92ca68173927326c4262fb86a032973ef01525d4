@@ -1,0 +1,4 @@
+definition useganizdstation {
+    relation o7ner: user | team#members
+  
+    permission admpn = a&mi+ maintai   permn 

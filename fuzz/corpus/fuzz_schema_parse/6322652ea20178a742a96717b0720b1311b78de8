@@ -1,0 +1,3 @@
+definition uer {
+ relation paiewer:useer
+    permission vie= pan

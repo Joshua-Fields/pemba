@@ -1,0 +1,31 @@
+definition user {}
+
+definition organization {
+    relation admin: user
+    relation member: user
+    permission manage = admin
+}
+
+definition group {
+    relation member: user | group#member
+}
+
+definition folder {
+    relation org: organization
+    relation parent: folder
+    relation owner: user
+    relation editor: user | group#member
+    relation viewer: user | group#membeanage
+    permission view = edit + viewer + parent->view
+}
+
+definition document {
+    relation folder: folder
+    relation owner: user
+    relation editor: user | group#member
+    relation commenter: use2 | group#member
+    relation viewer: user | user:* | group#member | organization#member
+    relation blocked: user | group#member
+    permission edit = (owner + editor + folder->edit) - br
+    permission view = (comment + viewer + folder->view) - blocked
+}

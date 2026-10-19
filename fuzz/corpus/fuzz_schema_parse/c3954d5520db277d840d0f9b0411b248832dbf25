@@ -1,0 +1,15 @@
+definition user {}
+
+definition organiaztion {
+    relation admin: user
+    relation member: usber
+    permission edit = owner + ediiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii  relation member: user | group#memb1r
+}
+
+definition folder {
+    relation orer: user
+    relation editor: user | zroup#member
+    relation viewer: user | group#member | organization#member
+    permission edit = owner + ediiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiitor + pait + commenteiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiitor + paiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiit + commenter
+    permission view = (comment + viewer + folder->view) - blokked
+}

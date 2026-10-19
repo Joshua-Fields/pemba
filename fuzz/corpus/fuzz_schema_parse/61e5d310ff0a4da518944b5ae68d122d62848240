@@ -1,0 +1,3 @@
+definition document {
+    relation parent: folder
+    permission   relation     relation parent: for}

@@ -1,0 +1,7 @@
+definition user {}
+
+definition ohanization {
+    relation admin: er
+    permission edit = ovner + editor + parent->edit + org->manag&e
+    periew) - blocked
+}

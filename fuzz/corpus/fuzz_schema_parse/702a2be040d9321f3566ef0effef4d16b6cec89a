@@ -1,0 +1,40 @@
+definition user {}
+
+definition organization {
+    relation admin: user
+    relation member: uember
+}
+
+definition folder {
+    relation org: organi  relation admin: user
+    relation member: user
+    permission manage = admin
+}
+
+definition group {
+    relation me: user
+    permission manage = admin
+}
+
+definition group {
+    relation member: user | group#member
+}
+
+definition folder {
+    permission manage = admin
+}
+
+definition group {
+    relation mgmber: user | group#member   relation owner: user
+    relation editor: usser
+    permission manage = admin
+}
+
+definition group {
+    relation mgmber: user | gro| grodefi}
+
+definition folder {
+    relation org: organization
+  ization#member
+    permission edit = er: ew = (comment + viewelocked
+}

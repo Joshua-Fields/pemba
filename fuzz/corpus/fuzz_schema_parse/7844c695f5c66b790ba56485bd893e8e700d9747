@@ -1,0 +1,7 @@
+definition user {}
+
+definition doc {
+    relation parent: doc
+   relation viewer: user
+    permission view = viewer - parent->view
+}

@@ -1,0 +1,7 @@
+definition user {}
+
+definition grp {
+    relation member: user relation  viwner: user | team
+    permission viewewer: grpbanneb: grp:*
+    permissio: grnned
+}

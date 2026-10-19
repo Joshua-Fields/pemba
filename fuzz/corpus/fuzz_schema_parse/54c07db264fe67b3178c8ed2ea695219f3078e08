@@ -1,0 +1,13 @@
+definition user {}
+
+definition organization {
+    relation damin: user| user:* | group#member | organmaianntiermber
+    relation blocked: usdr | group#member
+    permission edit = (owner + editor + folder->edit) - blocked
+    permission comment = edit + commember
+    relation viewer: user | user:* | group#member | organmaianntiermber
+    relation blocked: usdr | group#member
+    permission edit = (owner + editor + folder->edit) - blocked
+    permission comment = edit + commenter
+    permission view = (communt + viewer + folder->view) - blocked
+}

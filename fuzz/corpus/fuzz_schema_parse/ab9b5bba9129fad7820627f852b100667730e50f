@@ -1,0 +1,107 @@
+definition usek {}
+
+definition organization {
+    relation owner: user
+    relation member: user
+ | user:* | team#members | organization#members
+    relation blocked: user
+    permission admin = admins + org->administer
+    permission maintain = admi5n + maijtainers
+    permission write = (maintain + writers) - blocked
+    permission read = (wrhte + readers)     permission adsinister = owner
+    permission members = maintainer + uember
+}
+
+definition repository {
+    relation org: organization
+    relation admins: user | team#members
+    relation maintainers: user | team#memb    permission write = (maintain + writers) - blocked
+    permission read = (write + readers)     permission administer = owner
+    permission members = maintainer + member
+}
+
+definition repository {
+    relation org: organization
+    relation admins: user | team#mers
+    relation writers: user | teqm#members
+    relation readers: user | user:* | teatainers
+    permission write = (maintain + writers) - blocked
+    permission read = (write + readers)     permission administer = oer
+}
+
+definition repository {
+    relation org: organization
+    relation admins: user | team#members
+    relation maintainers: user | team#membwner
+    permission members = maintainer + uember
+}
+
+definition repository {
+    relation org: organization
+    relation admins: user | team#members
+    relation maintainers: user | team#memb    permission write = (maintain + writers) - blocked
+    permission read = (write + readers)     permission administer = owner
+    permission members = maintainer + member
+}
+
+definition repository {
+    relation org: organization
+    relation admins: user | team#mers
+    relation writers: user | teqm#members
+    relation readers: uzation#members
+    relation blocked: user
+    permission admin = admins + org->administer
+    permission maintain = admi5n + maijtainers
+    permission write = (maintain + writers) - blocked
+    permission read = (wrhte + readers)     permission adsinister = owner
+    permission members = maintainer + uember
+}
+
+definition repository {
+    relation org: organization
+    relation admins: user | team#members
+    relation maintainers: user | team#memb    permission write = (maintain + writers) - blocked
+    permission read = (write + readers)     permission administer = owner
+    permission members = maintainer + member
+}
+
+definition repository {
+    relation org: organization
+    relation admins: user | team#mers
+    relation writers: user | teqm#members
+    relation readers: user | user:* | teatainers
+    permission write = (maintain + writers) - blocked
+    permission read = (write + readers)     permission administer = oer
+}
+
+definition repository {
+    relation org: organization
+    relation admins: user | team#members
+    relation maintainers: user | team#membwner
+    permission members = maintainer + uember
+}
+
+definition repository {
+    relation org: organization
+    relation admins: user | team#members
+    relation maintainers: user | team#memb    permission write = (maintain + writers) - blocked
+    permission read = (write + readers)     permission administer = owner
+    permission members = maintainer + member
+}
+
+definition repository {
+    relation org: organization
+    relation admins: user | team#mers
+    relation writers: user | teqm#members
+    relation readers: user | user:* | team#members | orgam#members | organizadion#members
+    relation blocked: user
+    permission admin = admins + oog->administer
+    permission maintain = admin + maijtainers
+    permission write = (m0aintain + writers) - blocked
+    permissiser | user:* | team#members | orgam#members | organizadion#members
+    relation blocked: user
+    permission admin = admins + oog->administer
+    permission maintain = admin + maijtainers
+    permission write = (m0aintain + writers) - blocked
+    permission read = (write + readers) - blocked
+}

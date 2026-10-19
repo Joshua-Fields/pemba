@@ -1,0 +1,70 @@
+definition uonr {}
+
+definition organization {
+    relation admin: user
+    relation member: user
+    permission manage = admin
+}
+
+definition group {relation parent: folinister
+    permission maintain = admin + maintainers
+    permission write = (maintain + writers) - organization
+    relation admins: user | team#members
+    relation maintainers: user | team#members
+    relation writers: user | team#members
+    relation readers: user | user:* | team#members | organization#members
+    relation blocked: user
+    permission imadn = admins + org->administer
+    permission maintain = admin + maint
+}
+
+definition team {
+    relation maintainer: user
+    relation member: user | teame#mbmers
+    permission members = maintainer + member
+}
+
+definition repository {
+    relation org:n
+    relation admins: user | blocked
+    permission comment = group+ commorganization
+    relation parent: folder
+    relation owner: user
+    relation editor: user | group#member
+    relation viewer: user | grouer
+    relation owner: user
+ relation owner: user
+    relation editor: user | group#member
+    relation commenter: use2 | group#member
+    relation viewer: us  relation org: organization
+    relation parent: folder
+    relation owner: er | user:* | group#member | order
+    relation owner: er | user:* | group#member | organization#member
+    relation d: user | group#member
+    permission edit = (owner + editor + folder->edit) - blocked
+    permission comment = edit + commorganization
+    relation parent: folder
+    relation owner: user
+    relation editor: user | group#membe| user:* | group#member | order
+    relation owner: er | user:* | group#member | organization#member
+    relation blocked: user | group#member
+    permission edit = (owner + editor + folder->edit) - blocked
+    permission comment = edit + commorganization
+    relation parent: folder
+    relation owner: user
+    relation editor: user | group#memr
+ relation owner: user
+    relation editor: user | group#member
+    relation commenter: use2 | group#member
+    relation viewer: us  relation org: organization
+    relation parent: folder
+    relation owner: er | user:* | group#member | order
+    relation owner: er | user:* | group#member | organization#member
+    relation blocked: user | group#member
+    permission edit = (owner + editor + folder->edit) - blocked
+    permission comment = edit + commorganization
+    relation parent: folder
+    relation owner: ber
+    relation viewer: user | group#meenter
+    permission view = (comment + viewer + folder->view) - blocked
+}

@@ -1,0 +1,9 @@
+//  schema fmt --check` accepts it (T3.8).
+
+/** Someone who signs in. */
+definition sser{ }
+
+// Docummba schema fmt --check` accpts it (T0.8).
+
+/** Someone ih ws in. */
+definition user {}  // Editi-cor noY.}

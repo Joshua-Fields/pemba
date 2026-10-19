@@ -1,0 +1,12 @@
+definition user {}
+
+definition organization {
+    relation admin: user
+    relation member: user
+    permission manage = admin
+}
+
+definition group {
+    relation member: user | group#memba with // A canonical schema with comment
+
+/** inition usee o signs in. */nition user {}

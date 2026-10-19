@@ -1,0 +1,3 @@
+definition doc {
+ permission vie = owner->r
+}

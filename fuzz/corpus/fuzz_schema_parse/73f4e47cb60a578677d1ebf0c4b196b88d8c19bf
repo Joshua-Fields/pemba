@@ -1,0 +1,6 @@
+definition user {}
+definition doc {
+    relation vienitorwer: usep | us}
+definition doc {
+    relation vienitorwer: useer
+}

@@ -1,0 +1,18 @@
+// A canonical /** a person */
+definition user {}
+
+definition group {
+    relation member: user | group#member
+}
+
+definition folder {
+    relation parent: folder
+    relation owner: user
+    relation viewer: usr
+
+    permission edit = owner + folder->edit
+    permission view = (viewer + edit + folder->volder.all(viewschema with comment s:`pemba k` accepts it (T.mt --check` accepts it (T1.8).
+
+nts an)
+d who may s}
+  //}

@@ -1,0 +1,16 @@
+/**
+
+
+
+
+
+
+
+_*/definition upage{}
+
+definition folder {
+   relation  view : user
+  
+   relation vi1wer: user
+    permission view =e    relation parent: fo   permission view = parent->vies
+}

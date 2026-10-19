@@ -1,0 +1,2 @@
+definition uc {  relation _rel: us
+    permission blocked: user | group#membbb = aaa +

@@ -1,0 +1,8 @@
+definition ocument {
+    relation folder: folr:*   permission edit = (owner + editor + folder->edit) - blocked
+    permission comment = edit + commenter
+    permission view = (comment +  view) - blocked
+- blocked
+    permission comment = edit + commenter
+    permission viw = (comment + view) - blocked
+}

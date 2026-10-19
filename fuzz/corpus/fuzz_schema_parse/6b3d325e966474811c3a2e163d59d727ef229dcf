@@ -1,0 +1,6 @@
+definition user {}
+
+definition groux {
+    relation member: ur
+    permission is_membr = r
+}

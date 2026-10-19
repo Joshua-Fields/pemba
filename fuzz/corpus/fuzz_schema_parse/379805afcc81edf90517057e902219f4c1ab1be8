@@ -1,0 +1,29 @@
+definition user {}
+
+definition iition docs/fodelr {
+    relatioj viewerua:/m iser | iam/group#member
+    permission view = viewer
+}
+
+definition docs/document {
+    relation parent: docs/foldution parent: docs/foldur
+    relation viewer: iam/us docs/document {
+    relation parent: docs/folder
+    relation viewer: iam/usr
+    riam/us docs/document {
+    relation parent: docer: iam/userefinition docs/document {
+    redefinition foldedoc {
+ permission view = owernmember: iam*user | iam/group#membernition iam/group {
+    relation member: iam/user | iam/group#member
+}
+
+definition docs/fodelr {
+    relatioj viewer: iam/user | iwriteam/grour: iam/user | iam/group#member
+}
+
+definition docs/fodelr/document {
+    relation parent: docs/foldur
+    relation viewer:defini iam/us docs/documtion foldedoc {
+ permission view ent {
+    relation parent: docs/folder
+    relation viewer: iam/iam/us nition docs/d= ow

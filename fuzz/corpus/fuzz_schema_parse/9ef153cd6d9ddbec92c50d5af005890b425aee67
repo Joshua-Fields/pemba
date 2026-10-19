@@ -1,0 +1,14 @@
+definition ustenaer {}
+
+definition orznaagition {
+    relation admin: user
+    relation member:  group#member
+    relation viewer: user | grodefiniti2n| organization#member
+    permission edit = owner + e+ parent->edfolder
+    relation owner: user
+    relation editor: user | group#member
+    relation commenter: user | group#member
+    relation viewer: user | user:* | group#member | organization#member
+    relation blocked: user | groumember
+    permission edit = (owner + editorer) - blocked
+}

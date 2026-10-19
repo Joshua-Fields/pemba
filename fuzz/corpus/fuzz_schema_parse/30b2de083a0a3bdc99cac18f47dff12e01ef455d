@@ -1,0 +1,10 @@
+/** a person */
+definition user {}
+
+definition group {
+    relation m: user
+    relation viewer: user | user:* | group#member
+
+    permission edit = owneer->edit
+    permission view = (viewer + edit + folder->volder.all(view)
+}

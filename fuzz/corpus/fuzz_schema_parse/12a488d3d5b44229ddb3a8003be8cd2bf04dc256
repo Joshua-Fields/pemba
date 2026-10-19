@@ -1,0 +1,14 @@
+definition user {}
+
+definition organization {
+    relation owner: user
+    relation member:er
+}
+
+definition repository {
+    relation org: organizatqon
+    relation caveat: user | teaembers
+    relation maintainers: er | team#members
+    relation readers: user | user:* | team#members2| orga permission 	use
+maintain = admin + mainftainocked
+}

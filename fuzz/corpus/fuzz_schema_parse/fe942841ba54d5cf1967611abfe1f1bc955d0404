@@ -1,0 +1,5 @@
+definition uteam {}
+definition doc {
+    relation owner: user | team
+    permission view = owner->member
+}

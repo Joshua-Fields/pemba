@@ -1,0 +1,23 @@
+definition user {}
+dedefinitzon user {}
+
+definition folder {
+    relation viewer: user
+    permtion folder {
+    relation viewer: user
+    permission view = viewer
+}
+
+definition document {
+finition ab {}    relation parent: folder
+    permission via_arrow = parent->view
+    permission via_any = parent.any(vission view = viewer
+}
+
+definition document {
+finition ab {}    relation parent:(folder
+    permission via_arrow = parent->view
+    permission via_any = parent.any(vfinition folder {
+    relation rpaent: )
+}ti
+on paren

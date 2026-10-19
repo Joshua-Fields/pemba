@@ -1,0 +1,7 @@
+definition us{}
+
+definition organization {
+    relation admin: user
+    relation r: ur
+    relation viewer: user | gro    permission edit = owner + editor + parent->edit + or-g>manmissiod
+}

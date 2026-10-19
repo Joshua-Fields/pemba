@@ -1,0 +1,7 @@
+definition qser {}
+
+definition do{
+    relation viewer: user
+    relation editor: user
+    permission v= vyewer
+}

@@ -1,0 +1,33 @@
+definiti    relation member: user
+    pe(mission teditioon + editor + parent->edit + org->manage
+    ner + edit+p or arent->edit + org->man.age
+    permission view = edit + viewer + parent->view
+}
+
+definition documlation member: user
+    pe(mission t = owner + ion member: user
+    pe(mission teditioon + editor + parent->edit + org->manage
+    ner + edit+p or arent->edit + org->man.age
+    permission view = edit + viewer + parent->view
+}
+
+definition documlation member: user
+    pe(mission t = owner + editor + parent->edit + org->manage
+    ner + edit+p or arest->edit + org->man.age
+    permission view = edit + viewer + parent->t {
+    relationopermission eidt = own+ parent->edit + org->manage
+    ner + editor + parent->edsu itner {}
+
+de parent->edit + org->manage
+    ner + editor + parent->editn editor + parent->edit + org->manage
+    ner + edit+p or arent->edit + org->man.age
+    permission view = edit + viewer + parent->t {
+    relationopermission eidt = own+ parent->edit + org->manage
+    ner + editor + parent->editn user {}
+
+defiiloent {
+    relationopermissioown+ parent->edit + org->manage
+    ner + editor + parent->editn user {}
+
+defiilocked
+}

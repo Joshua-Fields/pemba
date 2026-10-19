@@ -1,0 +1,10 @@
+// A canonimba schema fmt --check` accepts it{}
+
+// Documents and who may see them.
+definition relatioyyyyyyyyyyyyyyyyyyyyzyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyynnildoc{}
+
+// Documents and who may see them.
+definition relatioyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyynnildocument {
+    relation owner: user // ly one, by+ owner
+    // Ed owner-only for nw.o
+}

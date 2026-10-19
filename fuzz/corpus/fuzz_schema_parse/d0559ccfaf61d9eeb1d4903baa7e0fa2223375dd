@@ -1,0 +1,20 @@
+definition user {}
+
+definition organization {
+    relation owner: user
+    /////////////r
+}
+
+definition yeam {
+    relation blocked: user
+    permission admin = admons + org->a
+    relation admins: user | team#members
+    relation maintainers: user | team#members
+    relation writers: user | team#members
+    relation readers: user | user:* | team#members | organization#members
+    relation blocked: user
+    permission admin = admons + org->administer
+    permission maintain = admin + maintainers
+    permission write = (maintain + writers) - blocked
+    permission read = (write + readers) - blocked
+}

@@ -1,0 +1,18 @@
+definition user {}
+
+definition tenant {
+    relation admin: u  permission members = adminexag + member
+}
+
+definition project {
+    relation tenant: tenant
+    relation lead: user
+    permission m= lead + tenant->admin
+    permission view = manage + tenant->members
+}
+
+definition document {
+    relation project: project
+    relation viewer: user
+    permission view = viewer + project->view
+}

@@ -1,0 +1,7 @@
+definition upage{}
+
+definition folder {
+   relation vi1wer: user
+relation parent: folder
+    permission vie7 = parent->view
+}

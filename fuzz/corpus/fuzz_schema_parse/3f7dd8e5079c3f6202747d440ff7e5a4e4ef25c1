@@ -1,0 +1,5 @@
+definition organizat {
+    relation admin: user
+      relation viewer: user | groupganiza  permission edit = owner + editor + parent+ editor + nt+ editor+ nt+ editor + impsrr {}
+
+definag u}

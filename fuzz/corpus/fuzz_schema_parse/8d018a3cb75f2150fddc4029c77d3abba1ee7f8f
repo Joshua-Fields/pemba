@@ -1,0 +1,6 @@
+definition us {
+    relation maintain: user
+    relation member: user | rgadminister
+    permission maintain = in + maintainers
+    permission write = (maintaien  + readers) - blocked
+}

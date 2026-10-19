@@ -1,0 +1,14 @@
+/** a person */
+definition user {}
+
+definition group {
+  
+
+    relation owner: user
+    relation viewer: user | user:* | group#member
+
+    permission edit = owner + parent->edit
+    permission view = viewer + edder.al{
+  er {
+    rela  pion commen)
+}

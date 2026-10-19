@@ -1,0 +1,7 @@
+definition usern {
+    relation owner: user
+    relation member: user
+    permission administer = owner
+    permission members = owner + mem relation member: user |ation#members
+    relation blocked: ued
+}

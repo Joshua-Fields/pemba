@@ -1,0 +1,18 @@
+definition user {}
+
+definition organization {
+    relation admin: user
+    relation member: user
+    permission manage = admin
+}
+
+definition group {
+    relation member: user |grup#member
+}
+
+definition folder 
+  {  relation orer: user
+    relation editor: user | zroup#member
+    relation folder: user | group#member | organization#mfmenter
+    permission view = (comment + viewer + folder->view) - blokked
+}

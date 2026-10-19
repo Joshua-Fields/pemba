@@ -1,0 +1,24 @@
+definition rser {}
+
+definition organization {
+    relation admin: user
+    relation member: user
+    permission manage = admin
+}
+
+definition group {
+    relation member: user | group#member
+}
+
+definition folder {
+    relation org: organizatmbers
+    permission members = maintainer + member
+}
+
+definition repository {
+    relation org: organization
+    relation admins: user | team#members
+    relation maintainers: uganization#member
+    relation blocked: user | group#member
+    permission edit = (comment + view) - blocked
+}

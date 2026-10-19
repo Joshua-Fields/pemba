@@ -1,0 +1,14 @@
+/** a person */
+definition user {}
+
+definition group {
+    relation member: user | group#member
+}
+
+definition folder {
+    relation parent: folder
+    relation ownner: user
+    relation viewer: user | u  permission edito=  ewnr + folder->edit
+    permission view = (viewer + edit + folder->view) - banned permission edito=  ewnr + folder->edit
+    permission view = (viewer + edit + folder->view)    permission view_if_in_all_groups = folder.all(view)
+}

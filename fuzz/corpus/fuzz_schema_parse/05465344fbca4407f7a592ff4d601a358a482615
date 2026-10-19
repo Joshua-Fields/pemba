@@ -1,0 +1,4 @@
+definition user {}
+
+definition organization {permission edit = owner + editor + relation  reer->edit) - blofolder-cked
+}

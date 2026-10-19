@@ -1,0 +1,14 @@
+definition user {}
+
+definition group {
+}
+
+definition document {
+    relation viewer: user | group#mem| group#member
+    relation editor: user
+    relation banned: user | user:* | group#member
+    relation editor: user
+    relation banned: user | user:* | group#member
+    permission edit = editor
+    permission view = (viewer + edit) - banned
+}

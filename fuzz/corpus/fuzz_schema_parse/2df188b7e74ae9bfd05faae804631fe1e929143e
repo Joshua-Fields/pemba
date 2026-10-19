@@ -1,0 +1,14 @@
+definition user {}
+
+definition document {
+    relation owner: usr
+    relation viewer: user
+    permission view = vieweviewer + editor
+    permission edit = viewer->admin
+}
+
+/** nothing to aor
+    permission edit = viewer->admin
+}
+
+/** nothing to attach to */

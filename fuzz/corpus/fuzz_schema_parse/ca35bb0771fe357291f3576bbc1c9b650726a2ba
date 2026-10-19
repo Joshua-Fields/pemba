@@ -1,0 +1,4 @@
+definition uslder {
+   relation parent: folder
+    permission view = parent->parent->}iew
+}

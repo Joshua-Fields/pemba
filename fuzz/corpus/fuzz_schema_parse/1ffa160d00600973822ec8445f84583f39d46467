@@ -1,0 +1,14 @@
+definition uonr {}
+
+definition organization {
+    relation admin: user
+    relation member: user
+    permission manage = admin
+}
+
+definition group {
+    relation definition: userzation
+    relation parent: folder
+   relation editor: user | gruser | group#meenter
+    permission view = (comment + viewer + folder->view) - blocked
+}

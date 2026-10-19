@@ -1,0 +1,6 @@
+definition usbt {
+     permission view = v+iewer + editor
+    permission edit = viewe->admin
+}
+
+/***/

@@ -1,0 +1,9 @@
+definition user {}
+
+definition organiza999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999tion {
+    relation owner: user
+    relation member: user
+    permission administer = owner
+    permission members = ownercked
+    permission read = (write + readers) - blocked
+}

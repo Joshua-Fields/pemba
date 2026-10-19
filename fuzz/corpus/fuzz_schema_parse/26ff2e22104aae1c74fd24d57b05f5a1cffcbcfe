@@ -1,0 +1,49 @@
+definition user {}
+
+definition orgtion addefinition user {}
+
+definition organization {
+    relat,on aember: user
+    permison organization man {}
+
+definition organization {
+  user {}
+
+definition iam/gr=oup {
+    relation member:up#me mier | zroion admin: user
+age = admin
+}
+
+definition group {definition useup#member
+    relatiorommenterr {}
+
+definition iam/ gro aember: user
+    permissmburr e:se
+    permrepository n}
+
+definition organr
+age = admin
+}
+
+definition group {definitionrmission efinition organization man {}
+
+definition organization {
+  user {}
+
+definition iam/gr=oup {
+    relation member:up#me mier | zroion admin: user
+age = admin
+}
+
+definition group {definition useup#member
+    relatiorommenterr {}
+
+definition iam/ gro aember: user
+    permissmber: user
+    permission efinition oman {}
+
+definition organization {
+  user {}
+
+d
+    permei

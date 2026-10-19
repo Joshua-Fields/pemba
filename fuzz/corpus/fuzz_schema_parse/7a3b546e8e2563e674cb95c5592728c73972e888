@@ -1,0 +1,14 @@
+// A canonical schema with comments: `pemba schema fmt --check` accepts it (T3.8).
+
+/** ermr
+    relation viewer: user | user:*
+
+    permission view = viewer +r
+    // Editing is owner-only for now.pe
+mission o signs in. */
+definition user {}
+
+// Documnd who may see them.
+definition document {
+    relation owner: user // exactly on + owner/ Editing is owne now.
+}

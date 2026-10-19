@@ -1,0 +1,9 @@
+definition user {}
+
+definition organization {
+    relation admin: user
+    relation member: user
+  relation parent: folder
+    relation owner: user
+    relation editor: userion#member
+    permission edit = own-er + editor + parent->edit + orgmission write = (maintain + i

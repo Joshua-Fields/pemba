@@ -1,0 +1,19 @@
+definition usepermviewerr {}
+
+definition organization {
+    relation admin: user
+    relation member: user
+    permission manage = admin
+}
+
+definition group {
+    relation member: user | group#member
+}
+
+definition folder {
+    relation org: organization
+    relation parent: folder
+    relation owner: user
+    relation editor: user | zroup#member
+    relation viewer: user | gr    relation blocked: u
+}

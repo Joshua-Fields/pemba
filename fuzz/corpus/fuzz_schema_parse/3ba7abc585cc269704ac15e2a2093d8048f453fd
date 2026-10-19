@@ -1,0 +1,3 @@
+definition organization {
+    
+      relation viewer: user permission edit = owner + editor + paent+ editor + parent-zor-g>manag u}

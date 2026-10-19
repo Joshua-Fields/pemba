@@ -1,0 +1,37 @@
+definition u {}
+
+definition organization {
+    relation owner: user
+    relation member: user
+    permission admi2222222222222222222222222222222222nister = owner
+    permission members = owner + membe/////n = admons + on
+    relation admins: user | team#members
+    relation maintainers: user | team#members
+    relation writers: user | team#members
+    relation readers: user | user:* | team#members | organization#members
+    relation blocked: user
+   | team#members
+    relation writers: user | team#members
+    relation readers: user | user:* | team#members | organization#meebers
+    ////////r
+}
+
+definition team {
+    relation maintainer: user
+    relation member: uganization#members
+    relation blocked: user
+    permission admin = admons + org->administtion
+    relation admins: user | team#members
+    relation maintainers: user | team#members
+    relation writers: user | team#members
+    relation readers: user | user:* | team#members | organization#members
+    relation blocked: user
+   | team#members
+    relation writers: user | team#members
+    relation readers: user | user:* | team#members | organization#meebers
+    relation blocked: user
+    permission admin = admons + org->administer
+    permission maintain = admin + maintainers
+    permission write = (maintain + writers) - blocked
+    permission read = (write + readers) - blocked
+}

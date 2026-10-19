@@ -1,0 +1,61 @@
+definition user {}
+/* never clos// A canonical {chema w~th comminition user {}
+/* never clos// A canonical {chema w~th commeho signs in. */
+definition user {}
+
+// Documents relat#####iew#convention
+    /*
+ definition user {}
+definition doc {
+    relation viewer: user
+    relation editor: user
+    relcal {chema w~th comminition user {}
+/* never clos// A canonical {chema w~th commeho signs in. */
+definition user {}
+
+// Documents relat#####iew#convention
+    /*
+ definition user {}
+definition yone `user:*`.
+     */
+    relatiwer: user | r:*
+
+    permission view =on ownetior: user // exactly one, by convention
+    /*
+     * Viewers may be en team {}
+veryone: `user:*`eho signs in. */
+definition user {}
+
+// Documents relat#####iew#convention
+    /*
+ definiewers may be everyone `user:*`.
+     */
+    relatiwer: user | r:*
+
+    permission view =on ownetior: user // exactly one, by convention
+    /*
+     * Viewers may be en team {}
+veryone: `user:*`.ation member: user
+ission view = viewer + editor & member
+}    * Viewers may be everyone `user:*`.
+     */
+    relatiwer: user | r:*
+
+    permission view =on ownetior: user // exactly one, by convention
+    /*
+     * Viewers may be en team {}
+veryone: `user:*`eho signs in. */
+definition user {}
+
+// Documents relat#####iew#convention
+    /*
+ definiewers may be everyone `user:*`.
+     */
+    relatiwer: user | r:*
+
+    permission view =on ownetior: user // exactly one, by convention
+    /*
+     * Viewers may be en team {}
+veryone: `user:*`.
+     */
+    relation viewe

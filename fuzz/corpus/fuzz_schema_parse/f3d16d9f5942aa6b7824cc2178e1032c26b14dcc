@@ -1,0 +1,9 @@
+definition user {}
+
+definition document {
+    relation r: u
+    permission view =witor
+    permission edt = viewer->admin
+}
+
+/**ach to */

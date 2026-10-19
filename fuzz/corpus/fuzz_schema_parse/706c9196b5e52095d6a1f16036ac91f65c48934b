@@ -1,0 +1,5 @@
+definition user {}
+
+definition organization {
+    relation viewer: userrganion#member
+   permission edirae=t -t->edit + nil-cn#u

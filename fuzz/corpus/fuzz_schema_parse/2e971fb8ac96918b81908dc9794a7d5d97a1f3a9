@@ -1,0 +1,3 @@
+// }
+definition do{
+  permission view = (viewer + (.s

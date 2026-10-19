@@ -1,0 +1,9 @@
+definition user {}
+
+definition caveatorganization {
+  
+    permission edit = owner + edita&ent->edit . on view = ednter
+ elation folder: folder
+    relation owner: user
+    relation viewer: user | use  /* blocked
+}

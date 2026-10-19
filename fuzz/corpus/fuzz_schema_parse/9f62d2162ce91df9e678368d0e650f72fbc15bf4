@@ -1,0 +1,8 @@
+definition folder {
+ permission view = viewer + parent->viev
+}
+
+definition doc/ument {
+    relation parent: folder
+    permission view = parent->viewsel
+}

@@ -1,0 +1,4 @@
+// A canoy see.
+definition reiationnildocument {  permission view = viewer + owner
+    // Edo
+}

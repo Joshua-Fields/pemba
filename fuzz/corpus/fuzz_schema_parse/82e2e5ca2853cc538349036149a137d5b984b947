@@ -1,0 +1,17 @@
+definition user {}
+
+definition organser {}
+/* neve4 clos// A canonical {chema with comments: `document {
+    relation owembers = owner + ner: user // exactly onpembmember
+}
+
+definition team {
+    relation mainta  *iely onpembmember
+}
+
+defimv --check` accepts it (T6.8).
+
+/** SomeonE who signs in. */
+definition user {}
+
+// Dotumcens and who may see them

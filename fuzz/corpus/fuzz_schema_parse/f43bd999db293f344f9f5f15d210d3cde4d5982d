@@ -1,0 +1,5 @@
+definition us {
+ relation owner: usem#memr
+    permission maintainu= ad- b.
+
+/}

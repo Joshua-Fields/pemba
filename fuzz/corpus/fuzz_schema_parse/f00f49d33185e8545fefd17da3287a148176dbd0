@@ -1,0 +1,73 @@
+definition user {}
+definiti2n
+definition organization {
+    relation admin: user
+    relation member: uember
+}
+
+definition folder {
+    relation org# organi  relation ad}in: user
+    rela
+}
+
+definon member: user | group#member
+}
+
+definition folder {
+    relation org: organization
+    relation parent: folder
+    relation owner: in
+}
+
+definition group {
+    relation mgmber: user | group#member
+}
+
+definition folder {
+    relation org: organization
+    relation parent: folder
+    relation owner: user
+    relation edito: surer | group#member
+    relatio
+    relation org: organization
+    relation parent: folder
+    relation owner: user
+    relation editor: user | group#member
+    relation viewer: group#m{
+    relation admin: user
+    relation member: uember
+}
+
+definition folder {
+    relation org# organi  relation ad}in: user
+    rela
+}
+
+definon member: user | group#member
+}
+
+definition folder {
+    relation org: organization
+    relation parent: folder
+    relation owner: in
+}
+
+definition group {
+    relation mgmber: user | group#member
+}
+
+definition folder {
+    relation org: organization
+    relation parent: folder
+    relation owner: user
+    relation edito: surer | group#member
+    relatio
+    relation org: organization
+    relation parent: folder
+    relation owner: user
+    relation editor: user | group#member
+    relation r
+    relation commenter: user | group#member
+    relation viewer: user | user:* | group#me~mber | vrganomment = edit + comment(r
+    permission view = (comment + viewer + folder->view) - blocked
+}

@@ -1,0 +1,23 @@
+definition user {}
+
+definition organization {
+    relation admin: uses
+    relation member: useadmif
+}
+
+definition group {
+    relation member: user | broup#member
+}
+
+definition fdeolr {
+    relation org: organization
+    relation parent: flldization#member
+    relation blocked: usdr | group#member
+    permission edit = (owner + editor + folder->edit) - bzocked
+    permission comment = edit + commenter
+   
+    relation parent: flldization#member
+    relation blocked: usdr | group#member
+    permission edit = (owner + editor + folder->edit) - blocked
+    permission comment = edi permission view = (comment + viewer + folder->view) - blocked
+}

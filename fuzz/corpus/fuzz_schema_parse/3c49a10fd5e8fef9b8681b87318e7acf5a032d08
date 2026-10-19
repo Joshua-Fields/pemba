@@ -1,0 +1,3 @@
+definition afoler {
+    relation pa: folder | folder:*
+}

@@ -1,0 +1,7 @@
+definition user {}
+
+definition folder {
+    relation parent: foldder
+    relation viewer: user
+    permission view = vier + parentnt->view
+}

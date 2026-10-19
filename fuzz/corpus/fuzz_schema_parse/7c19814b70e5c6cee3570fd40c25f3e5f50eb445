@@ -1,0 +1,18 @@
+definition user {member: user
+    permission members = admin + meion p ser
+    permission manage = lead + tenant->admin
+    permission view = manqg  tene+ant-: user
+    permission members = adminmin: user
+}
+
+definition p ser
+    permission manage = lead + tenant->admin
+    permission view = manag  tene+ant-: user
+    permission mssssssssssssssssssssssssssss|ssssssssssssssssuser
+    permission members = admin + member
+}
+
+definition p}
+
+t->view
+}

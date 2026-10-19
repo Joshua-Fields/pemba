@@ -1,0 +1,9 @@
+/** a person */
+definition user {}
+
+definition group {
+    relation member: usber
+
+    permission edit = owner + parent->edit
+    permission view  = iewer + edit + folder->volder.all(view)
+}

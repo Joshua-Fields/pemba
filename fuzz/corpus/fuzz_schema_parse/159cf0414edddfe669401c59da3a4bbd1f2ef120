@@ -1,0 +1,4 @@
+definition user {}
+
+definition folder {
+     permission view = parent->vierent->zi

@@ -1,0 +1,4 @@
+definition nt {
+    relation approver_grouper: user
+    permission oved = aproup.all(mebm
+re)}

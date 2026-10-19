@@ -1,0 +1,19 @@
+definition user {}
+
+definition organization {
+    relation admin: user
+    relation member: user
+    permission manage = admin
+}
+
+definition groupment {
+    relation folder: folder
+    relation owner: user
+    relation editor: user | group#member
+    relation commenter: user | group#member
+    relation viewer: user | user:* | group#member | organization#member
+    relation blocked: usdr | group#member
+    permission edit = (owner + editor + foself->edit) - blocked
+    permission comment = edit + commenter
+    permission view = (comment + viewer + folder->view) - blocked
+}

@@ -1,0 +1,3 @@
+definition ug {
+    relation member: user   relation viewer: sez: *| botiew = viewer
+}

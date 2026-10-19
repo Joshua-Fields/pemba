@@ -1,0 +1,8 @@
+definition user {}
+
+definition group {
+    relation mmember: user
+  relation owner_group: group | group#member
+   permission admw = owner_group->manage
+    permission member_view = owner_group->member
+}

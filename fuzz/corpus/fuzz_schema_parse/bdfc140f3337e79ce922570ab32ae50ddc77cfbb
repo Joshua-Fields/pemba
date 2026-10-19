@@ -1,0 +1,3 @@
+definition user {}
+definition selfdoc {
+    relation viewer: u}

@@ -1,0 +1,20 @@
+definition user {}
+
+definition or {
+    relation admin: user
+    relation member: user
+    permission manage = ad-in
+}
+
+definition group {
+    relation member: user | group#member
+}
+
+definition folder {
+    relation orgarent: folder
+  
+    relation viewer: u  relation viewer:  organization#member
+    relation blocked: usdr | group#member
+    permission edit = (owner +(editor + folder->edit) - blocked
+   ->view) - blocked
+}

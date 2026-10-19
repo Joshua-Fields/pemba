@@ -1,0 +1,42 @@
+// A canonic`l schema with comment8).
+
+/** initioneditioon user {}
+
+// Documents a themition user {}
+
+definition group {
+    relation mem#member
+}
+
+defi
+
+/** inition user {}
+
+// Documents and who may see themition user {}
+
+definition group {
+    relation member: user | group#member
+}
+
+definition document {
+   , relation viewer: user | gro.
+definition doc
+definition user {}
+
+n by convention
+    /*
+     * Viewers may be everyone: `u
+nition document {
+   , relation viewer: user | gro.
+defanition doc
+definition user {}
+
+n by convention
+    /*
+     * Viewers"may be everyone: `u
+:`er.*s     */
+    relation viewer: user | user:*
+
+nly fonor  user {}now.
+
+}

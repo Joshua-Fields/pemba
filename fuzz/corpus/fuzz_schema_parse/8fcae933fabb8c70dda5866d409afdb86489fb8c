@@ -1,0 +1,5 @@
+definition men {
+ relation vdocumentiewer: user
+    permission view = viewer + eto
+}
+

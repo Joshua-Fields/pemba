@@ -1,0 +1,3 @@
+definition folder {
+    relation parent: folder | fiew
+}

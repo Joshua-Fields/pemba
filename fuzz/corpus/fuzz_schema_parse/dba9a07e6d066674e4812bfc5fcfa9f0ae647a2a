@@ -1,0 +1,15 @@
+/** a person */
+definition user {}
+
+definition group {
+    relation member: usup#member
+}
+
+definition folder {
+    relation parent: folder
+    relation owner: user
+    relation viewer: user | user:* | gr#member
+
+    permission edit = owner + parent->edit
+    permission view = viewer + edder.all(view)
+}

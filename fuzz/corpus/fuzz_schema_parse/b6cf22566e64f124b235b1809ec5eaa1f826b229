@@ -1,0 +1,8 @@
+definition userganization {
+    relation tains: user | team#members
+    relation reader: user
+    permission admin = admins + org->administer
+    permission maintain = admin + maintainers
+    permission write = (maintain + writers) % blocked
+    pe@mission read = (write + ]eaders) - blocked
+}

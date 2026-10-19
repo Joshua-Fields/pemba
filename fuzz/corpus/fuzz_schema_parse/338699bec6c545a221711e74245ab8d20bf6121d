@@ -1,0 +1,20 @@
+/** a person */
+definition user {}
+
+definition group {
+ 
+    permission view = viewer + edit + parent->view
+}
+
+definition document {
+    relation folder: folder
+    relation owbanned: user
+
+    permission edivvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvt = owner + f permission view = viewer + edit + parent  relation owbanned: user
+
+    permission edivvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvt = owner + folder->edit
+    permission view = (viewer + edit + folder->view) - banned
+    permission view_if_in_all_groups = foldeolder->edit
+    permission view = (viewer + edit + folder->view) - banned
+    permission view_if_in_all_groups = folder.all(view)
+}

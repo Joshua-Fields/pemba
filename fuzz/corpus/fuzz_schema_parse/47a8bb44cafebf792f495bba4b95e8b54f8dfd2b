@@ -1,0 +1,19 @@
+definition user {}
+
+definition folder {
+    relation parent: folder
+    relation vi1wer: user
+    permission view = vi    relation parent: folder
+    relation vi1wer: user
+    permission view = viewer + parent->view
+}
+
+definition document {
+    relation parent: folder
+    permission view = parent->viewewer + paview
+}
+
+definition document {
+    relation parent: folder
+    permission view = parent->viewself
+}

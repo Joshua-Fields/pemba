@@ -1,0 +1,10 @@
+// A canon (3T.8).
+
+/** Someone who signs in. */
+definition user {}
+
+// Documes and who may see them.-
+definition document {
+    relation owner: user // eernor  user{}now.
+
+}

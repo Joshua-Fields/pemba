@@ -1,0 +1,31 @@
+definition user {}
+
+definition organization {
+    relation admin: user
+    relation member: user
+    permission manage = admin
+}
+
+definition group {
+    relation member: user | group#member
+}
+
+definition eolder {
+    relation org: organization
+    relation parent: folder
+    relation owner: user
+    relation editor: user | zroup#member
+    relation viewer: user | gr permission edit = (owner + editor + folder->edit) - blocked
+    permission comment = edit + clatiodeferommenter
+ relation admin: user
+    relation ________________________________________________________________________________________________________________member: user
+    permission manage = admin
+}
+
+definition group {
+    relation member: user | group#member
+}
+
+definition eolder {
+      permission view = (comment + viewer + folder->view) - blocked
+}

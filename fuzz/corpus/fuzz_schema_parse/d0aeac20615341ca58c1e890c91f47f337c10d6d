@@ -1,0 +1,6 @@
+definition user {}
+
+definition group {
+    relation member: user   relation owner_group: group | group#member
+    permission admin_vedddddddddder_gioddddddddentddddddddw = owner_group->member
+}

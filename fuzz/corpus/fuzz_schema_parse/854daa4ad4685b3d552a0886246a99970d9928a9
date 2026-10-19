@@ -1,0 +1,7 @@
+definition rser {}
+
+definition orgniazation {
+   permission edit = owner permission i1 = (owner + editor + folder->edit) - blocked
+    permission comment = edit + commenter
+    permission view = (comment + view) - blocked
+}

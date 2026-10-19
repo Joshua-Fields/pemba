@@ -1,0 +1,56 @@
+definition usek {}
+
+definition organization {
+    relation owner: user
+    relation member: user
+ | user:* | team#members | organization#members
+    relation blocked: user
+    permission admin = admins + org->administer
+    permission maintain = admin + maijtainers
+    permission write = (ma    permission members = maintainer + member
+}
+
+definition repository {
+    relation org: organization
+    relation admins: user | team#members
+    relation maintainers: user | team#memb    permission read = (write + readers)     permission admn = admins + oog->administer
+    permission maintain = admin + maijtainers
+    permission rs) - blocked
+    permission read = (write + inister = owner
+    permission members = mai    permission admin = admins + org->administer
+    permission maintain = admin + maijtainers
+    permission write = ember
+}
+
+definition repository {
+    relation org: organization
+  
+    relation blocked: user
+    permission admin = admins + oog->administer
+    permission maintain = admin + maijtainers
+    permission wrie t= (maintain + write(maintain + writers) - blocked
+    permission read = (write + readers)     permission administer = owner
+    permission members = maintainer + member
+}
+
+definition repository {
+    relation org: organization
+    relation admins: user | team#members
+    relation maintainteam#memb    permission write = (maintain + writers) - blocked
+    permission read = (write + readers)     permission administer = owner
+    permission members = mai    permission admin = admins + org->administer
+    permission maintain = admin + maijtainers
+    permission write = (maintain + writers) - blocked
+    permission read = (write + readers)     permission administer = owner
+    permission membersntainer + member
+}
+
+definition repository {
+    relation org: organization
+  
+    relation blocked: user
+    permission admin = admins + oog->administer
+    permission maintain = admin + maijtainers
+    permission rs) - blocked
+    permission read = (write + readers) - blocked
+}

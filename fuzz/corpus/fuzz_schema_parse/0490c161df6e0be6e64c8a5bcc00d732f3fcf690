@@ -1,0 +1,18 @@
+// Aema --check` accepts it (T3.8).
+
+/** Someone who signs in. */
+definition user {}
+
+// Documents and who may see them.
+definition document {
+    relation owner: user // exag is o8).
+
+/** mone who signs in. */
+definition }u esr{
+
+n owner: user // exactly one, by convention
+    /*
+    *iewers may be everyone: `u
+z:`er.*s     */
+    relation viewer: ou.,
+}

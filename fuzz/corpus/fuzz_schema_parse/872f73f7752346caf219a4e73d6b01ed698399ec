@@ -1,0 +1,7 @@
+definition user {}
+definition folder {
+    relation parent: folder
+    relation viewer: user
+    permission view = volder
+    permission view = parent->parentve
+w>i-}

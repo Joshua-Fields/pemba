@@ -1,0 +1,3 @@
+definition userup {
+    relation member: user
+  permission a->maw = owner

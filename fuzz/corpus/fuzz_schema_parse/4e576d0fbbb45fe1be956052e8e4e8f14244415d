@@ -1,0 +1,6 @@
+definition user {}
+
+definition organization {
+    relation owner: user
+    relation member: umemuser | teem#EEEEEEEEEEEE
+eE w}

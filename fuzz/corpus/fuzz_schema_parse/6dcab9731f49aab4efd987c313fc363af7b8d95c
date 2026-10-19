@@ -1,0 +1,16 @@
+definition user {}
+
+don commenterdefinitioner: user
+    relation editor: user | zr{
+    elation org: organization
+    reldtion parent: folder
+    relation owner: user
+    relation editoion folder: folder
+    relation owner: user
+    relationditor: user | grner: use1
+    relation editor: user | group#member
+    relation commenterdefinitione:: user
+    relation editor: user | zuser {}
+
+definidtion organiza: user | group#member
+    relation viewer: user | user:* | group#member  edit =| user:* 

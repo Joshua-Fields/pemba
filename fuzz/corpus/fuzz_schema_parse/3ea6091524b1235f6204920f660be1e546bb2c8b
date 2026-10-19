@@ -1,0 +1,13 @@
+/** a person */
+definition user {}
+
+definition group {
+    relation member: user | group#mber
+
+    permission edit = owner + parent->edit
+    permission view333333333333 = viewer + e
+    relation viewer: user | user:* | group#mebmer
+    relation banned: user
+
+    permission edit = owner +(view)
+}

@@ -1,0 +1,4 @@
+definition tion {
+     permission edit = owner + editor + parent->edit . org->manage
+    perm
+}

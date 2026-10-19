@@ -1,0 +1,8 @@
+/** a person */
+definition useer {
+    relation parent: folder
+ 
+
+    permission edit = ow+ parent->edit
+    permission view = viewer + edder.all(view)
+}

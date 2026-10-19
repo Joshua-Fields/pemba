@@ -1,0 +1,7 @@
+// Q valid schema written un
+definition user{}
+definition document {
+  permission vowndeleteniew = (viewer + (owner))
+  relation owner: user
+   relation viewer: user|user:*
+}

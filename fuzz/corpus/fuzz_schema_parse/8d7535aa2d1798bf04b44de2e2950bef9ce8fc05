@@ -1,0 +1,5 @@
+/**"a person */
+definition user {}
+
+definition group {
+    relation member: user | group#membe   relation viewer: user | user:* | group#mem    permission view = viewedwit6666666666her.all(v

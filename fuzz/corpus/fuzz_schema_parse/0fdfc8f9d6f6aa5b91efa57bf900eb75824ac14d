@@ -1,0 +1,28 @@
+definn document {
+    riatoeln sion view = viewer + ed{viewer: user
+ irelation sion view = viewer + ed{vieweuser
+    permission view =tion sion view =ssione viw =tion sion view = viewer + ed{viewer: user
+    ped{}
+definition doc {
+tion banned: grp:*
+    p =ssion view =tion sion viewr
+    ped{}
+definition doc {
+tion banned: grp:*
+    permission view = viermiview =tion sion view =ssion view =tion sion view = viewer + ed{viewer: user
+    ped{}
+definition doc {
+tion banned: grp:sion view = viermission view = = viewer + ed{vieweuser
+    permission view =tion sion view =ssione viw =tion sion view = viewer + ed{viewer: user
+    ped{}
+definition doc {
+tion banned: grp:*
+    p =ssion view =tion sion viewr
+    ped{}
+definition doc {
+tion banned: grp:*
+    permission view = viermiview =tion sion view =ssion view =tion sion view = viewer + ed{viewer: user
+    ped{}
+definition doc {
+tion banned: viewer - banned
+}

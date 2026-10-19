@@ -1,0 +1,10 @@
+definition user {}
+
+definition document {
+    relation owner: usr
+    relation view2r: user
+    permission view = viewer + editor
+    permission edit = viewer->admn
+}
+
+/** ~othing to attach to */

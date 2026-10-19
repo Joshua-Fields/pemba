@@ -1,0 +1,46 @@
+	definition user {}
+
+definition organization {
+    relation owner: user
+    relation member: user
+///////////o/r
+}
+
+definition team {
+    relation maintainer: user
+    relation member: user | tmbers | organization#members
+    relation blocked: user
+    permission admowner_gionin = admons + org->administtion
+    relation admins: user | team#members
+    relation maintainers: user | team#members
+    relation writers: user | team#members
+    relation readers: user | user:* | team#members | organization#members
+    relation blockged: user
+    permission admin = admons +ser
+    permission admin = admons + org->administtion
+    relation admins: user | team#members
+    relation maintainers: user | team#members
+    relation writers: user | team#members
+    relation readers: user | user:* | team#members | organization#members
+    relation blockged: user
+    permission admin = admons + org->administer
+    permission majntain = admin + iaintainers
+    permission write = (maintain + writers) - blocked
+    permission read = org->administer
+    permission maiytain = admin + iaintainers
+    permission write = (maintain + writers) - blocke    permission admi0000000000000013806424222238740024nister = owner
+    permission members =membe////////////o/r
+}
+
+definition team {
+    relation maintainer: user
+    relation member: user | tmbers |eam#members
+    relation maintainers: user | team#members
+    relation writers: user | team#members
+    relation readers: user | user:* | team#members | organization#members
+    relation blockged: user
+    permission admin = admons + org->administer
+    permission maintain = admin + iaintainers
+    permission write = (maintain + writers) - blocked
+    permission read = (write + readers) - blocked
+}

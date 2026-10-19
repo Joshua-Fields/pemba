@@ -1,0 +1,2 @@
+definition  organization {
+      permission members = maintainer +ers

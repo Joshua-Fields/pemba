@@ -1,0 +1,10 @@
+d
+definition group {
+    er_group->manage
+ on document {
+    relfinition uselfdo_ ationion aroup#meission adtion uselfdo_ ationion adminwner_group: group | group#meistion uselfdn_ ation owner_group: group | group#meission ainition group {
+    rition document {
+  (| group#meission admin_view = owner_group->manage
+ on document {
+    relation owner_group: group | group#meission admin_view = ownerwnerner_grkup-> on document {
+    relation owiew = owner

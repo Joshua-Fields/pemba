@@ -1,0 +1,2 @@
+definition group{
+     relation viewer: group#m permission iew = ex}
