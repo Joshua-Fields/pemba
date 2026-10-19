@@ -1,7 +1,7 @@
 {
  "metadata": {
-  "Generated": "2026-10-19 22:17 UTC",
-  "Generated at commit": "8f3f79d065ef568d2d898ebf4d2fe66dae5545b5",
+  "Generated": "2026-10-19 23:28 UTC",
+  "Generated at commit": "2ccb4379a630a92b731d3e996608afc090f6f7b8 (with uncommitted changes)",
   "CPU": "Intel(R) Core(TM) i5-14600KF, 20 logical CPUs",
   "Memory": "31.8 GiB",
   "OS": "Windows-11-10.0.26200-SP0",
@@ -518,7 +518,141 @@
   }
  },
  "spicedb": {
-  "meta": {},
-  "results": {}
+  "meta": {
+   "spicedb_version": "v1.56.2",
+   "server": "docker serve-testing (memdb), http://127.0.0.1:8444",
+   "transport": "HTTP gateway, JSON, one kept-alive connection",
+   "consistency": "fully_consistent",
+   "client": "Python 3.12.10",
+   "command": "python.exe benches/spicedb/run.py --port 8444"
+  },
+  "results": {
+   "spicedb__direct_hit": {
+    "n": 2000,
+    "min_us": 479.8,
+    "p50_us": 559.7,
+    "p90_us": 635.8,
+    "p99_us": 1124.5,
+    "max_us": 1859.9,
+    "mean_us": 580.31075
+   },
+   "spicedb__groups_depth_1": {
+    "n": 2000,
+    "min_us": 494.1,
+    "p50_us": 599.5,
+    "p90_us": 712.5,
+    "p99_us": 1296.4,
+    "max_us": 1778.4,
+    "mean_us": 628.08835
+   },
+   "spicedb__groups_depth_5": {
+    "n": 2000,
+    "min_us": 537.1,
+    "p50_us": 632.0,
+    "p90_us": 723.1,
+    "p99_us": 1392.1,
+    "max_us": 2457.5,
+    "mean_us": 657.27855
+   },
+   "spicedb__groups_depth_10": {
+    "n": 2000,
+    "min_us": 588.1,
+    "p50_us": 678.7,
+    "p90_us": 758.3,
+    "p99_us": 1555.7,
+    "max_us": 2145.6,
+    "mean_us": 704.878
+   },
+   "spicedb__folders_depth_1": {
+    "n": 2000,
+    "min_us": 494.2,
+    "p50_us": 608.1,
+    "p90_us": 700.2,
+    "p99_us": 1390.2,
+    "max_us": 1998.4,
+    "mean_us": 634.57955
+   },
+   "spicedb__folders_depth_10": {
+    "n": 2000,
+    "min_us": 753.6,
+    "p50_us": 922.7,
+    "p90_us": 1042.0,
+    "p99_us": 2186.1,
+    "max_us": 3207.2,
+    "mean_us": 964.9135500000001
+   },
+   "spicedb__folders_depth_30": {
+    "n": 2000,
+    "min_us": 1405.8,
+    "p50_us": 1626.2,
+    "p90_us": 1848.9,
+    "p99_us": 3615.2,
+    "max_us": 4835.5,
+    "mean_us": 1713.0248000000001
+   },
+   "spicedb__wide_groups_10k": {
+    "n": 2000,
+    "min_us": 647.3,
+    "p50_us": 743.2,
+    "p90_us": 878.4,
+    "p99_us": 1323.2,
+    "max_us": 2579.9,
+    "mean_us": 777.6479499999999
+   },
+   "spicedb__exclusion": {
+    "n": 2000,
+    "min_us": 539.5,
+    "p50_us": 670.0,
+    "p90_us": 785.8,
+    "p99_us": 1095.8,
+    "max_us": 4051.8,
+    "mean_us": 693.6282
+   },
+   "spicedb__lookup_resources_10k": {
+    "n": 200,
+    "min_us": 7334.6,
+    "p50_us": 9093.4,
+    "p90_us": 9987.6,
+    "p99_us": 12568.9,
+    "max_us": 13375.9,
+    "mean_us": 9214.123
+   },
+   "spicedb__lookup_resources_10k_pages_100": {
+    "n": 200,
+    "min_us": 14425.9,
+    "p50_us": 15807.5,
+    "p90_us": 17359.9,
+    "p99_us": 20347.6,
+    "max_us": 21449.3,
+    "mean_us": 16107.3115
+   },
+   "spicedb__write_batch_1": {
+    "n": 2000,
+    "min_us": 465.6,
+    "p50_us": 568.2,
+    "p90_us": 648.1,
+    "p99_us": 802.1,
+    "max_us": 5345.7,
+    "mean_us": 583.5284
+   },
+   "spicedb__write_batch_100": {
+    "n": 200,
+    "min_us": 42907.5,
+    "p50_us": 43983.7,
+    "p90_us": 44333.1,
+    "p99_us": 50337.5,
+    "max_us": 50587.7,
+    "mean_us": 44057.455
+   },
+   "spicedb__write_batch_1000": {
+    "n": 20,
+    "min_us": 13417.8,
+    "p50_us": 16385.2,
+    "p90_us": 57397.2,
+    "p99_us": 58318.1,
+    "max_us": 58318.1,
+    "mean_us": 21932.74
+   }
+  }
  }
 }
