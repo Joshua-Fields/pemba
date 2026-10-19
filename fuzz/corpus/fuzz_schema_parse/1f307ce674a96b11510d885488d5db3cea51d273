@@ -1,0 +1,15 @@
+definition user {}
+
+definition grp {
+    relation member: user
+}
+
+definition doc {
+    relation viewer: grp:* | grp#member
+}
+
+definition page {
+    relation viewer: grp#member
+    relation banned: grp:*
+    permission view = viewer - banned
+}

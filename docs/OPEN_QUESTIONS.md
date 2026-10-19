@@ -979,3 +979,32 @@ it is resolved.
   generating commands are in `RESULTS.md`.
 - Resolve by: human review after the first full benchmark run
 - Resolution: (fill in)
+
+## OQ-039 — Fuzzing details decided in T3.6
+- Raised in: T3.6 (`docs/07-testing.md` §5)
+- Blocking: no
+- Current choice:
+  (a) `fuzz_check_vs_reference` does not use an `arbitrary`-derived case as §5 says. It
+  runs `warden-testkit`'s construct-valid proptest generators (§2.2, the ones property 1
+  uses) on a ChaCha RNG seeded from a hash of the input. Every input is therefore a valid,
+  stratifiable case with property 1's restrictions, and the check is property 1's (single
+  checks and `check_bulk`, with the one accepted error). The first byte picks
+  `SubSides::Acyclic` or `SubSides::Recursive`.
+  Cost: a hash gives libFuzzer almost no structure to steer by, so the target is in effect
+  an open-ended property-1 run under AddressSanitizer, not a coverage-guided search.
+  Proptest's pass-through RNG (input bytes as the random stream) was tried first and hangs.
+  It gives each child RNG half of the parent's remaining bytes, so nested strategies drain
+  the stream to zeros, and rand's range sampling then rejects every draw forever. Padding
+  the input does not help, because each split halves what is left. A structure-aware
+  version needs an `arbitrary`-derived case model resolved like `generate::resolve`.
+  That is a second generator to keep in step with the first: deferred, human to decide.
+  (b) `fuzz/` is its own Cargo workspace (it needs nightly; the main workspace builds on
+  the pinned stable toolchain), with its own `Cargo.lock`. Build with
+  `cargo +nightly fuzz build`.
+  (c) Seed corpora come from `fuzz/seed_corpus.py`: the schemas and relationships in
+  `testdata/`, tuple edge cases, and 32 fixed pseudo-random inputs for the third target.
+  The inputs libFuzzer adds during a run are committed afterwards, as §5 asks.
+  (d) Not done yet: the ≥ 10-minute runs, `cargo-mutants` and `docs/MUTANTS.md`. Neither
+  `fuzz.yml` (09 §1) nor the weekly `cargo-mutants` job has been written.
+- Resolve by: human review after the first 10-minute runs
+- Resolution: (fill in)

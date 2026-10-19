@@ -1,0 +1,12 @@
+definition user {}
+
+definition bot {}
+
+definition group {
+    relation member: user
+}
+
+definition document {
+    relation viewer: user | user:* | bot | group#member
+    permission view = viewer
+}

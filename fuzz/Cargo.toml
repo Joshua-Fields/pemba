@@ -1,0 +1,46 @@
+[package]
+name = "warden-fuzz"
+description = "cargo-fuzz targets for warden (docs/07-testing.md §5)."
+version = "0.0.0"
+edition = "2024"
+license = "Apache-2.0"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+# Its own workspace: cargo-fuzz needs nightly, and the main workspace builds on the
+# pinned stable toolchain.
+[workspace]
+members = ["."]
+
+[dependencies]
+# Fuzzing (docs/09-repo-and-tooling.md §2, approved list).
+libfuzzer-sys = "0.4.13"
+warden-core = { path = "../crates/warden-core" }
+warden-schema = { path = "../crates/warden-schema" }
+warden-store-memory = { path = "../crates/warden-store-memory" }
+warden-testkit = { path = "../crates/warden-testkit" }
+# Runs warden-testkit's generators on an RNG seeded from the fuzzer's input (OQ-039).
+proptest = "1.12.0"
+
+[[bin]]
+name = "fuzz_schema_parse"
+path = "fuzz_targets/fuzz_schema_parse.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_tuple_parse"
+path = "fuzz_targets/fuzz_tuple_parse.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_check_vs_reference"
+path = "fuzz_targets/fuzz_check_vs_reference.rs"
+test = false
+doc = false
+bench = false
