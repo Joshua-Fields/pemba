@@ -265,11 +265,18 @@ impl Engine {
         })
     }
 
+    /// Compiles and stores a schema; returns its version (unchanged if only formatting,
+    /// comments or member order differ).
+    ///
+    /// Raises `SchemaError` (with `.diagnostics`) if it does not compile, and
+    /// `SchemaChangeOrphansError` (with `.orphans`) if live relationships would no longer
+    /// fit it: delete them first.
     fn write_schema(&self, py: Python<'_>, source: &str) -> PyResult<u64> {
         let r = run!(py, self.inner, e => e.write_schema(source)).py(py)?;
         Ok(r.version)
     }
 
+    /// The stored schema source, or `None` before the first `write_schema`.
     fn read_schema(&self, py: Python<'_>) -> PyResult<Option<String>> {
         run!(py, self.inner, e => e.read_schema()).py(py)
     }
@@ -351,6 +358,10 @@ impl Engine {
         revision(py, rev)
     }
 
+    /// Deletes up to `limit` live relationships matching the filter, at one new revision.
+    ///
+    /// `None` matches anything; `subject_relation=""` matches only subjects without a
+    /// relation. Call again while the result's `more` is true.
     #[pyo3(signature = (*, resource_type, resource_id=None, relation=None, subject_type=None, subject_id=None, subject_relation=None, limit=None))]
     #[allow(clippy::too_many_arguments)]
     fn delete_relationships(
@@ -377,6 +388,13 @@ impl Engine {
             .map(DeleteResult::from)
     }
 
+    /// Whether `subject` has `permission` on `resource`.
+    ///
+    /// Takes `(resource, permission, subject)`, e.g. `("document:readme", "view",
+    /// "user:anne")`, or one tuple string, `"document:readme#view@user:anne"`. Evaluates at
+    /// head, or at a revision at least `at_least`, or exactly `at_exactly` (mutually
+    /// exclusive). Fails closed: any evaluation problem raises a `WardenError`, never
+    /// returns `False`.
     #[pyo3(signature = (*args, at_least=None, at_exactly=None))]
     fn check(
         &self,
@@ -390,6 +408,7 @@ impl Engine {
         Ok(r.allowed)
     }
 
+    /// `check`, returning a `CheckResult` with the revision used and evaluation statistics.
     #[pyo3(signature = (resource, permission, subject, /, *, at_least=None, at_exactly=None))]
     fn check_detailed(
         &self,
@@ -407,6 +426,10 @@ impl Engine {
             .map(CheckResult::from)
     }
 
+    /// Checks many `(resource, permission, subject)` items at one revision.
+    ///
+    /// Returns one entry per item, in order: `True`/`False`, or the `WardenError` that
+    /// item failed with (one item's error does not fail the others).
     #[pyo3(signature = (items, /, *, at_least=None, at_exactly=None))]
     #[allow(clippy::needless_pass_by_value)] // PyO3 extracts arguments as owned values
     fn check_bulk<'py>(
@@ -431,6 +454,12 @@ impl Engine {
             .collect()
     }
 
+    /// One page of the ids of `resource_type` objects on which `subject` has `permission`,
+    /// ascending.
+    ///
+    /// For the next page pass `cursor=result.cursor` and `at_exactly=result.revision`;
+    /// stop when `cursor` is `None`. Any page may be empty. `iter_resources` does this for
+    /// you.
     #[pyo3(signature = (resource_type, permission, subject, /, *, limit=None, cursor=None, at_least=None, at_exactly=None))]
     #[allow(clippy::too_many_arguments)]
     fn lookup_resources(
@@ -457,6 +486,8 @@ impl Engine {
             .map(LookupResult::from)
     }
 
+    /// Every id `lookup_resources` would return, fetched lazily page by page, all at the
+    /// first page's revision.
     #[pyo3(signature = (resource_type, permission, subject, /, *, at_least=None, at_exactly=None))]
     fn iter_resources(
         &self,
@@ -480,6 +511,10 @@ impl Engine {
         })
     }
 
+    /// The `subject_type` objects that have `permission` on `resource`.
+    ///
+    /// The result lists `ids`, or, if `wildcard` is true, means every object of the type
+    /// except `excluded`; test membership with `id in result`.
     #[pyo3(signature = (resource, permission, subject_type, /, *, at_least=None, at_exactly=None))]
     fn lookup_subjects(
         &self,
@@ -501,6 +536,10 @@ impl Engine {
             .map(SubjectsResult::from)
     }
 
+    /// Every stored relationship matching the filter, read at one revision.
+    ///
+    /// Filters as in `delete_relationships`. Returns all matches, so bound the read with
+    /// filters.
     #[pyo3(signature = (*, resource_type, resource_id=None, relation=None, subject_type=None, subject_id=None, subject_relation=None, at_least=None, at_exactly=None))]
     #[allow(clippy::too_many_arguments)]
     fn read_relationships(
@@ -542,11 +581,15 @@ impl Engine {
             .collect())
     }
 
+    /// The newest committed revision; `0` for an empty store.
     fn head_revision<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         let rev = run!(py, self.inner, e => e.head_revision()).py(py)?;
         revision(py, rev)
     }
 
+    /// Garbage-collects history below `keep_from`: removes relationships deleted at or
+    /// before it. Reads with `at_exactly` below `keep_from` then raise `ConsistencyError`
+    /// (`REVISION_EXPIRED`).
     fn gc(&self, py: Python<'_>, keep_from: &Bound<'_, PyAny>) -> PyResult<GcStats> {
         let keep_from = rev_arg("keep_from", keep_from)?;
         run!(py, self.inner, e => e.gc(keep_from))

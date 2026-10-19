@@ -29,6 +29,10 @@ fn parse<T: std::str::FromStr<Err = model::ParseError>>(s: &str) -> PyResult<T> 
 }
 
 /// A stored relationship tuple, `document:readme#viewer@user:anne`.
+///
+/// Build one from its parts, `Relationship("document", "readme", "viewer", "user",
+/// "anne")`, or with `Relationship.parse(s)`. `str()` gives the tuple string. Malformed
+/// parts raise `ValueError`.
 #[pyclass(frozen, eq, hash, module = "warden")]
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub(crate) struct Relationship {
@@ -61,18 +65,22 @@ impl Relationship {
         Ok(Self { inner: parse(s)? })
     }
 
+    /// The resource's type, `document`.
     #[getter]
     fn resource_type(&self) -> &str {
         self.inner.resource.object_type.as_str()
     }
+    /// The resource's id, `readme`.
     #[getter]
     fn resource_id(&self) -> &str {
         self.inner.resource.object_id.as_str()
     }
+    /// The relation, `viewer`.
     #[getter]
     fn relation(&self) -> &str {
         self.inner.relation.as_str()
     }
+    /// The subject's type, `user`.
     #[getter]
     fn subject_type(&self) -> &str {
         match &self.inner.subject {
@@ -80,6 +88,7 @@ impl Relationship {
             SubjectRef::Wildcard { object_type } => object_type.as_str(),
         }
     }
+    /// The subject's id, `anne`; `"*"` for a wildcard subject (`user:*`).
     #[getter]
     fn subject_id(&self) -> &str {
         match &self.inner.subject {
@@ -87,6 +96,7 @@ impl Relationship {
             SubjectRef::Wildcard { .. } => "*",
         }
     }
+    /// The subject set's relation (`member` in `group:eng#member`), else `None`.
     #[getter]
     fn subject_relation(&self) -> Option<&str> {
         match &self.inner.subject {
@@ -192,19 +202,26 @@ impl Precondition {
 /// `check_detailed`'s answer with its evaluation statistics.
 #[pyclass(frozen, module = "warden")]
 pub(crate) struct CheckResult {
+    /// The answer.
     #[pyo3(get)]
     allowed: bool,
     revision: model::Revision,
+    /// Store queries the evaluation made.
     #[pyo3(get)]
     store_reads: u64,
+    /// Relationships those queries returned.
     #[pyo3(get)]
     tuples_read: u64,
+    /// Sub-results reused instead of re-evaluated.
     #[pyo3(get)]
     memo_hits: u64,
+    /// Deepest nesting reached (compare with `max_depth`).
     #[pyo3(get)]
     max_depth_reached: u32,
+    /// Re-runs of cyclic regions whose provisional value changed (0 for acyclic data).
     #[pyo3(get)]
     cycle_passes: u64,
+    /// Wall-clock evaluation time in microseconds.
     #[pyo3(get)]
     elapsed_us: u64,
 }
@@ -227,6 +244,7 @@ impl From<warden::CheckResponse> for CheckResult {
 
 #[pymethods]
 impl CheckResult {
+    /// The revision the check evaluated at.
     #[getter]
     fn revision<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         revision(py, self.revision)
@@ -249,8 +267,11 @@ fn py_bool(b: bool) -> &'static str {
 #[pyclass(frozen, eq, hash, module = "warden")]
 #[derive(PartialEq, Eq, Hash)]
 pub(crate) struct LookupResult {
+    /// The resource ids on this page, ascending.
     #[pyo3(get)]
     ids: Vec<String>,
+    /// Pass back as `cursor=` (with `at_exactly=revision`) for the next page; `None` when
+    /// there are no more.
     #[pyo3(get)]
     cursor: Option<String>,
     revision: model::Revision,
@@ -272,6 +293,7 @@ impl From<warden::LookupResourcesResponse> for LookupResult {
 
 #[pymethods]
 impl LookupResult {
+    /// The revision this page was read at.
     #[getter]
     fn revision<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         revision(py, self.revision)
@@ -292,10 +314,13 @@ impl LookupResult {
 #[pyclass(frozen, eq, hash, module = "warden")]
 #[derive(PartialEq, Eq, Hash)]
 pub(crate) struct SubjectsResult {
+    /// The subject ids that have the permission (when `wildcard` is false).
     #[pyo3(get)]
     ids: Vec<String>,
+    /// True if every object of the subject type has it, except `excluded`.
     #[pyo3(get)]
     wildcard: bool,
+    /// With `wildcard`, the ids that do not have it.
     #[pyo3(get)]
     excluded: Vec<String>,
     revision: model::Revision,
@@ -315,6 +340,7 @@ impl From<warden::LookupSubjectsResponse> for SubjectsResult {
 
 #[pymethods]
 impl SubjectsResult {
+    /// The revision the lookup evaluated at.
     #[getter]
     fn revision<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         revision(py, self.revision)
@@ -341,12 +367,19 @@ impl SubjectsResult {
 #[pyclass(frozen, eq, hash, get_all, module = "warden")]
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub(crate) struct Diagnostic {
+    /// Stable code, e.g. `E_UNKNOWN_TYPE`.
     code: String,
+    /// Human-readable message.
     message: String,
+    /// `"error"` or `"warning"`.
     severity: &'static str,
+    /// 1-based line.
     line: u32,
+    /// 1-based column, in characters.
     col: u32,
+    /// Byte offset where the problem starts.
     start: usize,
+    /// Byte offset where it ends.
     end: usize,
 }
 
@@ -378,11 +411,18 @@ impl Diagnostic {
 #[pyclass(frozen, eq, hash, get_all, module = "warden")]
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub(crate) struct OrphanReport {
+    /// The resource type of the orphaned relationships.
     resource_type: String,
+    /// Their relation.
     relation: String,
+    /// Their subject form: `"user"`, `"user:*"` or `"group#member"`.
     subject: String,
+    /// How many live relationships are in the group.
     count: u64,
+    /// The validation code a relationship of this shape fails with under the new schema,
+    /// e.g. `E_UNKNOWN_TYPE`.
     code: &'static str,
+    /// Human-readable explanation.
     message: String,
 }
 
@@ -413,9 +453,11 @@ impl OrphanReport {
 #[pyclass(frozen, eq, hash, module = "warden")]
 #[derive(PartialEq, Eq, Hash)]
 pub(crate) struct GcStats {
+    /// Deleted relationships removed for good.
     #[pyo3(get)]
     rows_removed: u64,
     horizon: model::Revision,
+    /// Batches the removal ran in.
     #[pyo3(get)]
     batches: u64,
 }
@@ -432,6 +474,7 @@ impl From<warden::store::GcStats> for GcStats {
 
 #[pymethods]
 impl GcStats {
+    /// The new GC horizon: reads at an older revision now raise `ConsistencyError`.
     #[getter]
     fn horizon<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         revision(py, self.horizon)
@@ -448,8 +491,10 @@ impl GcStats {
 #[pyclass(frozen, eq, hash, module = "warden")]
 #[derive(PartialEq, Eq, Hash)]
 pub(crate) struct DeleteResult {
+    /// Relationships deleted by this call.
     #[pyo3(get)]
     deleted: u64,
+    /// True if more matched than `limit` allowed: call again.
     #[pyo3(get)]
     more: bool,
     revision: model::Revision,
@@ -467,6 +512,7 @@ impl From<warden::store::DeleteResult> for DeleteResult {
 
 #[pymethods]
 impl DeleteResult {
+    /// The revision the deletion was written at.
     #[getter]
     fn revision<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         revision(py, self.revision)

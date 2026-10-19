@@ -222,12 +222,14 @@ impl<S: WritableStore> Engine<S> {
     /// comments or member order), nothing is written and the current version is returned
     /// with `changed: false`. Otherwise the new version is stored at a new revision.
     ///
-    /// Not yet checked: whether the change would orphan stored relationships
-    /// (`docs/05-storage.md` §7, task T2.6).
+    /// A change that would orphan live relationships (leave a stored tuple that the new
+    /// schema does not allow) is refused, inside the same store transaction as the write
+    /// (`docs/05-storage.md` §7).
     ///
     /// # Errors
     ///
-    /// [`Error::Schema`] with every compile error; [`Error::Store`] if the store fails.
+    /// [`Error::Schema`] with every compile error; [`Error::SchemaChangeOrphans`] listing
+    /// each orphaned group of live relationships; [`Error::Store`] if the store fails.
     pub fn write_schema(&self, source: &str) -> Result<SchemaWriteResult, Error> {
         let _span = tracing::info_span!("write_schema", bytes = source.len()).entered();
         let compiled = warden_schema::compile(source).map_err(Error::Schema)?;

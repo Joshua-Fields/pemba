@@ -10,6 +10,10 @@ authors.workspace = true
 [lints]
 workspace = true
 
+[package.metadata.docs.rs]
+# Document both stores.
+all-features = true
+
 [features]
 default = ["sqlite", "memory"]
 # In-memory store.

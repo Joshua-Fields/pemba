@@ -212,13 +212,18 @@ class Engine:
         busy_timeout_ms: int = 5000,
         auto_migrate: bool = True,
         max_depth: int = 50,
-    ) -> Engine: ...
+    ) -> Engine:
+        """Opens (and by default migrates) a SQLite database file, through CPython's own sqlite3."""
     @staticmethod
-    def memory(*, max_depth: int = 50) -> Engine: ...
-    def write_schema(self, source: str) -> int: ...
-    def read_schema(self) -> str | None: ...
+    def memory(*, max_depth: int = 50) -> Engine:
+        """An engine over a fresh in-memory store."""
+    def write_schema(self, source: str) -> int:
+        """Compiles and stores a schema; returns its version. Raises SchemaError or SchemaChangeOrphansError."""
+    def read_schema(self) -> str | None:
+        """The stored schema source, or None before the first write_schema."""
     @staticmethod
-    def validate_schema(source: str) -> list[Diagnostic]: ...
+    def validate_schema(source: str) -> list[Diagnostic]:
+        """Compiles source without a store; returns errors and warnings, never raises."""
     def write(
         self,
         *,
@@ -228,7 +233,8 @@ class Engine:
         preconditions: Iterable[Precondition] = (),
         conn: Any | None = None,
         allow_autocommit: bool = False,
-    ) -> Revision: ...
+    ) -> Revision:
+        """Applies a batch at one new revision and returns it. With conn=, runs inside that sqlite3 transaction; readable only after the caller commits."""
     def delete_relationships(
         self,
         *,
@@ -239,11 +245,13 @@ class Engine:
         subject_id: str | None = None,
         subject_relation: str | None = None,
         limit: int | None = None,
-    ) -> DeleteResult: ...
+    ) -> DeleteResult:
+        """Deletes up to limit matching relationships at one new revision; call again while result.more."""
     @overload
     def check(
         self, tuple_str: str, /, *, at_least: int | None = None, at_exactly: int | None = None
-    ) -> bool: ...
+    ) -> bool:
+        """Whether subject has permission on resource. Raises WardenError rather than answering False on any evaluation problem (fails closed)."""
     @overload
     def check(
         self,
@@ -254,7 +262,8 @@ class Engine:
         *,
         at_least: int | None = None,
         at_exactly: int | None = None,
-    ) -> bool: ...
+    ) -> bool:
+        """Whether subject has permission on resource. Raises WardenError rather than answering False on any evaluation problem (fails closed)."""
     def check_detailed(
         self,
         resource: str,
@@ -264,7 +273,8 @@ class Engine:
         *,
         at_least: int | None = None,
         at_exactly: int | None = None,
-    ) -> CheckResult: ...
+    ) -> CheckResult:
+        """check, returning the revision used and evaluation statistics."""
     def check_bulk(
         self,
         items: Sequence[tuple[str, str, str]],
@@ -272,7 +282,8 @@ class Engine:
         *,
         at_least: int | None = None,
         at_exactly: int | None = None,
-    ) -> list[bool | WardenError]: ...
+    ) -> list[bool | WardenError]:
+        """Checks many items at one revision; each entry is a bool or that item's WardenError."""
     def lookup_resources(
         self,
         resource_type: str,
@@ -284,7 +295,8 @@ class Engine:
         cursor: str | None = None,
         at_least: int | None = None,
         at_exactly: int | None = None,
-    ) -> LookupResult: ...
+    ) -> LookupResult:
+        """One page of resource ids, ascending. Next page: cursor=r.cursor, at_exactly=r.revision; stop when cursor is None."""
     def iter_resources(
         self,
         resource_type: str,
@@ -294,7 +306,8 @@ class Engine:
         *,
         at_least: int | None = None,
         at_exactly: int | None = None,
-    ) -> Iterator[str]: ...
+    ) -> Iterator[str]:
+        """Every id lookup_resources would return, fetched lazily at the first page's revision."""
     def lookup_subjects(
         self,
         resource: str,
@@ -304,7 +317,8 @@ class Engine:
         *,
         at_least: int | None = None,
         at_exactly: int | None = None,
-    ) -> SubjectsResult: ...
+    ) -> SubjectsResult:
+        """The subject_type objects with permission on resource (ids, or wildcard minus excluded)."""
     def read_relationships(
         self,
         *,
@@ -316,9 +330,12 @@ class Engine:
         subject_relation: str | None = None,
         at_least: int | None = None,
         at_exactly: int | None = None,
-    ) -> list[Relationship]: ...
-    def head_revision(self) -> Revision: ...
-    def gc(self, keep_from: int) -> GcStats: ...
+    ) -> list[Relationship]:
+        """Every stored relationship matching the filter, at one revision."""
+    def head_revision(self) -> Revision:
+        """The newest committed revision; 0 for an empty store."""
+    def gc(self, keep_from: int) -> GcStats:
+        """Removes relationships deleted at or before keep_from; older at_exactly reads then raise ConsistencyError."""
 
 # ---- exceptions (06 §2.3) ----
 
