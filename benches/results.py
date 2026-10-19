@@ -1,0 +1,224 @@
+"""Writes ``benches/RESULTS.md`` (and ``RESULTS.json``) from the latest benchmark runs.
+
+Inputs (whichever exist; a missing one is reported as "not run"):
+
+- ``target/bench-latency/*.txt``: the Rust latency pass of ``cargo bench -p warden-benches``
+- ``target/bench-py.json``: ``pytest bench/test_scenarios.py --benchmark-json=... \
+  --benchmark-save-data`` in ``crates/warden-py``
+- ``target/bench-spicedb.json``: ``python benches/spicedb/run.py``
+
+Every table is p50/p99 per operation in µs (``docs/07-testing.md`` §7), next to the
+hardware, OS, toolchain and commit it was measured on, and the commands that produced it.
+``RESULTS.json`` holds the summary statistics; the raw per-call durations stay in
+``target/``. Standard library only.
+
+Usage: ``python benches/results.py [--target DIR] [--out benches/RESULTS.md]``
+"""
+
+from __future__ import annotations
+
+import argparse
+import datetime
+import json
+import os
+import platform
+import re
+import sqlite3
+import subprocess
+import sys
+from pathlib import Path
+
+REPO = Path(__file__).resolve().parents[1]
+
+COMMANDS = {
+    "rust": "cargo bench -p warden-benches",
+    "python": ("cd crates/warden-py && maturin develop --release && pytest "
+               "bench/test_scenarios.py --benchmark-json=../../target/bench-py.json "
+               "--benchmark-save-data"),
+    "spicedb": "python benches/spicedb/run.py",
+    "results": "python benches/results.py",
+}
+
+
+def run(*cmd: str) -> str:
+    try:
+        return subprocess.run(cmd, capture_output=True, text=True, cwd=REPO,
+                              check=True).stdout.strip()
+    except (OSError, subprocess.CalledProcessError):
+        return "unknown"
+
+
+def cpu() -> str:
+    if sys.platform == "win32":
+        import winreg
+
+        try:
+            with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE,
+                                r"HARDWARE\DESCRIPTION\System\CentralProcessor\0") as k:
+                return str(winreg.QueryValueEx(k, "ProcessorNameString")[0]).strip()
+        except OSError:
+            return platform.processor() or "unknown"
+    if sys.platform == "darwin":
+        return run("sysctl", "-n", "machdep.cpu.brand_string")
+    try:
+        for line in Path("/proc/cpuinfo").read_text().splitlines():
+            if line.startswith("model name"):
+                return line.split(":", 1)[1].strip()
+    except OSError:
+        pass
+    return platform.processor() or "unknown"
+
+
+def memory_gib() -> str:
+    try:
+        if sys.platform == "win32":
+            import ctypes
+
+            class Status(ctypes.Structure):
+                _fields_ = [("length", ctypes.c_ulong), ("load", ctypes.c_ulong),
+                            ("total", ctypes.c_ulonglong), ("avail", ctypes.c_ulonglong),
+                            ("total_page", ctypes.c_ulonglong),
+                            ("avail_page", ctypes.c_ulonglong),
+                            ("total_virtual", ctypes.c_ulonglong),
+                            ("avail_virtual", ctypes.c_ulonglong),
+                            ("avail_ext", ctypes.c_ulonglong)]
+
+            s = Status()
+            s.length = ctypes.sizeof(Status)
+            ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(s))
+            total = s.total
+        elif sys.platform == "darwin":
+            total = int(run("sysctl", "-n", "hw.memsize"))
+        else:
+            kb = re.search(r"MemTotal:\s+(\d+)", Path("/proc/meminfo").read_text())
+            total = int(kb[1]) * 1024 if kb else 0
+        return f"{total / 2**30:.1f} GiB"
+    except (OSError, ValueError, AttributeError):
+        return "unknown"
+
+
+def metadata() -> list[tuple[str, str]]:
+    commit = run("git", "rev-parse", "HEAD")
+    dirty = run("git", "status", "--porcelain", "--untracked-files=no")
+    return [
+        ("Date", datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%d %H:%M UTC")),
+        ("Commit", commit + (" (with uncommitted changes)" if dirty not in ("", "unknown")
+                             else "")),
+        ("CPU", f"{cpu()}, {os.cpu_count()} logical CPUs"),
+        ("Memory", memory_gib()),
+        ("OS", platform.platform()),
+        ("rustc", run("rustc", "-V")),
+        ("Python", f"{platform.python_implementation()} {platform.python_version()}"),
+        ("SQLite (Python's sqlite3)", sqlite3.sqlite_version),
+    ]
+
+
+def stats(ns: list[float]) -> dict[str, float]:
+    xs = sorted(ns)
+    n = len(xs)
+
+    def q(p: float) -> float:
+        return xs[min(n - 1, int(p * n))] / 1000
+
+    return {"n": n, "min_us": xs[0] / 1000, "p50_us": q(.5), "p90_us": q(.9),
+            "p99_us": q(.99), "max_us": xs[-1] / 1000, "mean_us": sum(xs) / n / 1000}
+
+
+def rust(target: Path) -> dict[str, list[float]]:
+    d = target / "bench-latency"
+    if not d.is_dir():
+        return {}
+    return {f.stem: [float(x) for x in f.read_text().split()] for f in sorted(d.glob("*.txt"))}
+
+
+def python(target: Path) -> dict[str, list[float]]:
+    f = target / "bench-py.json"
+    if not f.exists():
+        return {}
+    out = {}
+    for b in json.loads(f.read_text())["benchmarks"]:
+        data = b["stats"].get("data")
+        if data:  # seconds per call; present with --benchmark-save-data
+            out[b.get("extra_info", {}).get("id", b["name"])] = [x * 1e9 for x in data]
+    return out
+
+
+def spicedb(target: Path) -> tuple[dict[str, list[float]], dict[str, str]]:
+    f = target / "bench-spicedb.json"
+    if not f.exists():
+        return {}, {}
+    doc = json.loads(f.read_text())
+    return {k: [float(x) for x in v] for k, v in doc["results"].items()}, doc["meta"]
+
+
+def scenario_order(target: Path) -> list[str]:
+    m = target / "bench-data" / "manifest.tsv"
+    if m.exists():
+        return [ln.split("\t")[0] for ln in m.read_text().splitlines()]
+    return []
+
+
+def fmt(x: float) -> str:
+    return f"{x:,.0f}" if x >= 100 else f"{x:.1f}" if x >= 10 else f"{x:.2f}"
+
+
+def table(raw: dict[str, list[float]], stores: list[str], order: list[str]) -> list[str]:
+    names = {k.split("__", 1)[1] for k in raw}
+    names_sorted = [n for n in order if n in names] + sorted(names - set(order))
+    head = "| scenario | " + " | ".join(f"{s} p50 | {s} p99" for s in stores) + " |"
+    lines = [head, "|---|" + "---:|---:|" * len(stores)]
+    for n in names_sorted:
+        cells = []
+        for s in stores:
+            xs = raw.get(f"{s}__{n}")
+            if xs:
+                st = stats(xs)
+                cells += [fmt(st["p50_us"]), fmt(st["p99_us"])]
+            else:
+                cells += ["–", "–"]
+        lines.append(f"| `{n}` | " + " | ".join(cells) + " |")
+    return lines
+
+
+def main() -> None:
+    p = argparse.ArgumentParser()
+    p.add_argument("--target", type=Path, default=REPO / "target")
+    p.add_argument("--out", type=Path, default=REPO / "benches" / "RESULTS.md")
+    a = p.parse_args()
+
+    order = scenario_order(a.target)
+    r, py = rust(a.target), python(a.target)
+    sp, sp_meta = spicedb(a.target)
+
+    md = ["# Benchmark results", "",
+          f"Generated by `{COMMANDS['results']}`; do not edit by hand. Scenarios and datasets: "
+          "`docs/07-testing.md` §7 and `benches/src/lib.rs`. All figures are µs per "
+          "operation (wall clock, one call at a time, warm caches). `lookup_*` figures "
+          "cover every page of the lookup. No performance targets are fixed yet (OQ-008).",
+          "", "## Machine", "", "| | |", "|---|---|"]
+    md += [f"| {k} | {v} |" for k, v in metadata()]
+    sections = [
+        ("Rust (Criterion bench, latency pass)", "rust", r, ["memory", "sqlite"]),
+        ("Python (pytest-benchmark, `maturin develop --release`)", "python", py,
+         ["memory", "sqlite"]),
+        ("SpiceDB", "spicedb", sp, ["spicedb"]),
+    ]
+    for title, key, raw, stores in sections:
+        md += ["", f"## {title}", "", f"Command: `{COMMANDS[key]}`", ""]
+        if key == "spicedb" and sp_meta:
+            md += [f"- {k}: {v}" for k, v in sp_meta.items()] + [""]
+        md += table(raw, stores, order) if raw else ["Not run."]
+    a.out.write_text("\n".join(md) + "\n", encoding="utf-8")
+
+    summary = {
+        "metadata": dict(metadata()),
+        "rust": {k: stats(v) for k, v in r.items()},
+        "python": {k: stats(v) for k, v in py.items()},
+        "spicedb": {"meta": sp_meta, "results": {k: stats(v) for k, v in sp.items()}},
+    }
+    a.out.with_suffix(".json").write_text(json.dumps(summary, indent=1) + "\n")
+    print(f"wrote {a.out} and {a.out.with_suffix('.json')}")
+
+
+if __name__ == "__main__":
+    main()

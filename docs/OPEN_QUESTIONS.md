@@ -951,3 +951,31 @@ it is resolved.
   deliberate change that re-runs the comparison and updates `KNOWN_DIFFERENCES.md`.
 - Resolve by: human review of `KNOWN_DIFFERENCES.md`
 - Resolution: (fill in)
+
+## OQ-038 — Benchmark details decided in T3.5
+- Raised in: T3.5 (`docs/07-testing.md` §7)
+- Blocking: no
+- Current choice:
+  (a) One definition of the datasets, in Rust (`benches/src/lib.rs`). The `bench-data`
+  binary writes them to files that the Python and SpiceDB benches read, so the three
+  cannot drift apart. Every scenario checks its answer before anything is timed.
+  (b) p50/p99 per operation: Criterion only gives per-sample means, so after each
+  Criterion run a separate pass times 2 000 single calls (after 200 warm-up) and
+  `benches/results.py` takes percentiles of those. pytest-benchmark runs one call per round
+  (`iterations=1`) and saves every duration (`--benchmark-save-data`). The SpiceDB script
+  times single calls. Timer overhead (tens of ns) is included in every figure.
+  (c) Added `lookup_resources_10k_pages_100`, the same lookup in pages of 100, so OQ-028
+  (d) can be answered by comparing it with the one-page figure. Not answered yet: no
+  benchmark has been run.
+  (d) `write_batch_*` writes relationships that no earlier write made, so every write is
+  an insert and the store grows during the run. The SQLite store uses `SqliteConfig`
+  defaults.
+  (e) SpiceDB is measured over its HTTP gateway (JSON) on one kept-alive connection,
+  fully consistent by default (matching `Consistency::Latest`), on `serve-testing`'s
+  in-memory datastore. The closest warden figure is therefore the memory store. gRPC is
+  not measured: it would need a gRPC client dependency for a comparison script.
+  (f) `RESULTS.md` and `RESULTS.json` (summary statistics) are committed; the raw
+  per-call durations stay in `target/` because they are megabytes per run. The
+  generating commands are in `RESULTS.md`.
+- Resolve by: human review after the first full benchmark run
+- Resolution: (fill in)
