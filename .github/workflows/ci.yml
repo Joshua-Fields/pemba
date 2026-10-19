@@ -26,6 +26,26 @@ jobs:
       - uses: actions/checkout@v5
       - run: cargo fmt --all -- --check
 
+  package-files:
+    # Published crates and the Python package each carry copies of the root LICENSE and
+    # NOTICE (Apache-2.0 requires both to ship), and pemba-py a copy of README.md, because
+    # neither cargo nor PEP 639 can package files from outside the package directory.
+    name: package file copies
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: copies match the repository root
+        run: |
+          status=0
+          for d in pemba pemba-core pemba-schema pemba-store-memory pemba-sqlite-common \
+                   pemba-store-sqlite pemba-fixtures pemba-cli pemba-py; do
+            for f in LICENSE NOTICE; do
+              cmp -s "$f" "crates/$d/$f" || { echo "::error::crates/$d/$f differs from $f"; status=1; }
+            done
+          done
+          cmp -s README.md crates/pemba-py/README.md || { echo "::error::crates/pemba-py/README.md differs from README.md"; status=1; }
+          exit $status
+
   clippy:
     name: clippy
     runs-on: ubuntu-latest

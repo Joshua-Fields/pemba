@@ -151,7 +151,7 @@ bundles none. In the same process, open the database with `sqlite3` or anything 
 it (SQLAlchemy, Django, `aiosqlite`). Do **not** open it with anything that brings its own
 SQLite, such as `apsw` or `pysqlite3-binary`. On Linux and macOS, two SQLite libraries in
 one process release each other's file locks, and a committed transaction can be silently
-lost. See [`docs/06-api.md`](docs/06-api.md) §2.5 and
+lost. See [`docs/06-api.md`](https://github.com/Joshua-Fields/pemba/blob/main/docs/06-api.md) §2.5 and
 [How To Corrupt An SQLite Database File](https://www.sqlite.org/howtocorrupt.html) §2.2–2.3.
 
 ## Schema guide
@@ -214,7 +214,7 @@ definition document {
   than guess.
 - Every known difference, with repros and how often it appeared in differential testing
   against SpiceDB 1.56.2, is in
-  [`KNOWN_DIFFERENCES.md`](crates/pemba-difftest/KNOWN_DIFFERENCES.md).
+  [`KNOWN_DIFFERENCES.md`](https://github.com/Joshua-Fields/pemba/blob/main/crates/pemba-difftest/KNOWN_DIFFERENCES.md).
 
 **Changing a schema** that has data is checked: `write_schema` refuses a change that would
 orphan live relationships, such as removing a relation or an allowed type that is still in
@@ -297,10 +297,10 @@ subject sets (KD-1, KD-3).
 
 ## Documentation
 
-The specification lives in [`docs/`](docs/); start with
-[`docs/00-overview.md`](docs/00-overview.md). Design decisions are in
-[`docs/01-decisions.md`](docs/01-decisions.md), and open questions with the choice in
-force for each are in [`docs/OPEN_QUESTIONS.md`](docs/OPEN_QUESTIONS.md).
+The specification lives in [`docs/`](https://github.com/Joshua-Fields/pemba/tree/main/docs/); start with
+[`docs/00-overview.md`](https://github.com/Joshua-Fields/pemba/blob/main/docs/00-overview.md). Design decisions are in
+[`docs/01-decisions.md`](https://github.com/Joshua-Fields/pemba/blob/main/docs/01-decisions.md), and open questions with the choice in
+force for each are in [`docs/OPEN_QUESTIONS.md`](https://github.com/Joshua-Fields/pemba/blob/main/docs/OPEN_QUESTIONS.md).
 
 ## Credits
 
@@ -314,4 +314,4 @@ pemba's design draws on:
 
 ## Licence
 
-Licensed under the [Apache License, Version 2.0](LICENSE).
+Licensed under the [Apache License, Version 2.0](https://github.com/Joshua-Fields/pemba/blob/main/LICENSE).

@@ -118,13 +118,18 @@ them, never `set -x` around them, and do not expose them to workflows triggered 
   `cargo deny check`, `cargo doc`, Python tests (`maturin develop`, `pytest`,
   `mypy --strict` on the tests and sample) on ubuntu, macos and windows, the oldest supported combination (Rocky Linux 8: CPython 3.11, SQLite
   3.26.0, `python-oldest`), and `cargo publish --workspace --dry-run` for every
-  publishable crate (`publish`). Publishing to PyPI/crates.io is a manual human step.
+  publishable crate (`publish`), and that the published crates and `pemba-py` carry
+  byte-identical copies of the root `LICENSE` and `NOTICE` (`package-files`). Publishing to
+  crates.io is a manual human step.
 - `wheels.yml` (`v*` tags + manual only, not PRs): maturin-action builds one abi3
   (`cp311-abi3`) wheel per ADR-014 platform (manylinux 2_17 x86_64 and aarch64, macOS
   arm64 and x86_64, Windows x86_64), checks it contains no SQLite
   (`ci/check_no_sqlite.py`), then installs each wheel on its platform (aarch64 under QEMU,
   macOS x86_64 under Rosetta 2) with CPython 3.11 and 3.14 and runs the whole pytest suite
-  against it. Wheels are uploaded as artifacts only. Run it by hand after changing the
+  against it. It also builds an sdist and checks a wheel built from it imports. On a `v*`
+  tag, `publish` uploads the wheels and sdist to PyPI by trusted publishing, after every
+  smoke test passes and a required reviewer approves the `pypi` environment. A manual run
+  builds and tests only. Run it by hand after changing the
   Python packaging (`pyproject.toml`, `pemba-py/Cargo.toml`, `ci/`).
 - `proptest.yml` (weekly + manual): the same property tests at a raised
   `PROPTEST_CASES` (10 000 on the weekly run; an input on a manual run), for soaking.

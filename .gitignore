@@ -19,3 +19,5 @@ venv/
 .benchmarks/
 # scripts/overnight.ps1
 /logs/
+# Windows debug symbols (`maturin develop`, `cargo build`)
+*.pdb

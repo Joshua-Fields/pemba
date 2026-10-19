@@ -1,9 +1,11 @@
 name: wheels
 
 # abi3 wheels for every ADR-014 platform (docs/09-repo-and-tooling.md §4), each one
-# installed and tested on its own platform. Publishing to PyPI is a manual human step:
-# this workflow only uploads the wheels as build artifacts. Not run on PRs: the macOS jobs
-# are billed at 10x, and ci.yml already builds and tests the extension on all three OSes.
+# installed and tested on its own platform, plus an sdist. On a v* tag, `publish` uploads
+# them to PyPI by trusted publishing once every smoke test passes; the `pypi` environment's
+# required reviewers approve that upload. A manual run builds and tests only. Not run on
+# PRs: the macOS jobs are billed at 10x, and ci.yml already builds and tests the extension
+# on all three OSes.
 on:
   push:
     tags: ["v*"]
@@ -52,6 +54,32 @@ jobs:
         with:
           name: wheel-${{ matrix.platform }}
           path: crates/pemba-py/dist/*.whl
+          if-no-files-found: error
+
+  sdist:
+    name: sdist
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: PyO3/maturin-action@v1
+        with:
+          maturin-version: "1.15.0"
+          command: sdist
+          working-directory: crates/pemba-py
+          args: --out dist
+      # A broken sdist cannot be replaced once on PyPI: build a wheel from it, away from
+      # the repository, and import that.
+      - name: the sdist builds and imports
+        shell: bash
+        run: |
+          python3 -m venv /tmp/sdist-venv
+          /tmp/sdist-venv/bin/pip install crates/pemba-py/dist/*.tar.gz
+          cd /tmp && /tmp/sdist-venv/bin/python -c "import pemba; print(pemba.__file__)"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sdist
+          path: crates/pemba-py/dist/*.tar.gz
           if-no-files-found: error
 
   smoke:
@@ -133,3 +161,35 @@ jobs:
               python ci/check_no_sqlite.py
               pytest -q -p no:cacheprovider
             '
+
+  publish:
+    # Trusted publishing: PyPI trusts this workflow, in the `pypi` environment, for the
+    # `pemba` project; no API token is stored. Waits for every smoke test as well as the
+    # builds, so a wheel that fails its tests is never uploaded.
+    name: publish to PyPI
+    needs: [build, sdist, smoke, smoke-aarch64]
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: pypi
+      url: https://pypi.org/project/pemba/
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v5
+        with:
+          pattern: wheel-*
+          path: dist
+          merge-multiple: true
+      - uses: actions/download-artifact@v5
+        with:
+          name: sdist
+          path: dist
+      - name: five wheels and one sdist
+        shell: bash
+        run: |
+          ls -l dist
+          [ "$(ls dist/*.whl | wc -l)" -eq 5 ]
+          [ "$(ls dist/*.tar.gz | wc -l)" -eq 1 ]
+      - uses: pypa/gh-action-pypi-publish@release/v1
