@@ -146,11 +146,19 @@ fn latency_pass<S: WritableStore>(engine: &Engine<S>, op: &Op, id: &str) {
     std::fs::write(dir.join(format!("{id}.txt")), out).unwrap();
 }
 
-fn scenario<S: WritableStore>(c: &mut Criterion, store_name: &str, engine: &Engine<S>, s: &Scenario) {
+fn scenario<S: WritableStore>(
+    c: &mut Criterion,
+    store_name: &str,
+    engine: &Engine<S>,
+    s: &Scenario,
+) {
     // Every answer is checked before anything is timed.
     run(engine, &s.op);
     let mut group = c.benchmark_group(store_name);
-    if matches!(s.op, Op::WriteBatch { size: 1000 } | Op::LookupResources { .. }) {
+    if matches!(
+        s.op,
+        Op::WriteBatch { size: 1000 } | Op::LookupResources { .. }
+    ) {
         group.sample_size(20);
     }
     group.bench_function(&s.name, |b| {
@@ -174,7 +182,10 @@ fn sqlite(c: &mut Criterion) {
     std::fs::create_dir_all(&dir).unwrap();
     for s in pemba_benches::scenarios() {
         let path = dir.join(format!("{}.db", s.name));
-        let engine = load(SqliteStore::open(&path, SqliteConfig::default()).unwrap(), &s);
+        let engine = load(
+            SqliteStore::open(&path, SqliteConfig::default()).unwrap(),
+            &s,
+        );
         scenario(c, "sqlite", &engine, &s);
     }
     // Best effort: a leftover directory under target/ is harmless.

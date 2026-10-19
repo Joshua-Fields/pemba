@@ -221,7 +221,10 @@ pub fn manifest() -> String {
                 permission,
                 subject,
                 expect,
-            } => format!("{}\tcheck\t{resource}\t{permission}\t{subject}\t{expect}\t-", s.name),
+            } => format!(
+                "{}\tcheck\t{resource}\t{permission}\t{subject}\t{expect}\t-",
+                s.name
+            ),
             Op::LookupResources {
                 resource_type,
                 permission,
