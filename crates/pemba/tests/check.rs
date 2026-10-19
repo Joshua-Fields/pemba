@@ -1103,6 +1103,35 @@ fn depth_exceeded_carries_readable_path() {
     );
 }
 
+/// `.all()` steps count towards `max_depth` exactly as `->` steps do (cargo-mutants, T3.6:
+/// every other depth test chains `->`).
+#[test]
+fn depth_limit_counts_all_arrow_steps() {
+    const ALL_SCHEMA: &str = "\
+definition user {}
+
+definition folder {
+    relation parent: folder
+    relation viewer: user
+    permission view = viewer + parent.all(view)
+}
+";
+    let mut rels = folder_chain(5);
+    rels.push("folder:f4#viewer@user:anne".to_owned());
+    let e = engine_cfg(ALL_SCHEMA, depth_config(3), &strs(&rels));
+    assert_eq!(
+        depth_path(check(&e, "folder:f0#view@user:anne")),
+        [
+            "folder:f0#view",
+            "folder:f1#view",
+            "folder:f2#view",
+            "folder:f2#viewer"
+        ]
+    );
+    let e = engine_cfg(ALL_SCHEMA, depth_config(6), &strs(&rels));
+    assert_allowed(&e, "folder:f0#view@user:anne");
+}
+
 #[test]
 fn depth_within_limit_succeeds() {
     let mut rels = folder_chain(5);
