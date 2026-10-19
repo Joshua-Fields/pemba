@@ -13,6 +13,11 @@ classifiers = [
 ]
 dynamic = ["version"]
 
+[project.urls]
+Homepage = "https://github.com/Joshua-Fields/pemba"
+Repository = "https://github.com/Joshua-Fields/pemba"
+Issues = "https://github.com/Joshua-Fields/pemba/issues"
+
 [project.optional-dependencies]
 test = ["pytest>=9.1", "mypy>=2.4"]
 # bench/test_scenarios.py (docs/07-testing.md §7)

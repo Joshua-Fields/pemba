@@ -17,16 +17,24 @@ database transaction**: the row you insert and the relationship that grants acce
 commit or roll back together. There is no second system to keep in sync, so no outbox, no
 reconciliation job, and no window where a document exists that nobody can open.
 
-**Status: pre-alpha.** `check`, `lookup_resources`, `lookup_subjects`, the memory and SQLite
-stores, transactional writes and the Python bindings are implemented and tested, including
-against SpiceDB. Nothing is published to PyPI or crates.io yet, and the 0.1 release gate
+**Status: early pre-release (0.1.0-alpha.1), API may change.** `check`, `lookup_resources`,
+`lookup_subjects`, the memory and SQLite stores, transactional writes and the Python
+bindings are implemented and tested, including against SpiceDB. The 0.1 release gate
 (`docs/08-milestones.md` T3.7) is not signed off. Expect breaking changes.
 
 ## Install
 
-Not on PyPI or crates.io yet; build from source.
+```bash
+pip install --pre pemba                      # Python 3.11 or newer
+cargo add pemba@0.1.0-alpha.1                # Rust library
+cargo install pemba-cli@0.1.0-alpha.1        # `pemba` command-line tool
+```
 
-**Python** (3.11 or newer; Rust 1.99, pinned in `rust-toolchain.toml`):
+Only pre-releases exist so far, so pip needs `--pre` and cargo needs the explicit version.
+
+### From source
+
+**Python** (Rust 1.99, pinned in `rust-toolchain.toml`):
 
 ```bash
 git clone https://github.com/Joshua-Fields/pemba
