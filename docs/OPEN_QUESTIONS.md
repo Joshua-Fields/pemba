@@ -1026,8 +1026,13 @@ it is resolved.
   (c) Seed corpora come from `fuzz/seed_corpus.py`: the schemas and relationships in
   `testdata/`, tuple edge cases, and 32 fixed pseudo-random inputs for the third target.
   The inputs libFuzzer adds during a run are committed afterwards, as §5 asks.
-  (d) Not done yet: the ≥ 10-minute runs, `cargo-mutants` and `docs/MUTANTS.md`. Neither
-  `fuzz.yml` (09 §1) nor the weekly `cargo-mutants` job has been written.
+  (d) Done on 2026-10-19 (pre-release sweep): each target ran 600 s with no crash, timeout or
+  slow unit (`fuzz_schema_parse` 3.37 M executions, `fuzz_tuple_parse` 35.3 M,
+  `fuzz_check_vs_reference` 53.9 k), and the inputs libFuzzer added are committed. The
+  generator hang described in (a) did not reappear in those 53.9 k runs under a 60 s
+  per-input limit. `cargo-mutants` on `eval.rs` and `compile.rs`: 202 mutants, 0 surviving,
+  recorded in `docs/MUTANTS.md`. Still not written: `fuzz.yml` (09 §1) and a weekly
+  `cargo-mutants` job; both run from `scripts/overnight.ps1` for now.
 - Resolve by: human review after the first 10-minute runs
 - Resolution: (fill in)
 
