@@ -241,6 +241,33 @@ fn direct_cycles_are_reported_once_each() {
 }
 
 #[test]
+fn a_cycle_reachable_from_another_is_reported_too() {
+    // aaa ↔ bbb reaches ccc ↔ ddd: two components, so two errors. A component is the
+    // permissions on a cycle through `aaa`, not everything `aaa` reaches (cargo-mutants, T3.6).
+    let src = "definition user {}\ndefinition doc {\n relation rel: user\n permission aaa = bbb + ccc\n permission bbb = aaa\n permission ccc = ddd\n permission ddd = ccc\n}";
+    let errs = errors(src);
+    let messages: Vec<_> = errs
+        .errors
+        .iter()
+        .map(|e| (e.code, e.message.as_str()))
+        .collect();
+    assert_eq!(
+        messages,
+        [
+            (
+                ErrorCode::DirectCycle,
+                "permission `aaa` depends on itself: `aaa` → `bbb` → `aaa`"
+            ),
+            (
+                ErrorCode::DirectCycle,
+                "permission `ccc` depends on itself: `ccc` → `ddd` → `ccc`"
+            ),
+        ],
+        "{errs}"
+    );
+}
+
+#[test]
 fn recursion_through_arrows_and_relations_is_legal() {
     let src = "definition user {}\ndefinition group {\n relation member: user | group#member\n permission all_members = member\n}\ndefinition folder {\n relation parent: folder\n relation viewer: user\n permission view = viewer + parent->view\n}";
     assert!(compile(src).is_ok(), "{:?}", compile(src).err());
