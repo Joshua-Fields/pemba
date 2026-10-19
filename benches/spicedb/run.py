@@ -129,10 +129,14 @@ class SpiceDb:
     def lookup(self, rtype: str, permission: str, subj: str, page: int | None) -> int:
         found = 0
         cursor: str | None = None
-        consistency = self.consistency
         while True:
+            # Every page repeats the first page's arguments exactly: SpiceDB refuses a cursor
+            # used with any other arguments, consistency included ("the cursor provided does
+            # not have the same arguments as the original API call"). The cursor carries
+            # the snapshot it was issued at, so later pages read the first page's revision,
+            # as pemba's do (docs/04-evaluation.md §5).
             body: dict[str, Any] = {
-                "consistency": consistency,
+                "consistency": self.consistency,
                 "resourceObjectType": rtype,
                 "permission": permission,
                 "subject": subject(subj),
@@ -149,8 +153,6 @@ class SpiceDb:
             if not page or len(results) < page:
                 return found
             cursor = results[-1]["afterResultCursor"]["token"]
-            # Later pages read the first page's snapshot, as pemba's do.
-            consistency = {"atExactSnapshot": results[0]["lookedUpAt"]}
 
 
 def start_docker(port: int) -> None:
