@@ -25,6 +25,8 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - run: cargo fmt --all -- --check
+      # fuzz/ is its own workspace, so `--all` above does not reach it.
+      - run: cd fuzz && cargo fmt -- --check
 
   package-files:
     # Published crates and the Python package each carry copies of the root LICENSE and
