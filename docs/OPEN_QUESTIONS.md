@@ -1045,8 +1045,14 @@ it is resolved.
   the Rust latency pass then runs on that grown database; pytest-benchmark writes 30
   batches. Same SQL and pragmas, different table sizes: SQLite `write_batch_1000` p50 was
   51.7 ms in Rust and 7.0 ms in Python, while `write_batch_100` was close (2.1 ms and 1.8 ms).
+  The SpiceDB side has its own problem: after the bench client was fixed to send each
+  request in one write (431fbaf), checks dropped from ~44 ms to ~0.6 ms, but SpiceDB's
+  `write_batch_100` still measured ~44 ms p50 while `write_batch_1000` measured ~16 ms. A
+  multi-segment request body probably still meets the delayed-ACK stall on Docker Desktop's
+  port forwarding.
 - Resolve by: make both measure the same table size (a fixed number of batches per sample,
-  or a fresh database per sample), then compare
+  or a fresh database per sample), then compare; and find what holds SpiceDB's
+  `write_batch_100` at ~44 ms before quoting any SpiceDB write figure
 - Resolution: (fill in)
 
 ## OQ-041 — `Span::new` accepts an inverted span
