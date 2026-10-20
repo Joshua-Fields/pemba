@@ -1,0 +1,6 @@
+/**"a person */
+definition user {}
+
+definition group {
+    relation viewer: user | userit
+    permission view = ivewedwither.all(v

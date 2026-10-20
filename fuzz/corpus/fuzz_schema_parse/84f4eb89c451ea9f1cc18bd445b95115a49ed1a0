@@ -1,0 +1,5 @@
+definition user {}
+
+definition organization {
+    relation admin: user
+    relation mbr: user | group#memba with comments: `mment + view)}

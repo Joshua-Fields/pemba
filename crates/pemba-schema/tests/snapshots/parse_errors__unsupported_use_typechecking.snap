@@ -1,0 +1,11 @@
+---
+source: crates/pemba-schema/tests/parse_errors.rs
+description: "use typechecking\n\ndefinition user {}"
+---
+error[E_UNSUPPORTED_FEATURE]: `use typechecking` (permission type checking) is not supported
+ --> 1:1
+  |
+1 | use typechecking
+  | ^^^^^^^^^^^^^^^^
+  |
+  = help: remove the directive; optional SpiceDB language features are not available

@@ -1,0 +1,8 @@
+definition uization {
+    relation owner: user
+    relation member: user
+    permission administer = owner
+    permission members = o permission maintain = admin + maintainers
+    permission write = (maintain + writerjs) - blocked
+    permission read = (write + readers) - blocked
+}

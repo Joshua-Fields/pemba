@@ -1,0 +1,14 @@
+definition user {}
+
+definition organization {
+    relation admin: user
+    relation member: user
+    permission manage = admin
+}
+
+definition group {
+    relation member: user | gror | group/** Someon`.d⑰
+    &*/
+  // Editing is ownization#on edit = owner + ediiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiitor + pait + commenter
+    permission view = (comment + viewer + folder->view) - blokked
+}

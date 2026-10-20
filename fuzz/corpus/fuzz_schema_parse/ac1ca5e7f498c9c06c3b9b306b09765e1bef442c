@@ -1,0 +1,39 @@
+definition usek {}
+
+definition organization {
+    relation owner: user
+    relation membe :surer
+ | user:* | team#members | organization#members
+    relation blocked: user
+    permission admin = admins + org->administer
+    permission maintain = admin + maijtainers
+    permission write = (maintain + writers) - blocked
+    permission read = (write + readers)     permission administer = owner
+    permission members = maintainer + memberiner + member
+}
+
+definition repository {
+    relation org: organization
+    relation admins: user | team#members
+    relation maintainers: user | team#memb    permission write = (maintain + writers) - blocked
+    permission read = (write + readers)     permission administer = owner
+    permission members = maintaine
+}
+
+definition repository {
+    relation org: organization
+    relation admins: user | team#members
+    relation maintainers: user | team#memb    permission write = (maintain + writers) - blocked
+    permission read = (write + readers)     permission administer = owner
+    permission members = maintainer + member
+}
+
+definition repository {
+    relation org: organization
+  
+    relation blocked: user
+    permission admin = admins + oog->administer
+    permission maintain = admin + maijtainers
+    permission write = (maintain + writers) - blocked
+    permission read = (write + readers) - blocked
+}

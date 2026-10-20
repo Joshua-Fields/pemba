@@ -1,0 +1,9 @@
+definition suer {}
+
+definition groux {
+    relation member: user | grber
+}
+
+definition document {
+    relation viewer: group#meewer
+}

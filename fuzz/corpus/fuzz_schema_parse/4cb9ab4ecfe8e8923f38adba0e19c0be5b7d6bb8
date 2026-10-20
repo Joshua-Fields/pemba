@@ -1,0 +1,5 @@
+definition folder {
+   relation vi1wer: user
+    permission view = vier
+    permission ew = parent->view
+}

@@ -1,0 +1,63 @@
+definn document {
+    riatoeln sion view = viewer + ed{viewer:tion doc {
+tion banned: grp:*
+    pn sion vi=tion sion viewriewer: user
+    permirelation siontion sion view = viewer: user
+    permission viewer: user
+    permission view =tion sion view =ssion view =tion sion view = viewer + ed{viewer: user
+    ped{ermission view =tion sion view =ssion view =tion /** a person */
+definition user {}
+
+definition group {
+ 
+    permission view = viewesion view = viewer + ed{viewer: user
+    ped{}
+definition doc {
+tion banned: grp:*
+    pn sion vi=tion sion viewr
+    ped{}
+d doc {
+tion banned: grp:*
+    permission= view = viermiview =tion sion view =ssion view =tion sion view = viewer + ed{viewer: user
+    ped{}
+definition doc {
+tion banned: grp:*
+    permission}
+definition doc {
+tion banned: grp:*
+    pn sion vi=tion sion viewr
+    ped{}
+d doc {
+tion bann*r +der->edit
+    permission view = (viewer + edit + folder->view) - banned
+    permission view_if_in_all_groups =ed: grp:*
+    permission view = viermiview =tion sion view =ssion view  user
+    permirelation sion view = viewer + ed{viewer: user
+    permission view =tion sion view =ssione viw =tion sion view = viewer + ed{viewer: user
+    ped{}
+definition doc {
+tion banned: grp:*
+    pn sion view = viewer + ed{viewer: user
+    p&rmirelation sion view = viewer + ed{viewer: user
+    pion doc {
+tion banned: grp:*
+    pn sion view = vr + ed{vinition doc {
+tion banned: grp:*
+    pn sion vi=tion sion viewriewer: user
+    permirelation siontion sion view = viewer + ed{viewer: user
+    permission viewer: user
+    permission view =tion sion view =ssion view =tion sion view = viewer + ed{viewer: user
+    ped{ermission view =tion sion view =ssion view =tion sion view = viewer + ed{viewer: user
+    ped{}
+definition doc {
+tion banned: grp:*
+    pn sion vi=tion sion viewr
+    ped{}
+d doc {
+tion banned: grp:*
+    permission= view = viermiview =tion sion foldeolder->edit
+    permission view = (viewer + edit + folde view =ssion view =tion sion view = viewer + ed{viewer: user
+    ped{}
+definition dr->view) - banned
+    permission view_if_in_all_groups = foldeoc {
+tir.alonl(view banned): gr

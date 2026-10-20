@@ -1,0 +1,23 @@
+[package]
+name = "pemba-schema"
+description = "Schema language for pemba: lexer, parser, validator, compiled IR and printer."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories = ["authentication", "parser-implementations"]
+
+[lints]
+workspace = true
+
+[dependencies]
+thiserror.workspace = true
+sha2.workspace = true
+
+[dev-dependencies]
+insta.workspace = true
+proptest.workspace = true

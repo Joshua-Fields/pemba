@@ -1,0 +1,6 @@
+definition user {}
+definition team {}
+definition doc {
+    relation owner: user | t
+permission view = owner->member
+}

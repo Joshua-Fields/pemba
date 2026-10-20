@@ -1,0 +1,5 @@
+definition user {}
+
+definition organization {
+    relation r: user | user:*     permission edit = (owner + editoer + parent->view - locked
+}

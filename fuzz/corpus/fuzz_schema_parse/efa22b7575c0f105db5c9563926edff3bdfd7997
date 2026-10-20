@@ -1,0 +1,10 @@
+definition user {}
+
+definition orgaization {
+    relation owner: user
+    relation member: user
+    permission administer = owner
+    permission members = oadmins - org->administer
+    permission maintain = admin  - blocked
+    permission read = (write + readers) - blocked
+}

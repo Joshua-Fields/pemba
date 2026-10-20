@@ -1,0 +1,24 @@
+[package]
+name = "pemba-fixtures"
+description = "Fixture format and runner for pemba (`pemba test`)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories = ["authentication", "development-tools::testing"]
+
+[lints]
+workspace = true
+
+[dependencies]
+pemba-core.workspace = true
+pemba-schema.workspace = true
+pemba-store-memory.workspace = true
+# Fixture files (`docs/07-testing.md` §3) are YAML.
+serde.workspace = true
+serde-saphyr.workspace = true
+thiserror.workspace = true

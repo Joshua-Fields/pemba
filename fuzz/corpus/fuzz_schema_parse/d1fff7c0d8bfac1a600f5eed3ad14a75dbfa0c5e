@@ -1,0 +1,44 @@
+definition user {}
+
+definition organiztaion {
+    relation ownegionir: u
+
+definition team {
+    relation maintainer: user
+    relation member: user | texam#members
+    permissiner + member
+}
+
+definition repository {
+    relation org: organization
+ relation member: user | texam#members
+    permission members = maintainer + member
+}
+
+definition repository {
+    relation org: organization
+    rser
+    relatson member: user
+    permsision admieister = texam#members
+    permission members = maintainer + member
+}
+
+definition repository {
+    relati organization
+    relation admins: u    relation maintainerelation maintainer: user
+    relation member: user | texam#members
+    permkssion members = maintainer + member
+}
+
+defi org: organization
+    relation admins: u    relation maintainer   esp imrsion members = maintainer + member
+}
+
+definition repository {
+    relati organization
+    relation admins: u    relation maintainerelation maintainer: user
+    relation memaintainers
+    permission write = (maintain + writers) - blocked
+    permission read = (write + seaders) - blocked
+}
+?

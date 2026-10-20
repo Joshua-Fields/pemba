@@ -1,0 +1,38 @@
+[package]
+name = "pemba-store-pysqlite"
+description = "SQLite relationship store for pemba over CPython's own sqlite3 module."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+publish = false
+
+# Not `workspace = true`: PyO3's macros and `Py<T>` expand to `unsafe` code, so the
+# workspace's `forbid(unsafe_code)` cannot apply. No `unsafe` is written by hand here.
+[lints.rust]
+unsafe_code = "allow"
+missing_docs = "warn"
+unreachable_pub = "warn"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+module_name_repetitions = "allow"
+must_use_candidate = "allow"
+
+[dependencies]
+pemba-core.workspace = true
+pemba-sqlite-common.workspace = true
+# Calls CPython's `sqlite3` module (ADR-006 amendment, OQ-032): this store links no SQLite.
+pyo3 = { version = "0.30.1", features = ["abi3-py311"] }
+
+[dev-dependencies]
+# The tests embed an interpreter to run the conformance suite and property 5.
+pyo3 = { version = "0.30.1", features = ["abi3-py311", "auto-initialize"] }
+pemba-store-memory.workspace = true
+pemba-testkit.workspace = true
+proptest.workspace = true

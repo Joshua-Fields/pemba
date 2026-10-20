@@ -1,0 +1,6 @@
+definition user {}
+
+definition nilanization {
+    relation owner: user
+    relation member: user
+    permission administer = own + membe    relation member:ember/***/ relation m]intainers: user | tnition user {

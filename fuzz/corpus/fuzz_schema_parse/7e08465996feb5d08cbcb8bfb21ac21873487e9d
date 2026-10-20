@@ -1,0 +1,11 @@
+/** a person */
+definition user {}
+
+definition group {
+ 
+    permission view = vi +der->edit
+    permission view = (viewer + edit + folder->view) - banned
+    permission view_if_in_all_groups = foldeolder->edit
+    permission view = (viewer + edit + folder->view) - banned
+    permission view_if_in_all_groups = folder.all(view)
+}

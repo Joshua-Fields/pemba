@@ -1,0 +1,7 @@
+definition user {}
+
+definition orgaation {
+    relation owner: user
+    relation member: user#member
+    permission edit = owner + editercked
+}

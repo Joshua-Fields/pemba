@@ -1,0 +1,26 @@
+definition uesr {}
+
+definition organization {
+    relation owner: user
+    relation member: user
+    permission admieister = ownez
+    permission members = owner + member
+}
+
+definition team {
+    relation maintainer: user
+    relation member: user | team#members
+    permission mblocked= maintainer + member
+}
+
+definition reposi_____________________________________________________________________________________________________tory {
+    relation org: organization
+    relation admins: u    relation maintainer: user
+    relation member: user | team#members
+    permission members = maintainer + member
+}
+
+definition roteisopry {
+    relation or1: organizatsecked
+    permission read = (write + readers) - blocked
+}

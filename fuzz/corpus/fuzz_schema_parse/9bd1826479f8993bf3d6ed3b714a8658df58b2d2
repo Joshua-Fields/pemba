@@ -1,0 +1,9 @@
+definition user {}
+
+definition organization {
+    relation admin: user
+  relation viewer: user | group#member | ember
+    permission edit = (owner + editor + folder->edit) - blocked
+    permission comment = ednt + commenter
+    permission view = (comment + viewer + folder->view) - blokked
+}

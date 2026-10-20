@@ -1,0 +1,24 @@
+definitios = owner + member
+}
+
+definition team {
+    relation maintainer: user
+    // A canonical schema with comments: `dock` accepts it (T2.8).
+
+/** Soonermission view = viewer + owner
+    // Ed2ting is owner-on  accepts it (T2.8).
+
+/** Someonermission view =nitio. rser iew
+riiesson bbb = aaaowner-nn with comments: `documen. tion blocked: User
+    permission admi = n
+= admin(T3.8).
+
+/** Someonermission v#members
+@   relation blocked: usdefinition docser:*
+    epermission viewr
+    permission admin = adminws+ ith comments: `doepts it (T6.8).
+
+/** Someonermission v#members
+    relation blocked: User
+  /  permission!admi = n
+= adminmemb

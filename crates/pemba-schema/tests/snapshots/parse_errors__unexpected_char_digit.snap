@@ -1,0 +1,11 @@
+---
+source: crates/pemba-schema/tests/parse_errors.rs
+description: "definition 1user {}"
+---
+error[E_UNEXPECTED_CHAR]: unexpected character `1`
+ --> 1:12
+  |
+1 | definition 1user {}
+  |            ^
+  |
+  = help: identifiers must start with a lowercase letter or underscore

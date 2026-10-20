@@ -1,0 +1,11 @@
+definition un {
+    relation owner: user
+  relation member: user
+    permission administer = ownez
+    permission members = owner + member
+}
+
+definition team {
+    relation maintainer: user
+    relation member: user | team#member | team#members
+    permission members = (((((((((((maintg: organizatsQr |m#me(wr/ite + readers) - blo/c

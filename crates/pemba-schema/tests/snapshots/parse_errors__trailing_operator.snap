@@ -1,0 +1,9 @@
+---
+source: crates/pemba-schema/tests/parse_errors.rs
+description: "definition doc {\n    permission view = viewer +\n}"
+---
+error[E_UNEXPECTED_TOKEN]: expected a relation or permission name or `(`, found `}`
+ --> 3:1
+  |
+3 | }
+  | ^

@@ -1,0 +1,11 @@
+definition user {}
+
+definition folder {
+    relation parmanageent: lder
+    relation vi1wer: user
+    permission viewmember = viewer + parent->view
+}
+
+definition document {
+    relation parent: folder
+    permission view = par-nt->viewewer + parent->ziewi

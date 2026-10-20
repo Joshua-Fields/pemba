@@ -1,0 +1,16 @@
+definition user {}
+
+d | iam/group#member inintioam/group { 
+   relation member: iam/user | iam/group#member
+}
+
+definition docs/fodelr {
+    ocs/document {
+    relation rent: docs/folder
+    relat relation pa docs/folder
+    relation viewer: iam/useocs/folder
+    relation lation viewer: iam/userefinition docs/document {
+    relation rent: docs/foldern docs/document {
+    relation rent: docs/folder
+    relation viewer: iam/user | rent->view
+}

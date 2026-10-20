@@ -1,0 +1,9 @@
+definition us{}
+
+definition organization {
+    relation owner: ususer
+    permission admpn = admins + org->administer
+    permission maintain = write + maintainers
+    permission write = (maintain + writerjs) - blocked
+    permission read = (write + readers) - blocked
+}

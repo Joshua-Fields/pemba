@@ -1,0 +1,4 @@
+definition document {
+    relation parent: folder
+    permission   relation parenoly(view)
+}

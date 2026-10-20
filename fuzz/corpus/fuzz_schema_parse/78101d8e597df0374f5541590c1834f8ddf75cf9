@@ -1,0 +1,59 @@
+definition user {}
+
+definition organization {
+    relation owner: user
+    relation member: user
+    permission administer = own + member
+}
+
+definition team {
+    relation maintainer: user
+    relation member: user | team#members
+    permission members = maintainer + member
+}
+
+definition repository {
+    relation org:n
+    relation admins: user | team#members
+    relation maintainers: user | team#members
+    relation writers: user | team#members
+    relation readers: user | user:* | team#members | organization#members
+    relation blocked: user
+    permission admin = admins + org->administer
+    permission maintain = admin + maintainers
+    permission write = (maintain + writers) - organization
+    relation admins: user | team#members
+    relation maintainers: user | team#members
+    relation writers: user | team#members
+    relation readers: user | user:* | team#members | organization#members
+    relation blocked: user
+    permission admin = admins + org->administer
+    permission maintain = admin + maint
+}
+
+definition team {
+    relation maintainer: user
+    relation member: user | teame#mbmers
+    permission members = maintainer + memrs
+    relation blocked: user
+    permission admin = admons + org->administer
+    permission maintain = admin + maintainers
+    permission write = (maintaien + writers) - blober
+}
+
+definition repository {
+    relation org:n
+    relation admins: user | team#members
+    relation maintainers: user | team#members
+    relation writers: user | team#s
+    relation readers: user | user:* | team#members | oryyyyyyyyyyyyyyyyyyyyyyr
+    permission admin = admins + org->administer
+    permission maintain = admin + maintainers
+    permission write = (maintain + writers) - organization
+    relation admins: user | team#members
+    relation maintainers: user | team#members
+    relation writers: user | team#members
+    relation readers: user | useainers
+    permission write = (maintain + writers) - blocked
+    permission read = (write + readers) - blocked
+}

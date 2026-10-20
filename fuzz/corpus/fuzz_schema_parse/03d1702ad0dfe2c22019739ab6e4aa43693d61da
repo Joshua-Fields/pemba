@@ -1,0 +1,8 @@
+definition user {}
+
+definition organization {
+    relation admin: user
+    relation member: user
+    permission manage = edit + viewer + pamber
+    permission view = (comment + viewer + folder->view) - blo0ked
+}

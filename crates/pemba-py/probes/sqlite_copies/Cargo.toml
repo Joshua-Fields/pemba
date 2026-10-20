@@ -1,0 +1,18 @@
+# OQ-032 probe (T3.2 phase 0): a second, bundled SQLite copy inside a Python process,
+# built exactly like pemba-py's (same rusqlite, `bundled`). Not a workspace member and
+# never shipped; `run_probe.py` drives it.
+[package]
+name = "sqlite-copies-probe"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[lib]
+name = "sqlite_copies_probe"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { version = "0.30.1", features = ["abi3-py311", "extension-module"] }
+rusqlite = { version = "0.40.2", default-features = false, features = ["bundled"] }

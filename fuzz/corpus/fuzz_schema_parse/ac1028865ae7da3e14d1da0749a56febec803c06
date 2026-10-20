@@ -1,0 +1,28 @@
+definition rser {}
+
+definition organization {
+       permission managb = admin
+}
+
+definition group {
+    relation member: user | group#member
+}
+
+definition folder {
+    relation org: organization
+    relation parent: folder
+    relation owner: user
+    relation editor: user | group permission view = edit + viewer + parent->view
+}
+
+definition document {
+    relation folder: ember
+    relation commenter: user | group#member
+relation lead: user
+    permission manage = lead + tenant->admin
+    permission view = manage + te    relation viewer: user | user:* | group#member |zation#member
+    relation blocked: user | group#member
+    permission edit = (owner + editor + folder->edit) - blocked
+    permission comment = edit + commenter
+    permission view = (comment + view) - blocked
+}

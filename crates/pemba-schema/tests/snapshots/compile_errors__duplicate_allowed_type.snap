@@ -1,0 +1,29 @@
+---
+source: crates/pemba-schema/tests/compile_errors.rs
+description: "definition user {}\ndefinition group {\n    relation member: user | group#member | user:* | user | group#member | user:*\n}"
+---
+error[E_DUPLICATE_ALLOWED_TYPE]: `user` is listed more than once on relation `member`
+ --> 3:53
+  |
+3 |     relation member: user | group#member | user:* | user | group#member | user:*
+  |                                                     ^^^^
+  |
+  = help: remove the duplicate
+
+error[E_DUPLICATE_ALLOWED_TYPE]: `group#member` is listed more than once on relation `member`
+ --> 3:60
+  |
+3 |     relation member: user | group#member | user:* | user | group#member | user:*
+  |                                                            ^^^^^^^^^^^^
+  |
+  = help: remove the duplicate
+
+error[E_DUPLICATE_ALLOWED_TYPE]: `user:*` is listed more than once on relation `member`
+ --> 3:75
+  |
+3 |     relation member: user | group#member | user:* | user | group#member | user:*
+  |                                                                           ^^^^^^
+  |
+  = help: remove the duplicate
+
+error: schema rejected with 3 errors

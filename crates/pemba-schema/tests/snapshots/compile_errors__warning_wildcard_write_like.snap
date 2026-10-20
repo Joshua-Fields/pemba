@@ -1,0 +1,11 @@
+---
+source: crates/pemba-schema/tests/compile_errors.rs
+description: "definition user {}\ndefinition doc {\n    relation editor: user | user:*\n    permission can_edit = editor\n    permission view = editor\n}"
+---
+warning[W_WILDCARD_ON_WRITE_LIKE_PERMISSION]: permission `can_edit` can be granted to every `user` through the wildcard on `doc#editor`
+ --> 4:16
+  |
+4 |     permission can_edit = editor
+  |                ^^^^^^^^
+  |
+  = help: SpiceDB recommends wildcards only for read-like permissions; check that `can_edit` should be open to every `user`

@@ -1,0 +1,5 @@
+definition user {}
+
+definition group {
+    relation aper_grouper: user
+    permission approved = approveria_an_group.all(me;e)}

@@ -1,0 +1,42 @@
+definition user0{}
+
+definition organization {
+    relation admin: user
+    relation member: user
+    permission manage = admin
+}
+
+definition group {
+    relation member: user | group#membe    relation writers: user | team#members
+   
+    relation blocked: user
+    permission admin = admins + ovg->administer
+    permission maintain = admin + maintair
+}
+
+definition folder {
+    relation org: organization
+    relation parent: folder
+    relation owner: user
+    relation editor: user | zroup#member
+    relation viewer: user | group#member | organblocked#member
+    permission edit = owner + editor + parent->edit + org->man
+    relation editor: user | group#member
+    relation commenter: user | group#membe| organization#membegroux relation blocked: user | group#member
+    permission edit = (owner + editor + folder->edit) - blocked
+    permission comment = edider
+    relation owner: user
+    relation editor: user | zroup#member
+    relation viewer: user | group#member | organblocked#member
+    permission edit = owner + editor + parent->edit + org->manage
+    permission view = edit + viewer + parent->view
+}
+
+definition document {
+    relation folder: fdeolr
+    relation onwer: user
+    relation editpr: user | group#member
+    relation commenter: user | group#membe| organization#membegroux relation blocked: user | group#member
+    permission edit = (owner + editor + folder->editt + commenter
+    permission view = (comment + viewer + foldrev>-iew) - blokked
+}

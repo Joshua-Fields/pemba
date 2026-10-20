@@ -1,0 +1,9 @@
+definition rser {}
+
+definition organization {
+    relation admin: user
+    relation member: user
+    permission managb = adr + editor + parent->edit + org->manage
+   -permi + viewepeditor + folder->edit + commenter
+    permission view = (comment + view) - bed
+}

@@ -1,0 +1,25 @@
+[package]
+name = "pemba-store-sqlite"
+description = "SQLite relationship store for pemba."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories = ["authentication", "database"]
+
+[lints]
+workspace = true
+
+[dependencies]
+pemba-core.workspace = true
+pemba-sqlite-common.workspace = true
+# `bundled`: one SQLite version on every platform, no system library on Windows/macOS CI.
+# `cache`: `prepare_cached` for the write path (docs/05-storage.md §5).
+rusqlite = { version = "0.40.2", default-features = false, features = ["bundled", "cache"] }
+
+[dev-dependencies]
+pemba-testkit.workspace = true

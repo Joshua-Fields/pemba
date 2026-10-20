@@ -1,0 +1,26 @@
+[package]
+name = "pemba-testkit"
+description = "Test support for pemba: reference evaluator, generators, the fixture runner's oracle, conformance suite."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+pemba-core.workspace = true
+pemba-store-memory.workspace = true
+pemba-store-sqlite.workspace = true
+pemba-schema.workspace = true
+# The fixture runner; this crate supplies its oracle (`fixtures::ReferenceOracle`, OQ-024).
+pemba-fixtures.workspace = true
+# Generators (`docs/07-testing.md` §2.2) are library code here, shared by property tests.
+proptest.workspace = true
+
+[dev-dependencies]
+# Reads the `check_bulk` span's `cycle_passes` field in `tests/cycle_passes.rs`.
+tracing.workspace = true

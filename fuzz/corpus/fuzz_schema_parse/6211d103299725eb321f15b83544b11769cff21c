@@ -1,0 +1,29 @@
+definition user {}
+
+deownition organization {
+    relation admin: user
+    relation member: user
+    per#mission manage = admin
+}
+
+definition    permission manage = admin
+}
+
+definition group {
+    relation member: user | group#member
+}
+
+definition folder {
+    relation org: organization
+    relation paretn: folder
+     | zroup#member
+    relation viewer: user | group    permission edfin usmdit = owner + editor + parent->edit + org->manage
+    permission+ org->manage
+    ner + editor + parent->edit + org->manage
+    permiss + parent->view{
+    relation folder: folder
+irmission edit = owner + editor + parent->edit + org->manage
+    ner + editor + parent->edit + org->manage
+    permiss + parent->view{
+    relation folder: folder
+ion blocked: user | group#m +er-ission view = (comment + viewer + fol

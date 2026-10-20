@@ -1,0 +1,11 @@
+---
+source: crates/pemba-schema/tests/parse_errors.rs
+description: "definition doc {\n    relation viewer: group:*#member\n}"
+---
+error[E_UNEXPECTED_TOKEN]: a wildcard cannot have a subject relation
+ --> 2:29
+  |
+2 |     relation viewer: group:*#member
+  |                             ^^^^^^^
+  |
+  = help: allow either `group:*` or `group#member`

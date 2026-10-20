@@ -1,0 +1,7 @@
+definition user {}
+
+definition organiza0tion {
+    relation owner:ed
+}
+use   nister
+    petrm

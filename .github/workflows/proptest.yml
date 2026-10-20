@@ -30,11 +30,11 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: Swatinem/rust-cache@v2
-      # Only the properties binary: warden-difftest's ignored tests need SpiceDB
+      # Only the properties binary: pemba-difftest's ignored tests need SpiceDB
       # (difftest.yml). `prop1_*_full`, `prop4_*_full` (historical reads, both stores, ~8 s)
       # `prop5_*_full` (memory ≡ SQLite, ~25 s), `prop2_*_full` (lookup_resources, both
       # stores, ~8 s), `prop3_*_full` (lookup_subjects, both stores, ~8 s) and
       # `schema_change_*_full` run at least 1 000 cases each; `prop4_*_full` includes GC.
-      - run: cargo test -p warden-testkit --test properties -- --ignored
+      - run: cargo test -p pemba-testkit --test properties -- --ignored
         env:
           PROPTEST_CASES: ${{ inputs.cases || '10000' }}

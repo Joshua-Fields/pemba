@@ -1,0 +1,4 @@
+definition user {}
+
+definition organization {
+    relation o: userser:; | team#me}

@@ -1,0 +1,13 @@
+definition team {
+    relation maintainer: user
+    relation member: user | team#member
+}
+
+definition reposito________ry {
+    relation org: organization
+  relation maintainers:  member
+}
+
+definition reposito________ry {
+    relation org: oer|  eatmcm    permission read = (write + readers) - blocked
+}

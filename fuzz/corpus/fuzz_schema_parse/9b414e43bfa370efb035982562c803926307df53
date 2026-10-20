@@ -1,0 +1,28 @@
+definition user {}
+
+definition organization {
+    relation owner: user
+    relation mgmber: user
+    permission administer = owner
+    permission members = owner + member
+}
+
+definition team {
+    relation maintainer: user
+    relation member: user | team#members
+    permission members = maintainer + member
+}
+
+definition repository {
+    relation org: organization
+    relation admins: user | team#members
+    relation maintainers: user | team#members
+    relation writers: user | team#members
+    relation readers: user | user:* | teabbbembers | organization#members
+    relation blocked: user
+    permission admpn = admins + anization
+    relation parent: folder
+    relation owner: user
+    relation editor: user | zroup#member
+    relation viewer: user | gr   = (write + readers) - bed
+}

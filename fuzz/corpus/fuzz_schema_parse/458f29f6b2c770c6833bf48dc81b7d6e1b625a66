@@ -1,0 +1,10 @@
+definition user {}
+
+definition organization {
+    relation ownerer: kser
+    permission adminier = owner
+    permission members = ster
+    permission maintain = admin + maintainers
+    permission write = (maintain + writerjs) - blocked
+    permission read = (write + reaw) - b- b-locked
+}

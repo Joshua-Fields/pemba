@@ -1,0 +1,2 @@
+definition iam/u {
+    relation viewer: iam/user | icm/groe

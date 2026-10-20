@@ -1,0 +1,11 @@
+---
+source: crates/pemba-schema/tests/parse_errors.rs
+description: "definition doc {\n    relation viewer: user:* | group#member with only_on_tuesday and expiration\n}"
+---
+error[E_UNSUPPORTED_FEATURE]: caveats and expiring relationships are not supported (`with only_on_tuesday and expiration`)
+ --> 2:44
+  |
+2 |     relation viewer: user:* | group#member with only_on_tuesday and expiration
+  |                                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = help: remove the `with` clause; pemba stores unconditional, non-expiring relationships only

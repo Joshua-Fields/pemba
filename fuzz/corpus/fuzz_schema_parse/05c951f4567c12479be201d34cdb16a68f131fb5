@@ -1,0 +1,3 @@
+definition uent {
+  permission vw = member & viewer
+}

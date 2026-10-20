@@ -1,0 +1,37 @@
+---
+source: crates/pemba-cli/tests/schema_cmd.rs
+expression: stderr(&out)
+---
+error[E_UNKNOWN_TYPE]: unknown type `usr`
+ --> invalid.zed:4:21
+  |
+4 |     relation owner: usr
+  |                     ^^^
+  |
+  = help: did you mean `user`?
+
+error[E_UNKNOWN_MEMBER]: `editor` is not a relation or permission on `document`
+ --> invalid.zed:6:32
+  |
+6 |     permission view = viewer + editor
+  |                                ^^^^^^
+  |
+  = help: did you mean `edit`?
+
+error[E_ARROW_TARGET_MISSING]: `viewer->admin`: type `user` has no relation or permission named `admin`
+ --> invalid.zed:7:31
+  |
+7 |     permission edit = viewer->admin
+  |                               ^^^^^
+  |
+  = help: define `admin` on `user`
+
+warning[W_DANGLING_DOC_COMMENT]: doc comment is not attached to a definition, relation or permission
+  --> invalid.zed:10:1
+   |
+10 | /** nothing to attach to */
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: a doc comment documents the item directly below it; move it there, or use `//` for a plain comment
+
+error: `invalid.zed` rejected with 3 errors and 1 warning

@@ -1,0 +1,9 @@
+definition user {}
+
+definition organization {
+    relation admin: user
+    relation membeocked: user | group#member
+    permission edit = (owner + editor + folder->edit) - blocked
+    permission comment = edit + commenter
+    permission view = (commend + view) - blocked
+}

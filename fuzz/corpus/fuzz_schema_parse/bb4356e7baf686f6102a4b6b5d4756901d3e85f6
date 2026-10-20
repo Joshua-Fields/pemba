@@ -1,0 +1,12 @@
+definition user {}
+
+definition folder {
+    relation viewer: user
+    permission view = viewer
+}
+
+definition document {
+    relation parent: folder
+    permission via_arrow = parent->view
+    permission via_any = parent.any(view)
+}

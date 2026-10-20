@@ -1,0 +1,21 @@
+---
+source: crates/pemba-schema/tests/compile_errors.rs
+description: "definition user {}\ndefinition doc {\n    relation viewer: usr | team\n}"
+---
+error[E_UNKNOWN_TYPE]: unknown type `usr`
+ --> 3:22
+  |
+3 |     relation viewer: usr | team
+  |                      ^^^
+  |
+  = help: did you mean `user`?
+
+error[E_UNKNOWN_TYPE]: unknown type `team`
+ --> 3:28
+  |
+3 |     relation viewer: usr | team
+  |                            ^^^^
+  |
+  = help: define it with `definition team {}`
+
+error: schema rejected with 2 errors

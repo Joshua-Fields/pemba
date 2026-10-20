@@ -1,0 +1,13 @@
+dsion members = owner + member
+}
+
+edtinfiion team {
+    relation maintainer: user
+    relation m = maintainer + member
+}
+
+definition repository {
+tion repository {
+    relatibers | fintiobers
+    permisrion mter
+

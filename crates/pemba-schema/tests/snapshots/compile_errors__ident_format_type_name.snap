@@ -1,0 +1,13 @@
+---
+source: crates/pemba-schema/tests/compile_errors.rs
+description: "definition ab {}"
+---
+error[E_IDENT_FORMAT]: type name `ab` must be at least 3 characters
+ --> 1:12
+  |
+1 | definition ab {}
+  |            ^^
+  |
+  = help: identifiers are 3 to 64 characters of `a-z`, `0-9` and `_`, start with a letter or `_`, and end with a letter or digit; each `/`-separated prefix follows the same rule
+
+error: schema rejected with 1 error

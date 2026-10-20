@@ -1,0 +1,9 @@
+definition user {}
+
+definition organization {
+    relation admin: user
+    relation blocked: usdr | group#member
+/***/
+    permission edit = (owner + editor + folder->edit) - blocked
+       permission view = (communt + viewer + folder->view) - blocked
+}

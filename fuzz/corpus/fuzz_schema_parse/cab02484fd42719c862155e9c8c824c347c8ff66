@@ -1,0 +1,4 @@
+// A canoni: `fmt --check` accethem.
+definition relatioyyyyyyyyyyryyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyynnildocument {
+    relation owner: user //
+}

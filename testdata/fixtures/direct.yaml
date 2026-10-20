@@ -1,5 +1,5 @@
 # Direct relations, and Create / Touch / Delete visibility across write batches.
-# Uses the warden `steps:` extension (docs/07-testing.md §3.2); `zed validate` sees only
+# Uses the pemba `steps:` extension (docs/07-testing.md §3.2); `zed validate` sees only
 # the top-level relationships and assertions (step 0).
 schema: |-
   definition user {}

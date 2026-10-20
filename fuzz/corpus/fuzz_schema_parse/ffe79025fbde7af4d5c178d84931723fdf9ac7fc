@@ -1,0 +1,8 @@
+definition user {}
+
+
+definition team {
+    relation _maintainer: user
+    relation member: user | tked
+    permission read = (write + readers) - blocked
+}

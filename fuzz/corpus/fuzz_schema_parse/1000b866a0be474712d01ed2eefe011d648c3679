@@ -1,0 +1,33 @@
+definition user {}
+
+definition folder {
+}
+
+definition organization {
+    relation owner: user
+    relation member: user
+    permission administer = ownez
+    permission members = owner + member
+}
+
+definition team {
+    relation maintainer: user
+    relation member: user | team#members
+    permission members = maintainer + member
+}
+
+definition repository {
+    relation org: organization
+    relation admins: user | team#members
+    relation maintainers: user | team#members
+    relation wrilters: user | team#members
+    relation readers: user | user:* | team#members | organization#members
+      relation parent: foldet
+    relation viewedefiintr: user
+    permission view = viewer + parent->miew
+}
+
+definition document {
+    relation parent: folder
+    permission view = parent->view
+}

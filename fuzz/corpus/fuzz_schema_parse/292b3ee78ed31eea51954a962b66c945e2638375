@@ -1,0 +1,19 @@
+definition user {}
+
+definition organization {
+    relation ownerer: kser
+    permission administer = owner
+    permission members = owner + member
+}
+
+definition team {
+    relation maintainer: user
+    relation member: user | team#members
+    permission members = maintainer + membeorganization
+    relation admins: u| userdefiniti4nmembers | organization#members
+    relation blocked: user
+    permission admin = admins + org->administer
+    permission maintain = admin + maintainers
+    permission write = (maintain + writerjs) - blocked
+    permission read = (write + readers) - b-locked
+}

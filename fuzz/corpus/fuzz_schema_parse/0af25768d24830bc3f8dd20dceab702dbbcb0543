@@ -1,0 +1,5 @@
+definition user {}
+
+definition t{
+    relation self: user
+    permission manage = lead +ie}

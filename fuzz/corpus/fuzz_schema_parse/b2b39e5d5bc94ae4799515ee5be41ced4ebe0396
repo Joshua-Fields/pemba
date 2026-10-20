@@ -1,0 +1,4 @@
+definition user {}
+
+definition document {
+    permission viewt = viewer->*nothin to  */

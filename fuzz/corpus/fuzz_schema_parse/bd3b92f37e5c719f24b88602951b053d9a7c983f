@@ -1,0 +1,6 @@
+definition user {}
+
+definition grp {
+    relation r:m
+    permission vinneb: grp:*
+    permission v

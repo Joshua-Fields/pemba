@@ -1,0 +1,3 @@
+//l schema wit.
+definition do{
+    relation owner: user /a lr

@@ -1,6 +1,6 @@
 # CLAUDE.md — Agent entry point
 
-You are building **warden** (codename; final name TBD, see `docs/01-decisions.md` ADR-012), an
+You are building **pemba** (see `docs/01-decisions.md` ADR-012), an
 **embedded, Zanzibar-style authorisation engine written in Rust** with Python bindings.
 It runs inside the application process and stores relationships in a database the
 application already has (SQLite first, Postgres later).
@@ -41,7 +41,7 @@ the spec files the current task needs (see "Which docs to read").
 4. **Fail closed.** Any error during evaluation (store error, depth exceeded, unknown
    relation at runtime) returns an `Err`, never `Ok(false)` and never `Ok(true)`.
    Callers decide what an error means; the engine never silently denies or allows.
-5. **No `unsafe`** (`#![forbid(unsafe_code)]` in every crate except `warden-py`, where
+5. **No `unsafe`** (`#![forbid(unsafe_code)]` in every crate except `pemba-py`, where
    PyO3 macros need it — and even there, write none by hand).
 6. **No `unwrap()` / `expect()` / `panic!` in library code.** Tests and benches may use
    them. Use typed errors (`thiserror`).
@@ -101,7 +101,7 @@ cargo test --workspace --all-features
 cargo test --workspace --all-features -- --ignored   # slow/property tests, when touched
 cargo doc --workspace --no-deps                       # no broken intra-doc links
 # Python (in a virtualenv with maturin, pytest and mypy installed):
-cd crates/warden-py && maturin develop && pytest -q && mypy --strict tests
+cd crates/pemba-py && maturin develop && pytest -q && mypy --strict tests
 ```
 
 ---

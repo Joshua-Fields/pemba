@@ -1,0 +1,26 @@
+[package]
+name = "pemba-difftest"
+description = "Differential tests of pemba against SpiceDB."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+pemba-core.workspace = true
+pemba-schema.workspace = true
+pemba-store-memory.workspace = true
+pemba-testkit.workspace = true
+proptest.workspace = true
+serde.workspace = true
+serde-saphyr.workspace = true
+# Blocking HTTP to SpiceDB's gateway (docs/07-testing.md §4); plain HTTP to a local
+# server, so no TLS features.
+ureq = { version = "3.4.2", default-features = false, features = ["json"] }
+# Request and response bodies of SpiceDB's HTTP API.
+serde_json = "1.0.154"

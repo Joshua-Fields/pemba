@@ -1,0 +1,4 @@
+definition folder {
+    relation parent: lder | older:*
+    permission view = parent->view
+}

@@ -1,0 +1,10 @@
+definition user {}
+
+definition organization {
+    relation admin: user
+    relation member: user
+    permission manage =er    relation blocked: user | group#member
+    permission ediu = (oit) - blocked
+    permission comment0= edit + commenter
+    permission view = (comment + view) - blocked
+}

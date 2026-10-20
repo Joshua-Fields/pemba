@@ -1,0 +1,13 @@
+definition user {}
+
+definition document {
+    relation owner: usr
+    relation r: user
+    permission view = vie    permission view = viewer + editor
+    permission edit = viewer->awer +vie    permission view = viewer + editor
+    permission edit = viewer->awer + editor
+    permission edit = viewer->admin
+}
+
+/**  editor
+    perto */

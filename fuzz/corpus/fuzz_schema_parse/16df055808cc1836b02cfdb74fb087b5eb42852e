@@ -1,0 +1,6 @@
+definition user {}
+
+definition folder {
+    relation parent: fossssssssssssdssssss|ssssssssssssssssssssss|ssssssssssssssssssssssssssssssssssssssss|sssssssssssssssssssssssssr
+    permission view = vqewer + parent->view
+}

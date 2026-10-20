@@ -1,0 +1,7 @@
+
+
+definition i/agp {
+    relation eiber: iam/user | iam/group#membnil}
+
+definition docs/r{  
+roui

@@ -1,0 +1,11 @@
+definition user {}
+
+definition organization {
+    relation owner: user
+    relation member: user
+    permission adminier = owner
+    permission members = owner +ers  relation wrijtersus :er | team#members
+    relation readers: user |on#members
+    relation blocked: user
+     permission maintain = admin + maintainers    permission read = (write + readess) - blocked
+}

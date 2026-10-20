@@ -1,0 +1,47 @@
+[build-system]
+requires = ["maturin>=1.15,<2"]
+build-backend = "maturin"
+
+[project]
+name = "pemba"
+description = "Embedded, Zanzibar-style authorisation engine."
+readme = "README.md"
+requires-python = ">=3.11"
+license = "Apache-2.0"
+# Copies of the repository root's files: PEP 639 does not allow `..` here. CI checks they
+# match the originals.
+license-files = ["LICENSE", "NOTICE"]
+classifiers = [
+    "Programming Language :: Rust",
+    "Programming Language :: Python :: Implementation :: CPython",
+]
+dynamic = ["version"]
+
+[project.urls]
+Homepage = "https://github.com/Joshua-Fields/pemba"
+Repository = "https://github.com/Joshua-Fields/pemba"
+Issues = "https://github.com/Joshua-Fields/pemba/issues"
+
+[project.optional-dependencies]
+test = ["pytest>=9.1", "mypy>=2.4"]
+# bench/test_scenarios.py (docs/07-testing.md §7)
+bench = ["pytest>=9.1", "pytest-benchmark>=5.3"]
+
+[tool.maturin]
+python-source = "python"
+module-name = "pemba._pemba"
+# maturin packages everything under python/, ignored or not: keep out bytecode and the
+# extension (with its Windows debug symbols) that `maturin develop` leaves there. The
+# built extension is added separately.
+exclude = [
+    "python/**/__pycache__/**",
+    "python/**/*.pyd",
+    "python/**/*.pdb",
+    "python/**/*.so",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.mypy]
+strict = true

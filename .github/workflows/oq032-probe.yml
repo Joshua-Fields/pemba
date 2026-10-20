@@ -6,7 +6,7 @@ name: OQ-032 SQLite copies probe
 on:
   pull_request:
     paths:
-      - "crates/warden-py/probes/**"
+      - "crates/pemba-py/probes/**"
       - ".github/workflows/oq032-probe.yml"
   workflow_dispatch:
 
@@ -28,7 +28,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     defaults:
       run:
-        working-directory: crates/warden-py/probes/sqlite_copies
+        working-directory: crates/pemba-py/probes/sqlite_copies
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6

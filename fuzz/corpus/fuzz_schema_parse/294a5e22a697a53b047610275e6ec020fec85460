@@ -1,0 +1,9 @@
+definition user {}
+
+definition organization {
+    relation owner: user
+     | tes
+    relation bcked: user
+    permission admin = admins + org-self>administer
+ blocked
+}

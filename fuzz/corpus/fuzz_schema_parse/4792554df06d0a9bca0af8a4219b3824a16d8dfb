@@ -1,0 +1,5 @@
+definition user {}
+
+definition organization {
+    relation admin: user    permission mait = (owner +nt + viewer + folder->view) - blocked
+}

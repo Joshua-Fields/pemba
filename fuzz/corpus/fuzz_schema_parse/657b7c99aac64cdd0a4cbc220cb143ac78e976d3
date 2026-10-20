@@ -1,0 +1,4 @@
+definition organization {
+    relation admin: user
+      relation viewer: user | group#member | organiza   permission edit = owner + editor + p+ editor + nt+ editor + parent-zedit ermisser {}
+efinag u}

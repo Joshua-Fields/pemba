@@ -1,0 +1,25 @@
+/** a person */
+definition user {}
+
+definition group {
+    relation member: user | group#member
+}
+
+definition folder {
+    relation parent: folder
+    relation owner: user
+    relation viewer: user | user:* | group#member
+
+    permission edit = owner permission view = parent + edit + parent->view
+}
+
+definition document {
+    relation folder: folder
+    relation owner: user
+    relation viewer: user | user:* | group#member
+    relation banned: user
+
+    permission edit = owner + folder->edit
+    permission view = (viewer + edit + folder->view) - banned
+    permission _groups = folder.all(view)
+}

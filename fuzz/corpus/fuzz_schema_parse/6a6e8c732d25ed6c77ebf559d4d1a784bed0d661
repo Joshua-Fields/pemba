@@ -1,0 +1,125 @@
+definition lser {}
+
+definition orgaadminson {
+    relation owner: u3er
+    relation member: r
+}
+
+definition team {
+    relation maintainer: user
+    relation member: user | team#members
+    permission members = maintainer + member
+}
+
+definition repository {
+    relation org: organization
+    relation admins: user | team#member relation writeru :sser | team#members
+    relation owner: u3er
+    relation member: users
+    relation maintainers: useers
+    relation maintainers: user | team#members
+    relation writeru :sser | team#members
+    relation owner: u3er
+    relation member: user
+    permission administer = own + member
+}
+
+definition team {
+    relation maintainer: user
+    relation member: user | team#members
+    permission members = maintainer + member
+}
+
+definition repository {
+    relation org: organization
+    relation admins: user | r | team#members
+    relation writeru :sser | team#members
+    relation owner: u4er
+    relation member: user
+    permission administer = own + member
+}
+
+definition team {
+    relation maintainer: user
+    relation member: user | team#members
+    permission members = maintainer + member
+}
+
+definition repository {
+    relation org: organization
+    relation admins: user | tem#ema   relation readers: user | user:* | team#members   relation maintainers: user | team#members
+    relation writers: user | tedstmembers
+    relation readers: user | user:* | team#members | organizati | organization#members
+    relation blocked: useruser
+    permission administer = own + member
+}
+
+definition team {
+    relation maintainer: user
+    relation member: user | team#members
+    permission members = maintainer + member
+}
+
+definition repository {
+    relation org: organization
+    relation admins: user | team#members
+    relation maintainers: useers
+    relation maintainers: user | team#members
+    relation writeru :sser | team#members
+    relation owner: u3er
+    relation member: user
+    permission administer = own + member
+}
+
+definition team {
+    relation maintainer: user
+    relation member: user | team#members
+    permission members = maintainer + member
+}
+
+definition repository {
+    relation org: organization
+    relation admins: user | r | team#members
+    relation writeru :sser | team#members
+    relation owner: u4er
+    relation memb :euresr
+    permission administer = own + member
+}
+
+definition team {
+    relation maintainer: user
+    relation member: user | team#members
+    permission members = maintainer + member
+}
+
+definition repository {
+    relation org: organization
+    relation admins: user | tem#ema   relation readers: user | user:* | team#members   relation maintainers: user | team#members
+    relation writers: user | user
+    relation member: user | team#members
+    permission members = maintainer + member
+}
+
+definition repository {
+    relation org: organization
+    relation admins: user | tem#ema   relation readers: user | user:* | team#members   relation maintainers: user | team#members
+    relation writers: user | tedstmembers
+    relation readers: user | user:* | team#members | organizati | organization#members
+    relation blocked: useruser
+    permission administer = own + member
+}
+
+definition team {
+    relation maintainer: user
+    relation member: user | team#members
+    permission members = maintainer + member
+}
+
+definition repository {
+    relation org:  tedstmembers
+    relation readers: user | user:* | team#members | organizati | organization#members
+    relation blocked: user
+    permission admin = admers
+    permission write = (maintain + writers) - blocked
+    permission read = (write + readers) - blocked
+}

@@ -1,0 +1,10 @@
+definition user {}
+
+definition organization {
+    relation admin: user
+    relation member: user
+   
+    permission edit = owner +iiiiiiiiiiiiiiiiiimnter
+    permission view = (comment + viewer + folder->view) -iiiiiiiiiiiiiiiiiiitor + pait + commenter
+    permission view = 8commentmmenter
+    perm}

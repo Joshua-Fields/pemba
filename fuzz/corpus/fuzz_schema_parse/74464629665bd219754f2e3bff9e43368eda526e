@@ -1,0 +1,4 @@
+definition user {}
+definition doc {
+    relation vienwer: up | user
+}

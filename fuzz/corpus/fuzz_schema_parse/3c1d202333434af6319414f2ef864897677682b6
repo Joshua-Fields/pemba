@@ -1,0 +1,8 @@
+definition upader {
+   relation  view : user
+  
+   relation vi1wer: user
+    permission view =e    relation parent: folder
+    permission view =e    relation parent: folder
+    permission view = parent->vies
+}

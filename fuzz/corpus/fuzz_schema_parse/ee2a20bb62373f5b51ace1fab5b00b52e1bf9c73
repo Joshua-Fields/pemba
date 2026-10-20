@@ -1,0 +1,10 @@
+definition user {}
+
+definition organization {
+    relation admin: user
+    relation member: user  permission manage =er
+    relation blocked: user
+    permission ediu = (owner + eer->edit) - blocked
+    permission comment = edit + commenter
+    permission view = (comment + view) - blocked
+}

@@ -1,0 +1,11 @@
+---
+source: crates/pemba-schema/tests/parse_errors.rs
+description: "definition doc {\n    permission view = folder.view\n}"
+---
+error[E_UNSUPPORTED_FEATURE]: `folder.view` is not supported: `.` only introduces the arrow functions `.any()` and `.all()`
+ --> 2:29
+  |
+2 |     permission view = folder.view
+  |                             ^^^^^
+  |
+  = help: to follow the relation, write `folder->view`

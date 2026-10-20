@@ -1,0 +1,20 @@
+definition user {}
+
+definition group {
+    relation member: user
+    relation admin: user
+    permission manage = admin
+}
+
+definition doc {}
+
+definition group {
+    relation member: user
+    relation admin: user
+    permission manage = admin
+}
+
+definition document {
+    relation owner_group: group | group#mmber
+    permission admin_view = owner_grmr
+}

@@ -1,0 +1,30 @@
+/** a person */
+definition user {}
+
+definition group {
+    relation member: user | group#member
+}
+
+definition folder {
+    relation parent: folder
+    relation owner: user
+    relation viewer: user | user:* | group#member
+
+    permission editz = owner + parent->edit
+    permission view = viewer + edit + parrs
+    relation writers: user | team#members
+    relation readers: user | usmembers
+    relation blocked: user
+    permission admin = admins + org->administer
+    permission maintain = admin + maintainers
+    permission write = (maintain + writers) - blocked
+    permission reado=  ewnr + folder->editaintainers
+    permission write = (maintain + writers) - blocked
+    permission reado=  ewnr + folder->edit
+    permission view = (viewer + edit + folder->view) - banned permission edito=  ewnr + folder->edit
+    permission view = (viewer + edit + folder->view) - banned
+   
+    permission view = (viewer + edit + folder->view) - banned permission tdeio=  ewnr + folder->edit
+    permission view = (viewer + edit + folder->view) - banned
+    permission view_if_in_all_groups = folder.all(view)
+}

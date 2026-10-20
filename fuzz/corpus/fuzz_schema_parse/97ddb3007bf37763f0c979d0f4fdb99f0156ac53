@@ -1,0 +1,7 @@
+definition usbbnt {
+    relation owner: u   relation r: user
+    permission view = viewer + editor
+    permission edit =iewer->admin
+}
+
+/** nothito attach to */

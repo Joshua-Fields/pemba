@@ -1,0 +1,10 @@
+definition user {}
+
+definition document {
+    relation owner: usr
+    relation r: user
+    permission view = viewer + editor
+    permission edit = viewer->admin
+}
+
+/** nothi*/

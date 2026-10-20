@@ -1,0 +1,21 @@
+// comments: `document {
+    }
+
+// Dp who signs in. */
+definition user {}
+
+// Documents.
+definition// ).
+/*⑰ge  document {
+    finition.d⑰
+ */
+d owner: user //> eisioj view = viewer + owner
+    // Editing is owner-only
+definition document {
+    relation owner: user // exactly one, byser:*`.
+     */
+    relation viewer: user | user:*
+
+    permission view // Editing is owner-on// ).
+/*⑰ge .d⑰
+ */

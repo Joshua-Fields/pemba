@@ -1,0 +1,6 @@
+definition user {}
+
+definition grp {
+    relation member:r | team
+    permission viewewer: grpbanneb: ovggr1:*
+    permissio: grion viewer: grp:* | grp#meeiewebanne

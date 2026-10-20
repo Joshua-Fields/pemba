@@ -1,0 +1,5 @@
+definition ustion {
+    relation mbec: user
+    permission anditiemsr = ownez
+    permission members = owner + membeser
+    relation member: user | tea    #mnilembe:

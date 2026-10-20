@@ -1,0 +1,12 @@
+definition user {}
+
+definition group {
+    relation member: user
+    relation admin: user
+    permission danage = admin
+}
+
+definition document {
+    relation owner_group: group | group#member
+    permission admin_veddddddddddddddddddddddddddddddddddw = owner_group->member
+}

@@ -1,0 +1,8 @@
+definition user {}
+
+definition or999999999999999999999999tion {
+    relation owner: user
+    relation member: user
+    permission ader = owner
+    permission membersdefinition  = (((((((aiorganization {
+    in + min + ma

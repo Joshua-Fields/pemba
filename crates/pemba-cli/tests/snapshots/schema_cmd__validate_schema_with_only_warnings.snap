@@ -1,0 +1,19 @@
+---
+source: crates/pemba-cli/tests/schema_cmd.rs
+expression: stderr(&out)
+---
+warning[W_UNUSED_RELATION]: relation `archived_by` is not used by any permission, arrow or subject set
+ --> warnings_only.zed:5:14
+  |
+5 |     relation archived_by: user
+  |              ^^^^^^^^^^^
+  |
+  = help: it can still be checked directly; remove it if nothing needs it
+
+warning[W_WILDCARD_ON_WRITE_LIKE_PERMISSION]: permission `edit` can be granted to every `user` through the wildcard on `document#viewer`
+ --> warnings_only.zed:7:16
+  |
+7 |     permission edit = viewer
+  |                ^^^^
+  |
+  = help: SpiceDB recommends wildcards only for read-like permissions; check that `edit` should be open to every `user`

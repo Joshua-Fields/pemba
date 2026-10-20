@@ -1,0 +1,8 @@
+definition u9999999999tion {
+    relation owner: user
+    relation member: user
+    permission administer = owner
+    permission members = owner + inqster
+    permission maintain = (((((((((((((((((((((((((((((((((((((((((((((((((((((aainers
+    
+}

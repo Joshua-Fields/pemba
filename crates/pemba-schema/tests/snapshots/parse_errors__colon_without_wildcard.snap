@@ -1,0 +1,11 @@
+---
+source: crates/pemba-schema/tests/parse_errors.rs
+description: "definition doc {\n    relation viewer: user:anne\n}"
+---
+error[E_UNEXPECTED_TOKEN]: expected `*` after `:`, found identifier `anne`
+ --> 2:27
+  |
+2 |     relation viewer: user:anne
+  |                           ^^^^
+  |
+  = help: a relation allows a type (`user`), a subject set (`group#member`) or a wildcard (`user:*`), never a specific object

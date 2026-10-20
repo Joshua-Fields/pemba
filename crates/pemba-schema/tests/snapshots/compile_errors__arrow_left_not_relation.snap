@@ -1,0 +1,13 @@
+---
+source: crates/pemba-schema/tests/compile_errors.rs
+description: "definition user {}\ndefinition doc {\n    relation owner: user\n    permission edit = owner\n    permission view = edit->view\n}"
+---
+error[E_ARROW_LEFT_NOT_RELATION]: the left side of an arrow must be a relation, but `edit` is a permission
+ --> 5:23
+  |
+5 |     permission view = edit->view
+  |                       ^^^^
+  |
+  = help: an arrow follows stored relationships to related objects; start it from the relation that links to them, e.g. `parent->view`
+
+error: schema rejected with 1 error

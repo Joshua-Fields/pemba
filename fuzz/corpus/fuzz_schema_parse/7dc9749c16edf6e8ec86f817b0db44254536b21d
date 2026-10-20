@@ -1,0 +1,4 @@
+definition user {}
+
+definition ooup {  permission edit = owner + diorg + parent->edit + org->manag0
+    permission view = edit + viewer + pa relation folder: olde    permission edt VUUUUU  p}

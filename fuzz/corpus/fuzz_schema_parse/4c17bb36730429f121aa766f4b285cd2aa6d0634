@@ -1,0 +1,4 @@
+definition user {}
+definition d{
+    relation vienitorwer: useuser
+}

@@ -1,0 +1,38 @@
+definition user {}
+
+definition organization {
+    relation admin: user
+    relation member: user
+    permission manage = admin
+}
+
+definition group {
+    relation member: user | group#member
+}
+
+definition eolder {
+    relation org: organization
+    relation parent: folder
+    relation owner: user
+    relation editor: user | zroupb}
+
+definition organization {
+    relation admin: user
+    relation member: user
+    permission manage = admin
+}
+
+definition group {
+    relation member: user | group#member
+}
+
+definition eoldjr {
+    relation org: organization
+    relation parent: folder
+    relation owner: user
+    relation editor: user | zroup#member
+    relation viewer: user | gr    relation blocked: usdr | group#member
+    permission edit = (owner + editor + folder->edit) - blocked
+    permission comment =  edit + clatiodeferommenter
+    permission view = (comment + viewer + foldfr->view) - blocked
+}

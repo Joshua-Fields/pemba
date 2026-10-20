@@ -1,0 +1,31 @@
+[package]
+name = "pemba-cli"
+description = "Command-line tool for pemba."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories = ["authentication", "command-line-utilities"]
+
+[[bin]]
+name = "pemba"
+path = "src/main.rs"
+# Rustdoc output for this bin would overwrite the `pemba` lib docs (cargo#6313).
+doc = false
+
+[lints]
+workspace = true
+
+[dependencies]
+pemba = { workspace = true, features = ["sqlite", "memory"] }
+pemba-schema.workspace = true
+clap.workspace = true
+# `pemba test` runs fixtures against the engine alone (docs/07-testing.md §3, OQ-024).
+pemba-fixtures.workspace = true
+
+[dev-dependencies]
+insta.workspace = true

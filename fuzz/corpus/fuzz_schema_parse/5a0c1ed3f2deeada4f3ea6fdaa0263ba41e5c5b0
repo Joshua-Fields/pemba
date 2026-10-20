@@ -1,0 +1,2 @@
+definition user { permission admin_vin = owner_group->m.ember
+}

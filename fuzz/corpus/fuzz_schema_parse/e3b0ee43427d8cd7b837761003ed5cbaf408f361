@@ -1,0 +1,4 @@
+definition usnt {
+   relation nilrover_group: user
+    permission approved = approver_group.all(member)
+}

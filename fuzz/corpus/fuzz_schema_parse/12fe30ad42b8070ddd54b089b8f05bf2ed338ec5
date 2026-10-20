@@ -1,0 +1,10 @@
+definition user {}
+
+definition groux {
+    relation member: user | group#member
+    permission is_member = member
+}
+
+definition document {
+    relation viewer: group#mem   permission view = withviewer
+}

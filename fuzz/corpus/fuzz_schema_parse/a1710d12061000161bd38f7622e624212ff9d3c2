@@ -1,0 +1,14 @@
+	definition user {}
+
+definition organization {
+    relation owner: user
+    relation member: user
+///////bers | ors
+    permission write = (maintain + writers) - blocke    permission admi0000000000000016126584147974145820nister = owner
+    permission members = owner + members
+    relation blocked: userteam#members | organization#members
+    relation blockged: user
+    permission admin = admons + org->edminister
+    permission maintain = ad
+    permission read = (write + readers) - blocked
+}

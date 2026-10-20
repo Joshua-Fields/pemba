@@ -31,8 +31,8 @@ AC:
   `FromStr`: their `Display` is a debugging aid, not a stable format (OQ-009).
 - `Revision` text form is decimal digits with no sign and no leading zeros (`0` itself is
   allowed), so every revision has exactly one form.
-- Identifier rules (`02` §1.1) are implemented once, in `warden-schema`, and reused by
-  `warden-core`.
+- Identifier rules (`02` §1.1) are implemented once, in `pemba-schema`, and reused by
+  `pemba-core`.
 - All examples in `02` §3 table parse; all invalid examples in `02` §1 rejected with
   positioned `ParseError`.
 - Round-trip property test passes for every `FromStr` type.
@@ -54,13 +54,13 @@ AC:
 - `CompiledSchema` with `TypeId`/`RelId` interning, per-arrow target maps, and the derived
   indexes `used_by`, `arrows_into`, `subject_set_uses` (unit-tested on the §1 example).
 
-### T0.5 Pretty printer and `warden schema validate|fmt`
+### T0.5 Pretty printer and `pemba schema validate|fmt`
 Refs: `03` §9, `06` §3.
 AC:
 - Canonical printing; round-trip property test.
 - `CompiledSchema::hash` (sha-256 of the normalised source, `03` §6), deferred from T0.4
   because it depends on the normaliser.
-- `warden-cli` binary with `schema validate` and `schema fmt [--check]`; correct exit codes.
+- `pemba-cli` binary with `schema validate` and `schema fmt [--check]`; correct exit codes.
 
 ---
 
@@ -93,7 +93,7 @@ AC:
 ### T1.4 Reference evaluator + property tests
 Refs: `07` §2.
 AC:
-- Reference evaluator independent of `warden-core::eval`.
+- Reference evaluator independent of `pemba-core::eval`.
 - Generators per §2.2; properties 1 and 6 from §2.3 passing at ≥ 1 000 cases.
 
 ### T1.4c Bound check cost on cyclic data
@@ -107,7 +107,7 @@ AC:
   evaluated in the final pass is memoised. `NonMonotonicCycle` behaviour is unchanged.
 - New per-request cap on total store reads, `EngineConfig::max_check_reads` (default per
   `04` §3.6); exceeding it returns a new error (fail closed), documented in `06`.
-- Every adversarial test in `crates/warden-testkit/tests/check_cost.rs` passes with its
+- Every adversarial test in `crates/pemba-testkit/tests/check_cost.rs` passes with its
   `#[ignore]` removed.
 - Property 1 at ≥ 1 000 cases passes in under 60 s optimised, on several seeds.
 
@@ -129,7 +129,7 @@ AC:
 ### T1.5 Fixture runner + corpus (part 1)
 Refs: `07` §3.
 AC:
-- Runner + `warden test` CLI command.
+- Runner + `pemba test` CLI command.
 - Fixtures from §3.1 that need only `check`: `direct`, `wildcard`, `subject_sets`,
   `nested_groups_cycle`, `arrows_folders`, `arrows_ignore_subject_relation`, `intersection`,
   `exclusion_banned`, `all_arrow`, `any_alias`, `self_membership`, `google_docs`,
@@ -150,7 +150,7 @@ AC:
 ### T2.2 Shared write algorithm over `WriteTxn`
 Refs: `05` §5, ADR-006.
 AC:
-- Write logic lives in `warden-core::write`, generic over `WriteTxn` + `SqlDialect`.
+- Write logic lives in `pemba-core::write`, generic over `WriteTxn` + `SqlDialect`.
 - SQLite native `WriteTxn`; `Engine::write_in` works with a caller-owned `rusqlite::Transaction`
   (Rust-side proof of the foreign-transaction design).
 - Rollback test: app insert + `write_in` + rollback → neither visible.
@@ -196,7 +196,7 @@ AC:
 
 ## M3 — Python, verification, release
 
-### T3.1 `warden-py` bindings
+### T3.1 `pemba-py` bindings
 Refs: `06` §2.
 AC:
 - All signatures in `06` §2.2 with `.pyi` stubs; `mypy --strict` passes on a usage sample.
@@ -206,10 +206,10 @@ AC:
 ### T3.2a Python SQLite store (single SQLite copy)
 Refs: ADR-006 (amended, OQ-032), `05` §4.3–§4.4, `06` §2.
 AC:
-- `warden-store-pysqlite`: every warden statement (reads, native writes, migrations, GC,
+- `pemba-store-pysqlite`: every pemba statement (reads, native writes, migrations, GC,
   schema writes) runs on Python `sqlite3` connections the engine owns, reusing
   `SqlDialect` / `WriteTxn` / `ReadStore`; `Engine.sqlite()` uses it.
-- `warden-py` depends on neither rusqlite nor a bundled SQLite; CI fails if the built
+- `pemba-py` depends on neither rusqlite nor a bundled SQLite; CI fails if the built
   extension or the release wheel contains SQLite symbols.
 - Same-snapshot rules as T2.3 and GC order as T2.6.
 - `MIN_SQLITE_VERSION` derived from the SQL features used; `Engine.sqlite()` refuses an
@@ -233,26 +233,26 @@ Refs: ADR-014, `09` §4.
 AC:
 - maturin-built abi3 wheels for the platforms in ADR-014; smoke-tested on each.
 - `cargo publish --dry-run` passes for publishable crates. (Actual publishing: human only.)
-- Fixture format and engine-only runner moved from `warden-testkit` into a small publishable
-  crate that `warden-cli` depends on; the oracle cross-check stays in `warden-testkit` as an
-  optional hook for internal tests (OQ-024). The CLI no longer depends on `warden-testkit`.
+- Fixture format and engine-only runner moved from `pemba-testkit` into a small publishable
+  crate that `pemba-cli` depends on; the oracle cross-check stays in `pemba-testkit` as an
+  optional hook for internal tests (OQ-024). The CLI no longer depends on `pemba-testkit`.
 
 ### T3.4 Differential testing against SpiceDB
 Refs: `07` §4.
 AC:
-- `warden-difftest` harness; all fixtures + ≥ 500 generated cases agree with SpiceDB, or each
+- `pemba-difftest` harness; all fixtures + ≥ 500 generated cases agree with SpiceDB, or each
   divergence is listed in `KNOWN_DIFFERENCES.md` with a reason and an ADR update if semantics
   changed (e.g. `.all` over zero objects, self membership, arrow over wildcard).
 - CI job (manual trigger + weekly) running it in Docker.
 
 ### T3.4b KD-3 fails closed: a wildcard on a subtracted side vs a subject-set subject
-Refs: `04` §2, §3.3; `07` §2.3; `crates/warden-difftest/KNOWN_DIFFERENCES.md` KD-3.
+Refs: `04` §2, §3.3; `07` §2.3; `crates/pemba-difftest/KNOWN_DIFFERENCES.md` KD-3.
 AC:
 - A `check` or `lookup_resources` whose subject is a subject set of type `t`, and whose
   evaluation reaches a stored `t:*` under the subtracted side of an exclusion, returns the
   new error `AMBIGUOUS_WILDCARD_EXCLUSION` instead of an answer. The grant side is
   unchanged: a wildcard never matches a subject set.
-- Rationale in `04` §2 and §3.3: warden and SpiceDB disagree there. An error can later
+- Rationale in `04` §2 and §3.3: pemba and SpiceDB disagree there. An error can later
   become an answer without breaking callers; an answer cannot change silently.
 - The oracle and properties 1 and 2 accept the error only where the oracle shows the case
   applies; the condition is specified in `07` §2.3. Mutation check: removing the error
@@ -278,8 +278,8 @@ AC:
 ### T3.8 Comment-preserving formatter (print from the AST with comment trivia)
 Refs: `03` §9, `06` §3, OQ-013. Lands before the T3.7 gate.
 AC:
-- Plain comments (`//` and `/* */`) survive `warden schema fmt`.
-- `warden schema fmt --check` passes on canonical files containing comments.
+- Plain comments (`//` and `/* */`) survive `pemba schema fmt`.
+- `pemba schema fmt --check` passes on canonical files containing comments.
 
 ### T3.7 Documentation and 0.1 gate
 AC (release gate — human signs off):
@@ -292,7 +292,7 @@ AC (release gate — human signs off):
 - Final name chosen (ADR-012) and rename completed.
 
 ### Stretch (only after the gate, in this order)
-1. `check_with_trace` (`04` §3.8) + `warden check --explain`.
+1. `check_with_trace` (`04` §3.8) + `pemba check --explain`.
 2. FastAPI helper (`06` §2.4).
 3. Batched arrow reads (`04` §4).
 4. Postgres store (requires resolving ADR-003/ADR-005 open questions).

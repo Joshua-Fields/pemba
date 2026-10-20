@@ -1,0 +1,9 @@
+definition user {}
+
+definition organization {
+    relation ownerer:io| team#members
+    permission members = maintainer + membdminister
+    permission maintain = ainers
+    permission write = (maintain + writerjs) - blocked
+    permission read = (write + readers) - b-locked
+}

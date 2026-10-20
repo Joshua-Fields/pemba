@@ -1,0 +1,18 @@
+definition user {}
+
+definition iam/user {}
+
+definition iam/group {
+    relation member: iam/user | iam/group#member
+}
+
+definition docs/folder {
+    relation viewer: iam/user | iam/group#member
+    permission view = viewer
+}
+
+definition docs/document {
+    relation parent: docs/folder
+    relation viewer: iam/user | user
+    permission view = viewer + parent->view
+}

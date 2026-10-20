@@ -1,0 +1,7 @@
+definition user {}
+
+definition document {
+    relation viewer:eusr
+     relation editor: uers 
+   permission view = viewer + editor
+}

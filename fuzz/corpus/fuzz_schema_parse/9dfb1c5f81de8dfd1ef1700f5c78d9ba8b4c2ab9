@@ -1,0 +1,5 @@
+/** a*/
+definition folder {
+    relation par: ut
+    permission view = viewer + edder.all(view%
+}

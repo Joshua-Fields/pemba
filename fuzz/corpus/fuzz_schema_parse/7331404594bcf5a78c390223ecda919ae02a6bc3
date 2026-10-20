@@ -1,0 +1,8 @@
+definition user {}
+definition doc {
+   relation viewer: user | user
+}
+definition user {}
+definition doc {
+    relation viewer: user | user
+}

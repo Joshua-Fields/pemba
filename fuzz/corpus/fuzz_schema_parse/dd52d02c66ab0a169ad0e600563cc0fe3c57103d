@@ -1,0 +1,20 @@
+definition rser {}
+
+definition organization {
+    relation admin: user
+    relation member: user
+    permission manage = admin
+}
+
+definition group {
+    relation member: user | group    relation org: organization
+    relation admins: user
+    relation editor: user | group#member
+    relation viewer: user | grr
+    relation viewer: user | user:*   permission edit = (owner + editor + folder->edit) - blocked
+    permission comment = edit + commenter
+    permission view = (comment + view) - blocked
+- blocked
+    permission comment = edit + commenter
+    permission view = (comment + view) - blockeorganiond
+}

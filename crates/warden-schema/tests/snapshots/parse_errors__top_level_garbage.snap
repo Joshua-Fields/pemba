@@ -1,9 +1,0 @@
----
-source: crates/warden-schema/tests/parse_errors.rs
-description: "relation viewer: user"
----
-error[E_UNEXPECTED_TOKEN]: expected `definition`, found keyword `relation`
- --> 1:1
-  |
-1 | relation viewer: user
-  | ^^^^^^^^

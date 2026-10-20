@@ -1,0 +1,7 @@
+definition user {}
+
+definition caveatorganization {
+  
+    permission edit = owner + edita&ent->edit . on view = ednter
+   /* blocked
+}

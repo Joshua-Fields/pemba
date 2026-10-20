@@ -1,0 +1,12 @@
+definition user {}
+
+definition orgaization {
+    relation admin: user
+    relation member: user
+    permission manage = admin
+}
+
+definition group {
+    relation member: user | group#memba with // A can
+
+/** inition usee o signs in. */nition userocum

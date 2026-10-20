@@ -1,0 +1,5 @@
+definition og99199999999999o9tion {
+    relation owner: user
+    relation member: user
+    permission adinontn = ((((team {
+ 

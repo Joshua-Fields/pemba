@@ -1,7 +1,7 @@
 # 05 — Storage
 
-Crates: traits in `warden-core::store`; implementations in `warden-store-memory` and
-`warden-store-sqlite`. Postgres is post-MVP but the traits must not preclude it.
+Crates: traits in `pemba-core::store`; implementations in `pemba-store-memory` and
+`pemba-store-sqlite`. Postgres is post-MVP but the traits must not preclude it.
 
 ---
 
@@ -9,7 +9,7 @@ Crates: traits in `warden-core::store`; implementations in `warden-store-memory`
 
 1. The evaluator talks only to the `ReadStore` trait. It never sees SQL.
 2. All write **logic** (validation, preconditions, revision allocation, MVCC updates) lives in
-   one place, `warden-core::write`, generic over the `WriteTxn` trait (ADR-006). Stores only
+   one place, `pemba-core::write`, generic over the `WriteTxn` trait (ADR-006). Stores only
    supply SQL text and a transaction handle. The memory store implements the same logic
    natively but must pass the same conformance suite (§9).
 3. Every read is at an explicit `Revision`, which must lie in `gc_horizon..=head`; outside
@@ -165,7 +165,7 @@ Revision checks (OQ-015):
 - Every store read still checks its `rev` against `gc_horizon..=head` (§1 rule 3) as a
   fail-closed backstop, but that check must cost **no extra query**: it compares against a
   horizon cached in memory (the memory store holds it in `Inner`; the SQLite store caches
-  `warden_meta.gc_horizon`, refreshed by its own `gc` and whenever `gc_horizon()` is called)
+  `pemba_meta.gc_horizon`, refreshed by its own `gc` and whenever `gc_horizon()` is called)
   and the head last observed the same way.
 - A backstop failure because a GC moved the horizon after the engine resolved the revision
   surfaces as `RevisionExpired`, not as a store error.
@@ -184,7 +184,7 @@ Revision checks (OQ-015):
   The memory store keeps the default (`snapshot()` is the store itself): its range check
   reads the authoritative horizon under the same lock as the rows, so a concurrent GC fails
   the read closed (`RevisionExpired`) rather than hiding rows. Tested by
-  `warden-store-sqlite/tests/snapshot.rs` (two `SqliteStore`s on one file standing in for
+  `pemba-store-sqlite/tests/snapshot.rs` (two `SqliteStore`s on one file standing in for
   two processes).
 - A request holds one reader connection for its whole duration, so at most
   `SqliteConfig::reader_pool` requests read at once; the rest wait for a connection.
@@ -198,7 +198,7 @@ Revision checks (OQ-015):
 
 ---
 
-## 3. In-memory store (`warden-store-memory`)
+## 3. In-memory store (`pemba-store-memory`)
 
 - `RwLock<Inner>`; `Inner` holds `Vec<Row>` plus indexes:
   - `fwd: HashMap<(TypeName, ObjectId, RelName), Vec<RowIdx>>`
@@ -213,31 +213,31 @@ Revision checks (OQ-015):
 
 ---
 
-## 4. SQLite schema (`warden-store-sqlite`)
+## 4. SQLite schema (`pemba-store-sqlite`)
 
 Two stores share this layout and every statement (T3.2a). Statement text, migrations and
-row decoding live in the driver-free `warden-sqlite-common`:
-- `warden-store-sqlite` (Rust): `rusqlite` with the `bundled` feature (one SQLite version
+row decoding live in the driver-free `pemba-sqlite-common`:
+- `pemba-store-sqlite` (Rust): `rusqlite` with the `bundled` feature (one SQLite version
   everywhere).
-- `warden-store-pysqlite` (Python, used by `Engine.sqlite()`): CPython's own `sqlite3`
+- `pemba-store-pysqlite` (Python, used by `Engine.sqlite()`): CPython's own `sqlite3`
   module, so the process has one SQLite library (§4.4, ADR-006, OQ-032).
 
 Requires SQLite ≥ `MIN_SQLITE_VERSION` = 3.26.0 (§4.3).
 
 ```sql
-CREATE TABLE IF NOT EXISTS warden_meta (
+CREATE TABLE IF NOT EXISTS pemba_meta (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
 -- rows: ('storage_version','1'), ('gc_horizon','0'), ('created_at', ISO-8601)
 
-CREATE TABLE IF NOT EXISTS warden_revisions (
+CREATE TABLE IF NOT EXISTS pemba_revisions (
     rev          INTEGER PRIMARY KEY AUTOINCREMENT,   -- AUTOINCREMENT: never reuse committed ids
     committed_at TEXT NOT NULL,                       -- ISO-8601 UTC, informational
     kind         TEXT NOT NULL                        -- 'write' | 'schema' | 'delete_filter'
 );
 
-CREATE TABLE IF NOT EXISTS warden_relationships (
+CREATE TABLE IF NOT EXISTS pemba_relationships (
     resource_type    TEXT    NOT NULL,
     resource_id      TEXT    NOT NULL,
     relation         TEXT    NOT NULL,
@@ -249,28 +249,28 @@ CREATE TABLE IF NOT EXISTS warden_relationships (
 );
 
 -- At most one live copy of a tuple.
-CREATE UNIQUE INDEX IF NOT EXISTS warden_rel_live
-    ON warden_relationships (resource_type, resource_id, relation,
+CREATE UNIQUE INDEX IF NOT EXISTS pemba_rel_live
+    ON pemba_relationships (resource_type, resource_id, relation,
                              subject_type, subject_id, subject_relation)
     WHERE deleted_rev IS NULL;
 
 -- Forward reads (check, arrows). Subject columns follow the resource columns so the index
 -- order is the §2 result order (no sort step); created_rev/deleted_rev make it covering.
-CREATE INDEX IF NOT EXISTS warden_rel_fwd
-    ON warden_relationships (resource_type, resource_id, relation,
+CREATE INDEX IF NOT EXISTS pemba_rel_fwd
+    ON pemba_relationships (resource_type, resource_id, relation,
                              subject_type, subject_id, subject_relation,
                              created_rev, deleted_rev);
 
 -- Reverse reads (lookups).
-CREATE INDEX IF NOT EXISTS warden_rel_rev
-    ON warden_relationships (subject_type, subject_id, subject_relation,
+CREATE INDEX IF NOT EXISTS pemba_rel_rev
+    ON pemba_relationships (subject_type, subject_id, subject_relation,
                              resource_type, relation, created_rev);
 
 -- GC.
-CREATE INDEX IF NOT EXISTS warden_rel_deleted
-    ON warden_relationships (deleted_rev) WHERE deleted_rev IS NOT NULL;
+CREATE INDEX IF NOT EXISTS pemba_rel_deleted
+    ON pemba_relationships (deleted_rev) WHERE deleted_rev IS NOT NULL;
 
-CREATE TABLE IF NOT EXISTS warden_schema (
+CREATE TABLE IF NOT EXISTS pemba_schema (
     version     INTEGER PRIMARY KEY AUTOINCREMENT,
     source      TEXT    NOT NULL,
     hash        TEXT    NOT NULL,          -- hex sha-256 of normalised source
@@ -290,7 +290,9 @@ should use WAL for concurrency.
 
 ### 4.1 Migrations
 
-- `warden_meta.storage_version` tracks the engine's table layout. MVP ships version `1`.
+- `pemba_meta.storage_version` tracks the engine's table layout. MVP ships version `1`.
+  Version `1` uses the `pemba_` prefix. Databases created before the rename (ADR-012,
+  OQ-001) carry the codename's prefix and are not migrated; none were ever published.
 - `SqliteStore::migrate(path, &config)` (explicit) creates/upgrades tables inside one
   transaction.
 - `SqliteStore::open()` checks the version: missing tables → `Err(NotMigrated)` unless
@@ -299,7 +301,7 @@ should use WAL for concurrency.
   no `migrate` and no `auto_migrate` (OQ-025 (d)).
 - Newer `storage_version` than the library knows → `Err(StorageVersionTooNew)`.
 - Migrations are a static ordered list of SQL scripts in
-  `warden-sqlite-common/migrations/`. The shared runner executes them one statement at a
+  `pemba-sqlite-common/migrations/`. The shared runner executes them one statement at a
   time (a statement ends at a line ending in `;`), because a driver's `execute` takes one
   statement. A test pins the result to SQLite's own script runner.
 
@@ -311,7 +313,7 @@ should use WAL for concurrency.
 - In-memory SQLite is **not supported** (decided in T2.1, OQ-025): it cannot use WAL, a
   plain `:memory:` database is per-connection, and a shared-cache one replaces WAL's
   snapshot isolation with table locks. Opening one fails with `InvalidRequest` (any
-  connection whose `journal_mode` does not come back `wal` does). Use `warden-store-memory`.
+  connection whose `journal_mode` does not come back `wal` does). Use `pemba-store-memory`.
 - Reader connections are opened read-only, after the writer has set WAL and migrated.
 - A reader returned to the pool inside a transaction is rolled back (or discarded if that
   fails) so no caller inherits an old snapshot.
@@ -326,7 +328,7 @@ The newest feature each statement needs:
 | `SAVEPOINT` / `RELEASE` / `ROLLBACK TO` | write algorithm (§5) | 3.6.8 |
 | `INDEXED BY`, `AUTOINCREMENT`, `?NNN` parameters | reads (§6), tables | 3.6 |
 | multi-row `VALUES` | migration 1 | 3.7.11 |
-| partial indexes (`warden_rel_live`, `warden_rel_deleted`) | migration 1 | 3.8.0 |
+| partial indexes (`pemba_rel_live`, `pemba_rel_deleted`) | migration 1 | 3.8.0 |
 | row values (`(a, b, …) > (?, ?, …)`) | `read_relationships` cursor (§6) | 3.15.0 |
 | upsert (`ON CONFLICT … DO NOTHING` / `DO UPDATE`, with a partial-index target) | Touch (§5), migration runner | 3.24.0 |
 
@@ -341,7 +343,7 @@ It also refuses a `sqlite3` built without thread support (`sqlite3.threadsafety 
 because connections move between threads. Raising the floor needs this table updated and
 the CI job moved.
 
-### 4.4 The Python store (`warden-store-pysqlite`)
+### 4.4 The Python store (`pemba-store-pysqlite`)
 
 The same as §4.2 except that each connection is a `sqlite3.Connection`
 (`isolation_level=None`; the store issues `BEGIN IMMEDIATE`, `BEGIN DEFERRED`, `COMMIT`
@@ -350,17 +352,17 @@ one `BEGIN DEFERRED` read transaction per request, head, horizon and schema vers
 inside it), the write algorithm (§5) and the GC order (§8) are unchanged. Every statement
 takes the GIL. The store never waits for a lock while holding it: the reader pool never
 blocks (with nothing idle a request opens a connection, and at most `reader_pool` are
-kept), and the writer mutex is taken before any statement. `warden-py` holds the GIL for
+kept), and the writer mutex is taken before any statement. `pemba-py` holds the GIL for
 a whole request and serialises requests per engine (OQ-033 (b)). Dropping the store
 closes every connection at once. The conformance suite (§9) and property 5 run against
 it in an embedded interpreter.
 
 ---
 
-## 5. Write algorithm (shared, in `warden-core::write`)
+## 5. Write algorithm (shared, in `pemba-core::write`)
 
 Inside one transaction (`WriteTxn`), in this order. Implemented once as
-`warden_core::write::write`; steps 3–6 run inside `SAVEPOINT warden_write`, rolled back to on
+`pemba_core::write::write`; steps 3–6 run inside `SAVEPOINT pemba_write`, rolled back to on
 any error, so a failed write leaves a caller-owned transaction as it found it (OQ-026).
 `write_schema` (§7) and `gc` (§8) are in the same module. The function never begins, commits
 or rolls back the transaction itself.
@@ -369,21 +371,21 @@ or rolls back the transaction itself.
 1. validate all ops against the current schema (docs/02 §6)        -- no SQL
 2. reject duplicates within the batch                              -- no SQL
 2b. (T2.6) if the engine passed the schema version it validated against:
-     SELECT COALESCE(MAX(version), 0) FROM warden_schema
+     SELECT COALESCE(MAX(version), 0) FROM pemba_schema
      differs -> Err(Store(SchemaChanged))  -- the engine reloads, revalidates, retries (≤3)
 3. for each precondition:
-     SELECT 1 FROM warden_relationships WHERE <filter> AND deleted_rev IS NULL LIMIT 1
+     SELECT 1 FROM pemba_relationships WHERE <filter> AND deleted_rev IS NULL LIMIT 1
      MustExist & none found  -> Err(PreconditionFailed)
      MustNotExist & found    -> Err(PreconditionFailed)
-4. INSERT INTO warden_revisions (committed_at, kind) VALUES (?, 'write')
+4. INSERT INTO pemba_revisions (committed_at, kind) VALUES (?, 'write')
    rev = last_insert_id()
 5. for each op:
    Create: INSERT ... (created_rev = rev)          -- unique index violation -> Err(AlreadyExists)
    Touch:  INSERT ... ON CONFLICT DO NOTHING       -- needs the partial unique index:
-           INSERT INTO warden_relationships (...) VALUES (...)
+           INSERT INTO pemba_relationships (...) VALUES (...)
            ON CONFLICT (resource_type, resource_id, relation, subject_type, subject_id, subject_relation)
            WHERE deleted_rev IS NULL DO NOTHING
-   Delete: UPDATE warden_relationships SET deleted_rev = ?rev
+   Delete: UPDATE pemba_relationships SET deleted_rev = ?rev
            WHERE resource_type=? AND resource_id=? AND relation=? AND subject_type=?
              AND subject_id=? AND subject_relation=? AND deleted_rev IS NULL
 6. return rev
@@ -415,7 +417,7 @@ commits on a stale precondition (tested in T2.2,
 
 ### 5.2 Head revision
 
-`SELECT COALESCE(MAX(rev), 0) FROM warden_revisions` on a reader connection. Because of WAL,
+`SELECT COALESCE(MAX(rev), 0) FROM pemba_revisions` on a reader connection. Because of WAL,
 a reader sees only committed revisions, so head never points at an uncommitted batch.
 
 ---
@@ -429,7 +431,7 @@ created_rev <= ?R AND (deleted_rev IS NULL OR deleted_rev > ?R)
 
 ### 6.1 `exists`
 ```sql
-SELECT 1 FROM warden_relationships
+SELECT 1 FROM pemba_relationships
 WHERE resource_type=? AND resource_id=? AND relation=?
   AND subject_type=? AND subject_id=? AND subject_relation=?
   AND created_rev <= ?R AND (deleted_rev IS NULL OR deleted_rev > ?R)
@@ -438,40 +440,40 @@ LIMIT 1;
 
 ### 6.2 `read_subject_sets` / `read_related_objects` / `read_tuples`
 ```sql
-SELECT subject_type, subject_id, subject_relation FROM warden_relationships
+SELECT subject_type, subject_id, subject_relation FROM pemba_relationships
 WHERE resource_type=? AND resource_id=? AND relation=?
   AND <visible at ?R>
   [AND subject_relation <> '']                 -- read_subject_sets
 ORDER BY subject_type, subject_id, subject_relation;
 
 -- read_related_objects
-SELECT DISTINCT subject_type, subject_id FROM warden_relationships
+SELECT DISTINCT subject_type, subject_id FROM pemba_relationships
 WHERE resource_type=? AND resource_id=? AND relation=?
   AND <visible at ?R> AND subject_id <> '*'
 ORDER BY subject_type, subject_id;
 ```
-All three, and §6.1, are a covering-index seek on `warden_rel_fwd` with no
+All three, and §6.1, are a covering-index seek on `pemba_rel_fwd` with no
 `USE TEMP B-TREE` step: the `ORDER BY` (and `DISTINCT`) is the index order, which is the §2
 result order.
 
 ### 6.3 `read_reverse`
 ```sql
-SELECT DISTINCT resource_type, resource_id, relation FROM warden_relationships
+SELECT DISTINCT resource_type, resource_id, relation FROM pemba_relationships
 WHERE subject_type=? AND subject_id=?
   [AND subject_relation = ?]                   -- Exact(rel); None -> = ''; Any -> omit
   [AND resource_type = ?] [AND relation = ?]
   AND <visible at ?R>
 ORDER BY resource_type, resource_id, relation;
 ```
-Seeks `warden_rel_rev`; the `DISTINCT`/`ORDER BY` needs a temporary B-tree because
+Seeks `pemba_rel_rev`; the `DISTINCT`/`ORDER BY` needs a temporary B-tree because
 `resource_id` is not in that index (accepted: the result set is one subject's resources).
 
-Every §6 query names its index with `INDEXED BY` (`warden_rel_fwd` for §6.1–6.2,
-`warden_rel_rev` for §6.3). Without it SQLite answers `read_reverse` with a resource type
-from `warden_rel_fwd` (index order matches the `ORDER BY`, but it ranges over every resource
+Every §6 query names its index with `INDEXED BY` (`pemba_rel_fwd` for §6.1–6.2,
+`pemba_rel_rev` for §6.3). Without it SQLite answers `read_reverse` with a resource type
+from `pemba_rel_fwd` (index order matches the `ORDER BY`, but it ranges over every resource
 of that type), and `ANALYZE` statistics from the app (`PRAGMA optimize`) could move any
 query; with it a lost index is a prepare error, not a slow plan. `EXPLAIN QUERY PLAN` tests
-in `warden-store-sqlite` pin every query (all twelve §6.3 filter shapes) by index name, with
+in `pemba-store-sqlite` pin every query (all twelve §6.3 filter shapes) by index name, with
 and without `ANALYZE` statistics.
 
 ---
@@ -485,7 +487,7 @@ and without `ANALYZE` statistics.
   ```sql
   SELECT resource_type, relation, subject_type, subject_relation,
          CASE WHEN subject_id = '*' THEN 1 ELSE 0 END AS wildcard, COUNT(*)
-  FROM warden_relationships WHERE deleted_rev IS NULL
+  FROM pemba_relationships WHERE deleted_rev IS NULL
   GROUP BY resource_type, relation, subject_type, subject_relation, wildcard;
   ```
   and refuse with `Error::SchemaChangeOrphans` (code `SCHEMA_CHANGE_ORPHANS`, `03` §10) if
@@ -497,7 +499,7 @@ and without `ANALYZE` statistics.
   `p` was deleted from `x`) or wildcard (wildcards are grouped apart from objects, OQ-015
   (c)). Removing a permission is allowed exactly when no live tuple uses it as a subject
   relation. Running the check in the write transaction means no write can slip in between.
-- Insert a `warden_revisions` row (`kind='schema'`) and the `warden_schema` row with that
+- Insert a `pemba_revisions` row (`kind='schema'`) and the `pemba_schema` row with that
   `created_rev`.
 - **Writes check the version** (§5 step 2b): every engine write passes the version it
   validated against; a mismatch aborts the transaction (`SchemaChanged`), and the engine
@@ -526,12 +528,12 @@ and without `ANALYZE` statistics.
 `Engine::gc(keep_from: Revision) -> GcStats` (T2.6), in this order:
 
 1. **Raise the horizon first**, in its own committed transaction:
-   `UPDATE warden_meta SET value = ?keep_from WHERE key = 'gc_horizon'` (never lowering it;
+   `UPDATE pemba_meta SET value = ?keep_from WHERE key = 'gc_horizon'` (never lowering it;
    `keep_from > head` → `InvalidRequest`).
 2. **Then delete in batches**, each its own transaction, until a batch removes nothing:
    ```sql
-   DELETE FROM warden_relationships WHERE rowid IN (
-     SELECT rowid FROM warden_relationships
+   DELETE FROM pemba_relationships WHERE rowid IN (
+     SELECT rowid FROM pemba_relationships
      WHERE deleted_rev IS NOT NULL AND deleted_rev <= ?horizon LIMIT 10000);
    ```
    (`rowid` is `SqlDialect::row_id()`; `ctid` on Postgres.) The bound is the **stored**
@@ -541,20 +543,20 @@ Why this order: deleting first (the pre-T2.6 spec) let a reader pass the horizon
 then read half-deleted history, a silent wrong answer. With the horizon committed first, a
 request whose snapshot was taken before it sees all of its revision (WAL keeps its pages),
 and every later request at `Exact(r < keep_from)` fails with `RevisionExpired`: never a
-partial answer. Tested by `warden-store-sqlite/tests/multi_process.rs`
+partial answer. Tested by `pemba-store-sqlite/tests/multi_process.rs`
 (`a_reader_mid_gc_gets_the_full_answer_or_revision_expired`, pausing between batches
 through a test wrapper). If a batch fails, the horizon is already raised; the remaining
 rows are removed by the next GC and change no answer.
 
 - After GC, `Exact(r)` with `r < keep_from` → `Err(RevisionExpired)`.
-- Optionally prune `warden_revisions` rows below the horizon except the newest (keep head).
+- Optionally prune `pemba_revisions` rows below the horizon except the newest (keep head).
 - No automatic GC in the MVP. Document a recommended cron (e.g. keep 24h of history).
 
 ---
 
 ## 9. Store conformance suite
 
-`warden-testkit::store_conformance::run::<S: WritableStore>(factory)` — a generic test
+`pemba-testkit::store_conformance::run::<S: WritableStore>(factory)` — a generic test
 suite every store must pass, invoked from each store crate's tests. Covers:
 visibility at revisions, Touch/Create/Delete semantics, duplicates, preconditions,
 monotonic revisions, read_reverse filters, pagination ordering, GC horizon errors,
@@ -568,7 +570,7 @@ reads outside `gc_horizon..=head` failing. Cases drive the store only through
 
 `engine.write(updates, conn=sqlite3_connection)` (T3.2b):
 
-1. `warden-py` wraps the Python connection in a `WriteTxn`: `PyTxn::foreign`, the adapter
+1. `pemba-py` wraps the Python connection in a `WriteTxn`: `PyTxn::foreign`, the adapter
    the native Python writes use (T3.2a) with foreign error mapping. The app's connection
    and the engine's connections are the same SQLite library (§4.4), which is what makes
    sharing a file in one process safe:

@@ -1,0 +1,11 @@
+---
+source: crates/pemba-schema/tests/parse_errors.rs
+description: "definition doc {\n    permission view = nil\n}"
+---
+error[E_UNSUPPORTED_FEATURE]: `nil` is not supported
+ --> 2:23
+  |
+2 |     permission view = nil
+  |                       ^^^
+  |
+  = help: remove the permission, or define it from a relation that is never written

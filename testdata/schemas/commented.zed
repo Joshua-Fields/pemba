@@ -1,4 +1,4 @@
-// A canonical schema with comments: `warden schema fmt --check` accepts it (T3.8).
+// A canonical schema with comments: `pemba schema fmt --check` accepts it (T3.8).
 
 /** Someone who signs in. */
 definition user {}

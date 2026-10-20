@@ -1,0 +1,4 @@
+// A canonem.
+definition douennt {
+    relation owner: user // ne: `u
+:     *

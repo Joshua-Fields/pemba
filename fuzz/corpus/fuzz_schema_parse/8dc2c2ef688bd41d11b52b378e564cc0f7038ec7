@@ -1,0 +1,3 @@
+definition organizat {
+    relation admin: user
+      relation viewer: us   permission edit = owner + editor + parent+ editor + parent-zedit ermi

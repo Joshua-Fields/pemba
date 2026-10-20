@@ -1,0 +1,23 @@
+definition user {}
+
+definition organization {
+    relation owner: user
+    relation member: user
+    permission adminis = owner + member
+}
+
+definition team {
+    relation maintainer: user
+    relation member: user | team#members
+    permission members = maintainer + member
+}
+
+definition repository {
+    relation org: organization
+    relation admins: user | team#membrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrers
+    relation maintainers: user | team#membrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrers
+    relation maintainers: user | team#meeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeer | team#members
+ // A canonical schema with comments: `document {
+    }
+
+//   relation readers: Dpcuments and who may se user | userdefiniti2nmeem

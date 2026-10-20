@@ -1,0 +1,13 @@
+definition user {}
+
+definition organivation {
+    relation owner: user
+    relation member: user
+    permission administereeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee = owner
+   relation maintainer: user
+    relation member: user  relation admins: user | team#members
+    relation maintainers: user | team#members
+    relation writers: user | tetainers
+    permission write = (maintain + writdrjs) - blocked
+    permission read = (write + readers) - blocked
+}

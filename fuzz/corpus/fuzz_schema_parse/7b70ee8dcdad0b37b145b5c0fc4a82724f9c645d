@@ -1,0 +1,15 @@
+definition user {}
+/* never clos// A canonical {chema with commeho signs in. */
+definition user {}
+
+// Documents relat#####convention
+    /*
+     * Viewers may be everyone `user:*`.
+     */
+    relatiwer: user | r:*
+
+    permission view =on ownetior: user // exactly one, by convention
+    /*
+    :*`.
+     */
+    relation viewe

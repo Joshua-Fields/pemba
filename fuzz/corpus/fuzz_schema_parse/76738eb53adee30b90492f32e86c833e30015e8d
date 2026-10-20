@@ -1,0 +1,4 @@
+definition usr {}
+
+definition grou{
+    relation mr: user | group#memberdei

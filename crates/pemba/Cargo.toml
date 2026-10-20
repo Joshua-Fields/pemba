@@ -1,0 +1,34 @@
+[package]
+name = "pemba"
+description = "Embedded, Zanzibar-style authorisation engine."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories = ["authentication", "database"]
+
+[lints]
+workspace = true
+
+[package.metadata.docs.rs]
+# Document both stores.
+all-features = true
+
+[features]
+default = ["sqlite", "memory"]
+# In-memory store.
+memory = ["dep:pemba-store-memory"]
+# SQLite store.
+sqlite = ["dep:pemba-store-sqlite"]
+
+[dependencies]
+pemba-core.workspace = true
+pemba-store-memory = { workspace = true, optional = true }
+pemba-store-sqlite = { workspace = true, optional = true }
+
+[dev-dependencies]
+tracing.workspace = true

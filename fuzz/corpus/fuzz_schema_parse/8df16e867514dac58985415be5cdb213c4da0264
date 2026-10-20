@@ -1,0 +1,5 @@
+definition user {}
+definition doc {
+    relation viewer: user
+    relation editor: user
+}

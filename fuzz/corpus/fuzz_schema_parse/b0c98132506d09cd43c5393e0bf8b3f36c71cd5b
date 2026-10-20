@@ -1,0 +1,11 @@
+//"A canonieconiepts it{} whoay see them.
+definition dent {
+    relation owner: user // exactly one, by convention
+    /*
+ y be everyone: `user:*`.
+     */
+    relation viewer: user | user:*
+
+    permission view = viewer + owner
+    // Editing is owner-only for now.
+}

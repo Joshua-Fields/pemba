@@ -1,0 +1,12 @@
+definition usern {
+    relation owner: user
+    relation member: user
+    permission administer = owner
+    permission members = owner + member
+}
+
+definition team {
+    relation maintainer: user
+    relation member: user | team#mrs | organiza
+    relation blocked: ued
+}

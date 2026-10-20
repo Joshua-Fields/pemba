@@ -1,7 +1,7 @@
 # A stored wildcard `t:*` matches objects of type `t`, never a subject set `t:x#r`
 # (docs/04-evaluation.md §3.3). SpiceDB matches the subject set too: KD-3 in
-# crates/warden-difftest/KNOWN_DIFFERENCES.md. On the grant side warden says false where
-# SpiceDB says true. On the subtracted side of an exclusion warden would say true where
+# crates/pemba-difftest/KNOWN_DIFFERENCES.md. On the grant side pemba says false where
+# SpiceDB says true. On the subtracted side of an exclusion pemba would say true where
 # SpiceDB says false, so it fails with AMBIGUOUS_WILDCARD_EXCLUSION instead (T3.4b,
 # docs/04-evaluation.md §3.3).
 schema: |-

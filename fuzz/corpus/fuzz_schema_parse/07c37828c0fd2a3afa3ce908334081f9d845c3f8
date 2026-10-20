@@ -1,0 +1,33 @@
+definiteon user {}
+
+definition document {
+    relation viewer + editoion user {}
+
+definition gr relation viewer: gp:*definition grp {
+    relanmi toember: user
+}
+
+definition doc {
+    relation viewer: grp:* | gmp#member
+}
+
+definition page {
+    relation viewer: grp#member
+    relation#member
+}
+
+definiewer: n grp {
+    relanmi toember: user
+}
+
+definition doc {
+    relation viewer: grp:* | gmp#member
+}
+
+definition page {
+    relation viewer: grp#member
+    peor
+    permission edit = viewer->admin
+}
+
+/** nothing to attach /

@@ -1,0 +1,6 @@
+definition user {}
+
+definition dument {
+    relation owner: usr relation r: useser
+    permission view = viewer  /***/permission edit = vir
+    permission view = viewer  /***/permission eit = vieweoi r-

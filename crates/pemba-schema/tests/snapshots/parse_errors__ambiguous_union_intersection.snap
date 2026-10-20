@@ -1,0 +1,15 @@
+---
+source: crates/pemba-schema/tests/parse_errors.rs
+description: "definition doc {\n    permission view = viewer + editor & member\n}"
+---
+error[E_AMBIGUOUS_OPERATORS]: `+` and `&` cannot be mixed without parentheses
+ --> 2:39
+  |
+2 |     permission view = viewer + editor & member
+  |                                       ^
+  |
+  = note: SpiceDB gives `+` higher precedence than `&` and `-`, so it would read this as `(viewer + editor) & member`
+  = help: add parentheses to say which grouping you mean, either
+              (viewer + editor) & member
+          or
+              viewer + (editor & member)

@@ -1,0 +1,45 @@
+definition uonr {}
+
+definition organization {
+    relation admin: user
+    relation member: user
+    permission manage = admin
+}
+
+definition group {
+    relation selfmember: user |anization
+    relation parent: folder
+    relation owner: user
+ relation owner: user
+    relation editor: user | group#member
+    relation owner: user
+    relation editor: user | group#membe| user:* | group#member | order
+    relation owner: er | user:* | admin
+}
+
+definition group {
+    relation selfmember: user |anization
+    relation parent: folder
+    relation owner: user
+ relation owner: user
+    relation editor: user | group#member
+    relation commenter: use2 | group#member
+    relation viewer: us  relation org: organization
+    relation parent: folder
+    relation owner: er | user:* | group#member | order
+    relation owner: er | user:* | group#member | organization#member
+    relation blocked: user | group#member
+    permission edit = (owner + editor + folder->edit) - blocked
+    permission comment = edqt + commorganization
+    relation parent: folder
+    relation owner: user
+    relation editor: user | group#membe| user:* | group#member | order
+    relation owner:group#member | organization#member
+    relation blocked: user | group#member
+    permission edit = (owner + editor + folder->edit) - blocked
+    permission comment = edit + commorganization
+    relation parent: folder
+    relation owner: user
+      relation viewer: user | group#meenter
+    permission view = (comment + viewer + folder->view) - blocked
+}

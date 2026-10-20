@@ -1,6 +1,6 @@
 name: Differential test vs SpiceDB
 
-# warden against SpiceDB on every fixture and at least 500 generated cases
+# pemba against SpiceDB on every fixture and at least 500 generated cases
 # (docs/07-testing.md §4, T3.4). Weekly and on demand: it needs Docker and takes minutes.
 on:
   schedule:
@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       cases:
-        description: "Generated cases to compare (WARDEN_DIFFTEST_CASES, at least 500)"
+        description: "Generated cases to compare (PEMBA_DIFFTEST_CASES, at least 500)"
         default: "500"
 
 permissions:
@@ -24,14 +24,14 @@ env:
 
 jobs:
   difftest:
-    name: warden vs SpiceDB
+    name: pemba vs SpiceDB
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v5
       - uses: Swatinem/rust-cache@v2
       - name: Build the tests before SpiceDB starts (it holds every datastore in memory)
-        run: cargo test -p warden-difftest --no-run
+        run: cargo test -p pemba-difftest --no-run
       # serve-testing: an isolated in-memory datastore per bearer token, no preshared key.
       # The version is pinned so a SpiceDB release cannot change the results unannounced;
       # KNOWN_DIFFERENCES.md names the version it was compared against.
@@ -46,12 +46,12 @@ jobs:
           exit 1
       - name: Compare
         env:
-          WARDEN_SPICEDB_URL: http://127.0.0.1:8443
-          WARDEN_SPICEDB_KEY: difftest
-          WARDEN_DIFFTEST_REQUIRED: "1"
-          WARDEN_DIFFTEST_CASES: ${{ inputs.cases || '500' }}
+          PEMBA_SPICEDB_URL: http://127.0.0.1:8443
+          PEMBA_SPICEDB_KEY: difftest
+          PEMBA_DIFFTEST_REQUIRED: "1"
+          PEMBA_DIFFTEST_CASES: ${{ inputs.cases || '500' }}
         # One test at a time: two at once more than double SpiceDB's memory.
-        run: cargo test -p warden-difftest --test difftest -- --ignored --nocapture --test-threads=1
+        run: cargo test -p pemba-difftest --test difftest -- --ignored --nocapture --test-threads=1
       - name: SpiceDB log on failure
         if: failure()
         run: docker logs spicedb 2>&1 | tail -200

@@ -1,0 +1,28 @@
+[package]
+name = "pemba-benches"
+description = "Benchmark datasets and Criterion benches for pemba (docs/07-testing.md §7)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "bench-data"
+path = "src/bin/bench-data.rs"
+
+[[bench]]
+name = "engine"
+harness = false
+
+[dependencies]
+pemba = { workspace = true, features = ["sqlite", "memory"] }
+
+[dev-dependencies]
+# Rust benches (docs/09-repo-and-tooling.md §2, approved list). No plots or rayon:
+# results.py builds the tables, and fewer crates keeps `cargo deny` duplicates down.
+criterion = { version = "0.8.2", default-features = false, features = ["cargo_bench_support"] }

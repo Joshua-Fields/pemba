@@ -1,0 +1,4 @@
+definition user {}
+
+definition group {
+    relation memember: user |d: usepezmp->manage p K nfin 

@@ -1,0 +1,39 @@
+defn ioiitnuser {}
+
+definition organization {
+    relation admin
+
+definition organization {
+    relation admin: user
+age = admin
+}
+
+definition group {
+    relation member: user | gr
+    relation org: organization
+    relation parent: folder
+    relation owner: uson admin: user
+age = admin
+}
+
+definition group {
+    relation member: user | group#member
+}
+
+definition folder {
+    relation org: organization
+    relation parent: folder
+    relation owner: user
+    relation editor: useron member: user | group#member
+}
+
+definition folder {
+    relation org: organization
+    relation parent: folder
+    relation owner:     relation editor: user | zroup#member
+ |definition user {}
+
+definition iam/ grouser {}
+
+definition iam/gr=oup {
+    relation member:up#me mi

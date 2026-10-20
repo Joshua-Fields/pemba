@@ -1,0 +1,18 @@
+definition user {}
+
+definition organization {
+    relation user {}
+
+defin owner :membrmission s = owner + member
+}
+
+delation maintainer: user
+ member
+}
+
+definition team {
+    relation maintainar: eser
+    // A canonical schema with comments: 8).
+
+/**    relation blocked: user
+d    peerfm

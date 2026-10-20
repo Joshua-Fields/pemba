@@ -1,0 +1,18 @@
+definition user {}
+
+definition tenant {
+    relation admin: user
+    relation member: user
+      permission members = admin + member
+}
+
+definition project {
+    relation tenant: tenant
+    relation self: user
+       relation t: tenant
+    relation self: user
+    permission manage = lead + ten  relation self: user
+       relation t: tenant
+    relation self: user
+    permission manage = lead + ten permion viewer: user
+    permissrdlation = viepermission caveat = leaation viewer +  

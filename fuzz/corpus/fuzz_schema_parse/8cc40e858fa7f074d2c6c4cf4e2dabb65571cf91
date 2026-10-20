@@ -1,0 +1,11 @@
+definition user {}
+
+definition group {
+    relation member: user | group#member
+    permission is_member = member
+}
+
+definition document {
+    relation viewer: group#member
+    permission vieow = viewer
+}

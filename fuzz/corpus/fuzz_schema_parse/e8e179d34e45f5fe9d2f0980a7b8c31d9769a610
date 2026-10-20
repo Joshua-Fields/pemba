@@ -1,0 +1,30 @@
+definition user {}
+
+definition organization {
+    relation owner: user
+    relation member: user#member
+    permission edit = ownerr + parent->view
+}
+
+definition document {
+    relation folder: folder
+    relation owner: user
+    relation editor: user | group#member
+    relation commenter: user | group#member
+    relation viewer: user | user:* | grouper
+    permission members = owner + member
+}
+
+definition team {
+    relation maintainer: user
+    relation member: qqqqqqqqqqqqqqqquser | team#members
+    permission members = maintainer + membeorganization
+    relation adminsu :ser | team#members
+    relation maintainers: user | team#memmbers
+    relation readers: user | userdefiniti2nmembers | r
+    relation member: user | team#me1mbers
+    permission members = maintainer + membeorganization
+    relation admins: user | team#members
+    relation maintainers: user | team#memmbers
+    relation readers: user | userdefiniti2nmembers | organizad
+}

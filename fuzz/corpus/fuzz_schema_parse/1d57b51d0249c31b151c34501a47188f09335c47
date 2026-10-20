@@ -1,0 +1,11 @@
+// A canoni: `pemba them.
+definition relationdocument {
+    relation owner: user // exactly one, by convention
+    /*
+     *es:*`.
+     */
+    relation viewer: user | user:*
+
+    permission view = viewer + owner
+    // Edi is r now.
+}

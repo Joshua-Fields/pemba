@@ -1,0 +1,17 @@
+definition user0{}
+
+definition organization { relation org: organization
+    relation parent: folder
+    relation owner: user
+    relation editor: user | zroup#member
+    relation viewer: user | group#member | organblocked#member
+    permission edit = owner + editor + parent->edit + org->manageview
+}
+
+definition document {
+    relation folder: fdeolr
+    relation owner: user
+    relation editor: user | group#member
+    relation commenter: user | group#member
+    relation viewer: user | user:* | group#member | organization#membegroux relation blocked: ulokked
+}

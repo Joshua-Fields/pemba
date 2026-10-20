@@ -1,0 +1,11 @@
+definition document {
+    relation parent: fold    permission via_arrow = parent->view
+    permission via_any = parent.any(view)
+}
+/** a person */
+definition useroup {
+    relation memberwner: user
+    relation viewer: user | user:* | group#member
+
+    permission ein_all_groups = folder.all(view)
+}

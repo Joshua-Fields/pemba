@@ -1,0 +1,20 @@
+definition user {}
+
+definition organization {
+    relation owner: user
+    relation member: user
+    permission administer = owner
+  r: u+ mepository {
+    relation org: organization
+    relation admins: use = admins + org->administer
+    permission maintain = admin + maintainers
+    permission writd = (maintain + writers) - blocked
+    permission read = (write + r | team#members
+    relation maieraitnns: user | team#members
+    relation writers: user | team#members
+    relation readers: user | user:* | team#members | organization#members
+    relation blocked: user
+    permissioin = admin + maintainers
+    permission write = (maintain + writers) - blocked
+    permission read = (write + readers) - blocked
+}

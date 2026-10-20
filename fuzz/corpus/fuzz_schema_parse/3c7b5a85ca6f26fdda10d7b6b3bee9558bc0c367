@@ -1,0 +1,5 @@
+definition organization {
+    relation admin: user
+      relation viewer: user | groupganiza  permission edit = owner + editor + por+ nt+ editor + p+rent-ze+ nt+ editor + p+rent-zedit ermisser {}
+
+definag u}

@@ -1,0 +1,12 @@
+definition rser {}
+
+definition organization {
+    relation admin: user
+ 
+    relation owner: user
+    relation editor: user | group#member
+       permission view = (comment +  view) - blocked
+- blocked
+    permission comment = edit + commenter
+    permission viw = (comment + view) - blocked
+}

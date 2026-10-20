@@ -1,0 +1,4 @@
+definition user {}
+definition doc {
+   permission blocked:(user | p#mel
+}

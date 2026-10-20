@@ -61,7 +61,7 @@ to the GC horizon are possible (`Exact(rev)`). Commit-order guarantee is trivial
 inserts/updates) is implemented once in Rust, generic over a small `WriteTxn` trait
 (`execute`, `query`, `last_insert_id`). Two implementations:
 1. **Native**: the engine's own `rusqlite` connection (engine-managed transaction).
-2. **Foreign**: in `warden-py`, an adapter that forwards SQL to a **Python DB-API 2.0
+2. **Foreign**: in `pemba-py`, an adapter that forwards SQL to a **Python DB-API 2.0
    connection** supplied by the caller (`engine.write(updates, conn=app_conn)`), so the SQL
    runs inside the app's open transaction.
 **Consequences.** SQL must be written in a portable subset (positional `?` params for SQLite).
@@ -75,13 +75,13 @@ two SQLite copies in one process. On POSIX, a `close()` by either copy drops eve
 The T3.2 probe lost a committed transaction this way on Linux and macOS
 (<https://www.sqlite.org/howtocorrupt.html> §2.2–2.3). *Decision:* "the engine's own
 connections" means connections **of the SQLite library the host already uses**.
-(1) In Python, `Engine.sqlite()` uses `warden-store-pysqlite`. Every statement (reads,
+(1) In Python, `Engine.sqlite()` uses `pemba-store-pysqlite`. Every statement (reads,
 native writes, migrations, GC, schema writes) runs on Python `sqlite3` connections the
 engine opens and owns, through the same `WriteTxn` / `SqlDialect` / `ReadStore` traits,
 so all authorisation logic stays in Rust. Requests on such an engine are serialised and
-hold the GIL for their whole duration. `warden-py` does not depend on rusqlite, and CI
+hold the GIL for their whole duration. `pemba-py` does not depend on rusqlite, and CI
 fails if the extension contains SQLite. (2) In Rust, a caller's transaction for
-`Engine::write_in` must come from `warden_store_sqlite::rusqlite`. Cargo's
+`Engine::write_in` must come from `pemba_store_sqlite::rusqlite`. Cargo's
 `links = "sqlite3"` already forbids a second `libsqlite3-sys`; a dependency that compiles
 its own SQLite is unsupported. (3) Rejected: linking the extension against the
 interpreter's SQLite (option B). It is impossible for manylinux wheels, python.org macOS
@@ -114,11 +114,11 @@ being evaluated counts as `false` for the purpose of breaking cycles, and **resu
 depended on such an assumption are not memoised** (`docs/04-evaluation.md` §3.6).
 Hard depth limit (default 50) returns `Error::MaxDepthExceeded`.
 
-## ADR-010 — Engine-owned tables live in the app database, prefixed `warden_`
+## ADR-010 — Engine-owned tables live in the app database, prefixed `pemba_`
 
-**Decision.** SQLite tables `warden_meta`, `warden_revisions`, `warden_relationships`,
-`warden_schema`. Engine runs its own migrations (`Engine::migrate`), tracked in
-`warden_meta.storage_version`. (`docs/05-storage.md` §4)
+**Decision.** SQLite tables `pemba_meta`, `pemba_revisions`, `pemba_relationships`,
+`pemba_schema`. Engine runs its own migrations (`Engine::migrate`), tracked in
+`pemba_meta.storage_version`. (`docs/05-storage.md` §4)
 
 ## ADR-011 — Licence and attribution
 
@@ -126,13 +126,17 @@ Hard depth limit (default 50) returns `Error::MaxDepthExceeded`.
 No SpiceDB code is copied or translated. If adaptation is ever needed: human approval,
 retain SpiceDB's copyright header in the file, add an entry to `NOTICE`.
 
-## ADR-012 — Codename `warden`, rename before 0.1
+## ADR-012 — Project name `pemba`
 
-**Status:** Provisional.
-**Decision.** Crates are `warden-*`, Python package `warden`, table prefix `warden_`. Before
-publishing, the human picks a final name free on crates.io, PyPI, npm and GitHub; rename by
-find-replace. Keep the name in exactly these places to make the rename mechanical:
-crate names, the Python module name, the table prefix constant `TABLE_PREFIX`, docs.
+**Status:** Accepted (OQ-001).
+**Decision.** The project is `pemba`. Crates are `pemba-*`, Python package `pemba` (native
+module `pemba._pemba`), CLI binary `pemba`, table and index prefix `pemba_`, environment
+variables `PEMBA_*`.
+**History.** Developed until 0.1 under the codename `warden` (crates `warden-*`, Python
+package `warden`, tables `warden_*`, `WARDEN_*` variables), with the name kept in as few
+places as possible so the rename could be a mechanical find-replace. The rename changed the
+on-disk SQLite table names (`docs/05-storage.md` §4.1); nothing had been published, so no
+migration from `warden_*` tables exists.
 
 ## ADR-013 — `.all()` intersection arrow is in the MVP; `self`, typechecking, caveats are not
 
@@ -145,7 +149,7 @@ differs, match SpiceDB and update this ADR). Everything else listed is rejected 
 
 ## ADR-014 — Python is the first binding; packaging via maturin
 
-**Decision.** `warden-py` crate built with maturin into abi3 wheels (Python ≥ 3.11,
+**Decision.** `pemba-py` crate built with maturin into abi3 wheels (Python ≥ 3.11,
 pyo3 feature `abi3-py311`: 3.9 is end-of-life and 3.10 reaches it in October 2026; re-check
 the oldest supported CPython before each release) for Linux x86_64/aarch64
 (manylinux), macOS x86_64/arm64, Windows x86_64. Type stubs (`.pyi`) shipped.
