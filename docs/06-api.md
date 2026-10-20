@@ -309,8 +309,18 @@ longer subtracts `banned`. It is not an audit log.
 import sqlite3
 from pemba import Engine
 
+SCHEMA = """
+definition user {}
+
+definition document {
+    relation owner: user
+    relation viewer: user
+    permission view = viewer + owner
+}
+"""
+
 engine = Engine.sqlite("app.db")              # or Engine.memory()
-engine.write_schema(open("authz.zed").read())
+engine.write_schema(SCHEMA)                   # or open("authz.zed").read()
 
 rev = engine.write(touch=["document:readme#viewer@user:anne"])
 engine.check("document:readme", "view", "user:anne", at_least=rev)    # True
@@ -321,6 +331,7 @@ engine.lookup_subjects("document:readme", "view", "user")             # Subjects
 
 # transactional with app data (headline feature)
 conn = sqlite3.connect("app.db", isolation_level=None)
+conn.execute("CREATE TABLE IF NOT EXISTS documents (id TEXT PRIMARY KEY, title TEXT NOT NULL)")
 conn.execute("BEGIN IMMEDIATE")
 conn.execute("INSERT INTO documents(id, title) VALUES (?, ?)", ("readme", "Readme"))
 rev = engine.write(touch=["document:readme#owner@user:anne"], conn=conn)

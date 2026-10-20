@@ -9,7 +9,6 @@ from pathlib import Path
 import pytest
 
 import pemba
-from conftest import SCHEMA
 
 ROOT = Path(__file__).resolve().parents[3]
 
@@ -30,13 +29,8 @@ def test_readme_carries_the_spec_example() -> None:
 
 
 def test_readme_example_runs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # An empty directory: the example has to run as pasted, with nothing set up first.
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "authz.zed").write_text(SCHEMA, encoding="utf-8")
-    setup = sqlite3.connect("app.db")
-    setup.execute("CREATE TABLE documents (id TEXT PRIMARY KEY, title TEXT NOT NULL)")
-    setup.commit()
-    setup.close()
-
     example = python_block(ROOT / "README.md", "## Python quick start")
     scope: dict[str, object] = {"__name__": "readme_example"}
     exec(compile(example, "README.md", "exec"), scope)

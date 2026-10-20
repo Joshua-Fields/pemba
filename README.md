@@ -21,7 +21,7 @@ database transaction**: the row you insert and the relationship that grants acce
 commit or roll back together. There is no second system to keep in sync, so no outbox, no
 reconciliation job, and no window where a document exists that nobody can open.
 
-**Status: early pre-release (0.1.0-alpha.1), API may change.** `check`, `lookup_resources`,
+**Status: alpha, published as 0.1.0-alpha.1. The API may change.** `check`, `lookup_resources`,
 `lookup_subjects`, the memory and SQLite stores, transactional writes and the Python
 bindings are implemented and tested, including against SpiceDB. The 0.1 release gate
 (`docs/08-milestones.md` T3.7) is not signed off. Expect breaking changes.
@@ -64,8 +64,18 @@ both on by default).
 import sqlite3
 from pemba import Engine
 
+SCHEMA = """
+definition user {}
+
+definition document {
+    relation owner: user
+    relation viewer: user
+    permission view = viewer + owner
+}
+"""
+
 engine = Engine.sqlite("app.db")              # or Engine.memory()
-engine.write_schema(open("authz.zed").read())
+engine.write_schema(SCHEMA)                   # or open("authz.zed").read()
 
 rev = engine.write(touch=["document:readme#viewer@user:anne"])
 engine.check("document:readme", "view", "user:anne", at_least=rev)    # True
@@ -76,15 +86,17 @@ engine.lookup_subjects("document:readme", "view", "user")             # Subjects
 
 # transactional with app data (headline feature)
 conn = sqlite3.connect("app.db", isolation_level=None)
+conn.execute("CREATE TABLE IF NOT EXISTS documents (id TEXT PRIMARY KEY, title TEXT NOT NULL)")
 conn.execute("BEGIN IMMEDIATE")
 conn.execute("INSERT INTO documents(id, title) VALUES (?, ?)", ("readme", "Readme"))
 rev = engine.write(touch=["document:readme#owner@user:anne"], conn=conn)
 conn.execute("COMMIT")
 ```
 
-This example runs verbatim in CI (`crates/pemba-py/tests/test_readme_example.py`), with an
-`authz.zed` schema and a `documents` table set up first. The API is in `docs/06-api.md` §2;
-every method has a docstring, and the package ships type stubs that pass `mypy --strict`.
+Paste it into a file and run it: it needs nothing else in the directory, and CI runs it
+verbatim in an empty one (`crates/pemba-py/tests/test_readme_example.py`). The API is in
+`docs/06-api.md` §2; every method has a docstring, and the package ships type stubs that
+pass `mypy --strict`.
 
 ## Rust quick start
 
@@ -92,40 +104,44 @@ every method has a docstring, and the package ships type stubs that pass `mypy -
 use pemba::model::{Consistency, WriteOp, WriteRequest};
 use pemba::{CheckRequest, Engine, LookupResourcesRequest, MemoryStore};
 
-let engine = Engine::builder().store(MemoryStore::new()).build()?;
-engine.write_schema(
-    "definition user {}
-     definition document {
-         relation viewer: user
-         relation editor: user
-         permission view = viewer + editor
-     }",
-)?;
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let engine = Engine::builder().store(MemoryStore::new()).build()?;
+    engine.write_schema(
+        "definition user {}
+         definition document {
+             relation viewer: user
+             relation editor: user
+             permission view = viewer + editor
+         }",
+    )?;
 
-let rev = engine.write(WriteRequest {
-    ops: vec![WriteOp::Touch("document:readme#editor@user:anne".parse()?)],
-    preconditions: Vec::new(),
-})?;
+    let rev = engine.write(WriteRequest {
+        ops: vec![WriteOp::Touch("document:readme#editor@user:anne".parse()?)],
+        preconditions: Vec::new(),
+    })?;
 
-let allowed = engine
-    .check(CheckRequest {
-        resource: "document:readme".parse()?,
-        permission: "view".parse()?,
-        subject: "user:anne".parse()?,
-        consistency: Consistency::AtLeast(rev),
-    })?
-    .allowed;
-assert!(allowed);
+    let allowed = engine
+        .check(CheckRequest {
+            resource: "document:readme".parse()?,
+            permission: "view".parse()?,
+            subject: "user:anne".parse()?,
+            consistency: Consistency::AtLeast(rev),
+        })?
+        .allowed;
+    assert!(allowed);
 
-let page = engine.lookup_resources(LookupResourcesRequest::new(
-    "document".parse()?,
-    "view".parse()?,
-    "user:anne".parse()?,
-))?;
-assert_eq!(page.resource_ids.len(), 1);
+    let page = engine.lookup_resources(LookupResourcesRequest::new(
+        "document".parse()?,
+        "view".parse()?,
+        "user:anne".parse()?,
+    ))?;
+    assert_eq!(page.resource_ids.len(), 1);
+    Ok(())
+}
 ```
 
-The same example is a doctest on the `pemba` crate. For persistence, use
+This is a complete `src/main.rs` after `cargo add pemba@0.1.0-alpha.1`, and the same example
+is a doctest on the `pemba` crate. For persistence, use
 `SqliteStore::open("app.db", SqliteConfig::default())` in place of `MemoryStore::new()`.
 
 ## Transactional writes
@@ -276,8 +292,14 @@ Also:
 - **SQLite only**, plus an in-memory store for tests. Postgres is planned, not started.
 - **One machine.** The engine runs in your process. Several processes can share one
   SQLite file, but there is no distributed mode.
-- **Performance is not characterised yet.** Benchmarks exist (`benches/`) but no figures
-  have been published, and no targets are set (`docs/OPEN_QUESTIONS.md` OQ-008).
+- **Read latency, measured on the author's machine** (Intel i5-14600KF, Windows 11; p50,
+  one call at a time, warm caches): on SQLite, a `check` that finds a direct relationship
+  takes 3.7 µs from Rust and 10.9 µs from Python, one through 30 nested folders takes
+  89 µs and 237 µs, and `lookup_resources` over 10,000 documents takes 1.2 ms and 2.4 ms.
+  Every scenario, the in-memory store and a SpiceDB comparison (whose figures include an
+  HTTP round trip) are in
+  [`benches/RESULTS.md`](https://github.com/Joshua-Fields/pemba/blob/main/benches/RESULTS.md).
+  No performance targets are set yet (`docs/OPEN_QUESTIONS.md` OQ-008).
 - **Out of scope for now:** caveats/CEL conditions, expiring relationships, Watch /
   change feeds, a server mode, and bindings other than Python.
 
@@ -291,7 +313,8 @@ fine-grained sharing without running another service. Use
 - you need horizontal scale, multi-region deployment, or more relationships than one
   database comfortably holds;
 - you need caveats (conditional relationships), expiring relationships, or a Watch API;
-- you want a mature, supported product today. pemba is pre-alpha.
+- you want a mature, supported product today. pemba is an alpha, published as
+  0.1.0-alpha.1.
 
 pemba's schema language is a strict subset of SpiceDB's, so if you outgrow pemba your
 schema and relationships move over as they are. The exceptions are listed in
