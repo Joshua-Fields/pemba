@@ -30,6 +30,7 @@ pemba/
 ├── testdata/
 │   └── fixtures/               # YAML fixtures (docs/07 §3), regressions/
 ├── benches/                    # criterion benches, spicedb/ comparison scripts, RESULTS.md
+├── examples/                   # runnable Python examples, each run by pemba-py/tests/test_examples.py
 ├── fuzz/                       # cargo-fuzz targets + corpus
 └── .github/workflows/          # ci.yml, wheels.yml, difftest.yml, fuzz.yml (manual)
 ```
