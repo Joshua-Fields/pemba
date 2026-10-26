@@ -27,6 +27,10 @@ impl<S: WritableStore> Engine<S> {
 
     // ---- reads ----
     pub fn check(&self, req: CheckRequest) -> Result<CheckResponse, Error>;
+    pub fn check_with_trace(&self, req: CheckRequest)
+        -> Result<(CheckResponse, CheckTrace), Error>;          // T4.1, 04 §3.8
+    pub fn check_with_trace_limit(&self, req: CheckRequest, max_trace_nodes: usize)
+        -> Result<(CheckResponse, CheckTrace), Error>;          // per-call cap; 0 -> InvalidRequest
     pub fn check_bulk(&self, items: Vec<CheckItem>, c: Consistency) -> Result<Vec<Result<bool, Error>>, Error>;
     pub fn lookup_resources(&self, req: LookupResourcesRequest) -> Result<LookupResourcesResponse, Error>;
     pub fn lookup_subjects(&self, req: LookupSubjectsRequest) -> Result<LookupSubjectsResponse, Error>;
@@ -45,6 +49,7 @@ pub struct EngineConfig {
     pub max_lookup_nodes: usize,        // 200_000
     pub max_check_fanout: usize,        // 100_000
     pub max_check_reads: u64,           // 200_000 (04 §3.6)
+    pub max_trace_nodes: usize,         // 10_000 (04 §3.8); 0 -> InvalidRequest at build
 }
 ```
 
@@ -100,6 +105,35 @@ pub struct EvalStats {
     pub cycle_passes: u64,               // passes of SCC heads that re-ran (04 §3.6)
     pub elapsed: Duration,               // on the span as `elapsed_us`
 }
+```
+
+Trace types (defined in T4.1; `04` §3.8 has the semantics of every field):
+
+```rust
+#[non_exhaustive] pub struct CheckTrace {
+    pub resource: ObjectRef, pub permission: RelName, pub subject: SubjectRef,
+    pub allowed: bool, pub revision: Revision, pub stats: EvalStats,
+    pub truncated: bool,                 // max_trace_nodes reached; the answer is complete
+    pub root: TraceNode,
+}
+impl CheckTrace {
+    pub fn nodes(&self) -> Vec<&TraceNode>;   // pre-order: nodes()[i].id == i
+    pub fn to_json(&self) -> String;          // §3.1
+    pub fn render(&self) -> String;           // what `pemba check --explain` prints
+    pub fn render_ansi(&self) -> String;      // the same with ANSI colour
+}
+#[non_exhaustive] pub struct TraceNode {
+    pub id: u32, pub node: String, pub kind: TraceKind, pub expr: Option<String>,
+    pub role: Option<TraceRole>, pub result: Option<bool>, pub source: TraceSource,
+    pub provisional: bool, pub tuple: Option<String>, pub duration: Duration,
+    pub truncated: bool, pub children: Vec<TraceNode>,
+}
+#[non_exhaustive] pub enum TraceKind { Relation, Direct, Wildcard, SubjectSet, SelfMembership,
+    Computed, Union, Intersection, Exclusion, ArrowAny, ArrowAll, Undefined }  // as_str(): snake_case
+#[non_exhaustive] pub enum TraceSource { Evaluated, MemoHit { of: Option<u32> },
+    Cycle { passes: u32 }, CycleHit { of: Option<u32> }, Skipped }
+#[non_exhaustive] pub enum TraceRole { Base, Subtracted }
+pub const TRACE_FORMAT_VERSION: u32 = 1;
 ```
 
 Lookup types (defined in T2.4; `04` §5):
@@ -243,6 +277,8 @@ Store constructors:
 
 ```rust
 let store = SqliteStore::open("authz.db", SqliteConfig::default())?;
+let store = SqliteStore::open_read_only("authz.db", SqliteConfig::default())?; // T4.1: existing,
+                                     // migrated file; never created or migrated; writes fail
 let store = MemoryStore::new();
 let engine = Engine::builder().store(store).config(cfg).build()?;
 engine.write_schema(SCHEMA)?;
@@ -377,6 +413,15 @@ class Engine:
               at_least: int | None = None, at_exactly: int | None = None) -> bool: ...
     def check_detailed(self, resource: str, permission: str, subject: str, /, *,
                        at_least: int | None = None, at_exactly: int | None = None) -> "CheckResult": ...
+    @overload
+    def check_with_trace(self, tuple_str: str, /, *, at_least: int | None = None,
+                         at_exactly: int | None = None,
+                         max_trace_nodes: int = 10_000) -> "CheckTrace": ...   # T4.1
+    @overload
+    def check_with_trace(self, resource: str, permission: str, subject: str, /, *,
+                         at_least: int | None = None, at_exactly: int | None = None,
+                         max_trace_nodes: int = 10_000) -> "CheckTrace": ...
+    # max_trace_nodes < 1 -> ValueError; past it .truncated is True, the answer complete
     def check_bulk(self, items: Sequence[tuple[str, str, str]], /, *,
                    at_least: int | None = None, at_exactly: int | None = None
                    ) -> list[bool | "PembaError"]: ...
@@ -402,6 +447,17 @@ class Relationship:                       # frozen; str() is the tuple string
                  subject_type: str, subject_id: str, subject_relation: str | None = None) -> None: ...
     @staticmethod
     def parse(s: str) -> "Relationship": ...
+
+class CheckTrace:                         # frozen; T4.1
+    allowed: bool; revision: Revision; truncated: bool; root: "TraceNode"
+    def to_dict(self) -> dict[str, Any]: ...  # exactly the `pemba check --json` shape (§3.1)
+    def render(self) -> str: ...              # exactly the `--explain` text, no colour
+
+class TraceNode:                          # frozen; fields as in §3.1, `duration_ns: int`
+    id: int; node: str; kind: str; expr: str | None; role: str | None
+    result: bool | None; source: str; ref: int | None; passes: int | None
+    provisional: bool; tuple: str | None; duration_ns: int; truncated: bool
+    children: list["TraceNode"]
 
 class Precondition:                       # frozen; filters as in delete_relationships
     @staticmethod
@@ -516,11 +572,35 @@ not affected, but the same rule applies so code stays portable.
 pemba schema validate <file.zed>           exit 0 ok / 1 errors; prints rustc-style diagnostics
 pemba schema fmt <file.zed> [--check]      canonical formatting
 pemba test <fixture.yaml>...               runs fixture files (docs/07 §3); exit 1 on failure
-pemba check --db app.db <tuple_string>     ad-hoc check against a SQLite store
-pemba migrate --db app.db
+pemba check <resource>#<permission>@<subject> (--fixture f.yaml | --db app.db)
+            [--explain | --json] [--at-exactly REV]
+pemba migrate --db app.db                  (not yet implemented)
 ```
-Use `clap` (derive). Output colours via `anstream`/`owo-colors`, disabled when not a TTY
-(not yet implemented; output is plain text).
+Use `clap` (derive). Colour (only `check --explain` uses it) is plain ANSI SGR codes, no
+crate: on only when stdout is a terminal and `NO_COLOR` is unset or empty.
+
+`check` (T4.1) evaluates one check. `--fixture` loads a fixture file's `schema` (or
+`schemaFile`) and `relationships` into a memory store, ignoring its assertions and steps;
+the schema is revision 1 and the relationships, in batches of `max_write_batch`, follow.
+`--db` opens an existing SQLite database read-only (`SqliteStore::open_read_only`, `05`
+§4.1): never created, migrated or written; an older or newer storage version, a database
+not in WAL mode, or a missing file is exit 2. Without `--explain` or `--json` it prints `allowed
+(revision N)` or `denied (revision N)`. `--explain` prints `CheckTrace::render()` (colour
+as above): a header line, then the tree, one node per line with `✓`/`✗` (`·` for skipped),
+the stored tuple that matched after `←`, subject sets as `via <stored tuple>`, memo hits
+and cycle hits as `(see above)`, cycle heads with their pass count, and evaluated
+branches that did not decide the answer marked `(not needed)` (dimmed in colour, with the
+granting path bold). `--json` prints `CheckTrace::to_json()` on one line (§3.1);
+`--explain` and `--json` are mutually exclusive. Errors go to stderr as
+`error: <CODE>: <message>`.
+
+`check` exit codes, which scripts may rely on:
+
+| Code | Meaning |
+|---|---|
+| 0 | allowed |
+| 1 | denied |
+| 2 | anything else: bad arguments, unreadable or invalid fixture, database missing or not migrated, or the check itself failed (`InvalidRequest`, `MaxDepthExceeded`, `RevisionNotYetAvailable`, ...). An error is never reported as denied. |
 
 `schema validate` writes diagnostics (with the file path in the location line) and a
 summary to stderr, and `<file>: ok` / `<file>: ok with N warnings` to stdout on success.
@@ -547,3 +627,50 @@ Exit codes for every subcommand:
 | 0 | success (warnings alone do not fail `validate`) |
 | 1 | input rejected: schema errors, `fmt --check` found a non-canonical file, or a `test` fixture failed (including a fixture that is not valid YAML or uses an unknown key) |
 | 2 | usage or I/O error: bad arguments, unreadable file, unwritable output |
+
+### 3.1 Trace JSON (`pemba check --json`, `CheckTrace::to_json`, Python `to_dict`)
+
+A public format: the future WASM playground and other tools consume it. One JSON object,
+every key always present (`null` where it does not apply), keys in this order. Additions
+of new keys or new `kind` / `source` values keep `version`; removing, renaming or changing
+the meaning of anything bumps it.
+
+```json
+{
+  "format": "pemba.check_trace",       // always this string
+  "version": 1,                        // TRACE_FORMAT_VERSION
+  "resource": "document:readme", "permission": "view", "subject": "user:anne",
+  "allowed": true,
+  "revision": 3,
+  "truncated": false,                  // max_trace_nodes reached; the answer is complete
+  "stats": { "store_reads": 4, "tuples_read": 1, "memo_hits": 0,
+             "max_depth_reached": 2, "cycle_passes": 0, "elapsed_ns": 41200 },
+  "root": <node>
+}
+```
+
+`<node>` (`04` §3.8 defines each field and the invariants between them):
+
+```json
+{
+  "id": 0,                             // pre-order position, root 0
+  "node": "document:readme#view",      // or "o#r@subject" for direct/wildcard
+  "kind": "union",                     // relation | direct | wildcard | subject_set | self |
+                                       // computed | union | intersection | exclusion |
+                                       // arrow_any | arrow_all | undefined
+  "expr": "viewer + owner",            // permission/operator source text, else null
+  "role": null,                        // "base" | "subtracted" under an exclusion, else null
+  "result": true,                      // null exactly when source is "skipped"
+  "source": "evaluated",               // evaluated | memo_hit | cycle | cycle_hit | skipped
+  "ref": null,                         // memo_hit / cycle_hit: the id referred to (or null)
+  "passes": null,                      // cycle: passes the region took
+  "provisional": false,                // a false computed from a failed cycle assumption
+  "tuple": null,                       // matched (direct/wildcard) or followed (subject_set)
+  "duration_ns": 18400,                // children included; 0 for hits and skipped nodes
+  "truncated": false,                  // some children not recorded
+  "children": [ <node>, ... ]          // in evaluation order
+}
+```
+
+Integers are JSON numbers (a revision above 2^53 loses precision in JavaScript; none is
+near that). Strings are UTF-8 with only `"`, `\` and control characters escaped.

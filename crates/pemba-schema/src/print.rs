@@ -31,6 +31,16 @@ impl CompiledSchema {
     }
 }
 
+impl TypeDef {
+    /// `expr`, an expression of one of this type's permissions, as canonical source text
+    /// (`viewer + owner - banned`), as [`CompiledSchema::to_canonical_string`] prints it.
+    pub fn expr_source(&self, expr: &Expr) -> String {
+        let mut out = String::new();
+        print_expr(self, expr, &mut out);
+        out
+    }
+}
+
 /// Comments to print around the schema's items, keyed by type and member name.
 #[derive(Debug, Default)]
 pub(crate) struct Trivia {

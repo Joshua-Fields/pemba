@@ -34,6 +34,7 @@ use crate::model::{
 };
 use crate::scc::{self, Finish, Hit, Scc, min_low};
 use crate::store::{ReadStore, StoreError};
+use crate::trace::{NoTrace, TraceRole, Tracer};
 
 /// Asks whether `subject` has `permission` on `resource` (`docs/04-evaluation.md` §3.1).
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -134,11 +135,15 @@ impl Memo {
     }
 
     /// The settled value usable outside any subtracted side.
+    // Inlined into `Evaluator::eval`, as it was before T4.1 split `eval_expr`: one lookup
+    // per node, and out of line it cost the memory-store checks 2-3%.
+    #[inline]
     pub(crate) fn get(&self, key: &NodeKey) -> Option<&bool> {
         self.plain.get(key).or_else(|| self.negated.get(key))
     }
 
     /// The settled value usable under a subtracted side.
+    #[inline]
     fn get_negated(&self, key: &NodeKey) -> Option<&bool> {
         self.negated.get(key)
     }
@@ -283,8 +288,9 @@ impl Outcome {
     };
 }
 
-/// Evaluates checks for one subject at one revision.
-pub(crate) struct Evaluator<'a> {
+/// Evaluates checks for one subject at one revision, reporting each step to `T`
+/// (`docs/04-evaluation.md` §3.8; [`NoTrace`] for a plain `check`).
+pub(crate) struct Evaluator<'a, T: Tracer = NoTrace> {
     schema: &'a CompiledSchema,
     store: &'a dyn ReadStore,
     rev: Revision,
@@ -296,6 +302,7 @@ pub(crate) struct Evaluator<'a> {
     /// Store reads by the current `check`, against `limits.max_reads`.
     check_reads: u64,
     stats: EvalStats,
+    trace: T,
 }
 
 impl<'a> Evaluator<'a> {
@@ -307,6 +314,20 @@ impl<'a> Evaluator<'a> {
         subject: &'a Subject,
         memo: &'a mut Memo,
     ) -> Self {
+        Evaluator::with_trace(schema, store, rev, limits, subject, memo, NoTrace)
+    }
+}
+
+impl<'a, T: Tracer> Evaluator<'a, T> {
+    pub(crate) fn with_trace(
+        schema: &'a CompiledSchema,
+        store: &'a dyn ReadStore,
+        rev: Revision,
+        limits: Limits,
+        subject: &'a Subject,
+        memo: &'a mut Memo,
+        trace: T,
+    ) -> Self {
         Self {
             schema,
             store,
@@ -317,7 +338,13 @@ impl<'a> Evaluator<'a> {
             cycle: Scc::new(),
             check_reads: 0,
             stats: EvalStats::default(),
+            trace,
         }
+    }
+
+    /// The trace, once evaluation is over.
+    pub(crate) fn into_trace(self) -> T {
+        self.trace
     }
 
     /// `subject ∈ S(root)`. The memo may be shared with earlier calls; nothing else is.
@@ -357,14 +384,19 @@ impl<'a> Evaluator<'a> {
         };
         if let Some(&value) = memoised {
             self.stats.memo_hits += 1;
+            self.trace.memo_hit(key, value);
             return Ok(Outcome { value, low: None });
         }
         match self.cycle.hit(key)? {
-            Some(Hit::Found(out)) => return Ok(out),
+            Some(Hit::Found(out)) => {
+                self.trace.cycle_hit(key, &out);
+                return Ok(out);
+            }
             Some(Hit::NonMonotonic { from }) => return Err(self.non_monotonic(from, key)),
             None => {}
         }
         if self.subject.set.as_ref() == Some(key) {
+            self.trace.self_member(key);
             return Ok(Outcome::TRUE);
         }
 
@@ -377,6 +409,7 @@ impl<'a> Evaluator<'a> {
                 invalid(format!("internal: node {key:?} is not in the schema"))
             })?;
         let p = self.cycle.begin(key);
+        self.trace.open_member(key, member);
         let mut passes = 0;
         loop {
             passes += 1;
@@ -385,20 +418,25 @@ impl<'a> Evaluator<'a> {
                 Member::Relation(r) => self.eval_direct(key, &r.allowed, depth),
                 Member::Permission(perm) => {
                     let mut fanout = 0;
-                    self.eval_expr(key, &perm.expr, depth, &mut fanout)
+                    self.eval_op(key, &perm.expr, depth, &mut fanout)
                 }
             };
             self.cycle.pop_frame();
             // A region never spans a subtracted side (that cycle is an error), so every
             // node it settles was evaluated with the same `negated`.
             match self.cycle.finish(key, p, out?, self.memo.side_mut(negated)) {
-                Finish::Done(out) => {
+                Finish::Done(out, settle) => {
                     if out.low.is_none() && passes > 1 {
                         self.stats.cycle_passes += passes;
                     }
+                    self.trace.close_member(
+                        &out,
+                        settle,
+                        u32::try_from(passes).unwrap_or(u32::MAX),
+                    );
                     return Ok(out);
                 }
-                Finish::Rerun => {}
+                Finish::Rerun => self.trace.rerun(),
             }
         }
     }
@@ -430,7 +468,10 @@ impl<'a> Evaluator<'a> {
             relation: relation.clone(),
             subject: self.subject.reference.clone(),
         };
-        if self.exists(&exact)? {
+        let since = self.trace.mark();
+        let found = self.exists(&exact)?;
+        self.trace.point(false, &exact, found, since);
+        if found {
             // A tuple the schema no longer allows (only at revisions before a schema
             // change): what it meant is unknown, so neither grant nor ignore it.
             if !self.subject_form_allowed(allowed) {
@@ -477,7 +518,10 @@ impl<'a> Evaluator<'a> {
                         object_type: o.object_type.clone(),
                     },
                 };
-                if self.exists(&wildcard)? {
+                let since = self.trace.mark();
+                let found = self.exists(&wildcard)?;
+                self.trace.point(true, &wildcard, found, since);
+                if found {
                     if !wildcard_allowed {
                         return Err(stale(self.schema, key, &wildcard));
                     }
@@ -493,22 +537,51 @@ impl<'a> Evaluator<'a> {
         self.count_tuples(sets.len());
         self.check_fanout(key, sets.len())?;
         let mut low = None;
-        for (object, rel) in sets {
+        let mut sets = sets.into_iter();
+        while let Some((object, rel)) = sets.next() {
+            self.trace
+                .open_subject_set(&resource, &relation, &object, &rel);
             // A stale set seen after an earlier `true` is never reached: it could only add
             // members, so the `true` stands whatever it meant.
             let child = self.resolve_set(key, &resource, &relation, object, rel, allowed)?;
             let out = self.eval(&child, depth + 1)?;
+            self.trace.close(&out);
             low = min_low(low, out.low);
             if out.value {
+                if T::ENABLED {
+                    for (object, rel) in sets {
+                        self.trace
+                            .skipped_subject_set(&resource, &relation, &object, &rel);
+                    }
+                }
                 return Ok(Outcome { value: true, low });
             }
         }
         Ok(Outcome { value: false, low })
     }
 
-    /// §3.4: a permission expression on `key`'s object. `fanout` counts tuples read for
-    /// this node across all its arrows.
+    /// §3.4: an operand of the permission on `key`'s object. `fanout` counts tuples read
+    /// for this node across all its arrows. A bare name is traced as the member it names;
+    /// anything else as an operator node of its own.
     fn eval_expr(
+        &mut self,
+        key: &NodeKey,
+        expr: &Expr,
+        depth: u32,
+        fanout: &mut usize,
+    ) -> Result<Outcome, Error> {
+        if matches!(expr, Expr::Computed(_)) {
+            return self.eval_op(key, expr, depth, fanout);
+        }
+        self.trace.open_expr(key, expr);
+        let out = self.eval_op(key, expr, depth, fanout)?;
+        self.trace.close(&out);
+        Ok(out)
+    }
+
+    /// §3.4: one operator of a permission expression on `key`'s object (see
+    /// [`eval_expr`](Self::eval_expr)).
+    fn eval_op(
         &mut self,
         key: &NodeKey,
         expr: &Expr,
@@ -526,10 +599,11 @@ impl<'a> Evaluator<'a> {
             ),
             Expr::Union(operands) => {
                 let mut low = None;
-                for e in operands {
+                for (i, e) in operands.iter().enumerate() {
                     let out = self.eval_expr(key, e, depth, fanout)?;
                     low = min_low(low, out.low);
                     if out.value {
+                        self.skipped(key, &operands[i + 1..]);
                         return Ok(Outcome { value: true, low });
                     }
                 }
@@ -537,20 +611,27 @@ impl<'a> Evaluator<'a> {
             }
             Expr::Intersection(operands) => {
                 let mut low = None;
-                for e in operands {
+                for (i, e) in operands.iter().enumerate() {
                     let out = self.eval_expr(key, e, depth, fanout)?;
                     low = min_low(low, out.low);
                     if !out.value {
+                        self.skipped(key, &operands[i + 1..]);
                         return Ok(Outcome { value: false, low });
                     }
                 }
                 Ok(Outcome { value: true, low })
             }
             Expr::Exclusion { base, sub } => {
+                self.trace.role(TraceRole::Base);
                 let b = self.eval_expr(key, base, depth, fanout)?;
                 if !b.value {
+                    if T::ENABLED {
+                        self.trace.role(TraceRole::Subtracted);
+                        self.trace.skipped_expr(key, sub);
+                    }
                     return Ok(b);
                 }
+                self.trace.role(TraceRole::Subtracted);
                 self.cycle.enter_sub();
                 let s = self.eval_expr(key, sub, depth, fanout);
                 self.cycle.leave_sub();
@@ -572,9 +653,9 @@ impl<'a> Evaluator<'a> {
             }
             Expr::Arrow {
                 tupleset,
+                computed,
                 mode,
                 targets,
-                ..
             } => {
                 let resource = self.object_ref(key);
                 let relation = self.rel_name(key.ty, *tupleset);
@@ -586,9 +667,33 @@ impl<'a> Evaluator<'a> {
                 *fanout = fanout.saturating_add(objects.len());
                 self.check_fanout(key, *fanout)?;
                 match mode {
-                    ArrowMode::Any => self.arrow_any(&objects, targets, depth),
-                    ArrowMode::All => self.arrow_all(&objects, targets, depth),
+                    ArrowMode::Any => self.arrow_any(&objects, computed, targets, depth),
+                    ArrowMode::All => self.arrow_all(&objects, computed, targets, depth),
                 }
+            }
+        }
+    }
+
+    /// Operands a union or intersection short-circuited past.
+    fn skipped(&mut self, key: &NodeKey, rest: &[Expr]) {
+        if T::ENABLED {
+            for e in rest {
+                self.trace.skipped_expr(key, e);
+            }
+        }
+    }
+
+    /// Arrow objects after the one that decided.
+    fn skipped_objects(
+        &mut self,
+        rest: &[ObjectRef],
+        computed: &str,
+        targets: &BTreeMap<TypeId, RelId>,
+    ) {
+        if T::ENABLED {
+            for x in rest {
+                let target = self.arrow_target(x, targets);
+                self.trace.skipped_arrow_object(x, computed, target);
             }
         }
     }
@@ -597,17 +702,20 @@ impl<'a> Evaluator<'a> {
     fn arrow_any(
         &mut self,
         objects: &[ObjectRef],
+        computed: &str,
         targets: &BTreeMap<TypeId, RelId>,
         depth: u32,
     ) -> Result<Outcome, Error> {
         let mut low = None;
-        for x in objects {
+        for (i, x) in objects.iter().enumerate() {
             let Some(child) = self.arrow_target(x, targets) else {
+                self.trace.undefined(x, computed);
                 continue;
             };
             let out = self.eval(&child, depth + 1)?;
             low = min_low(low, out.low);
             if out.value {
+                self.skipped_objects(&objects[i + 1..], computed, targets);
                 return Ok(Outcome { value: true, low });
             }
         }
@@ -619,6 +727,7 @@ impl<'a> Evaluator<'a> {
     fn arrow_all(
         &mut self,
         objects: &[ObjectRef],
+        computed: &str,
         targets: &BTreeMap<TypeId, RelId>,
         depth: u32,
     ) -> Result<Outcome, Error> {
@@ -626,13 +735,16 @@ impl<'a> Evaluator<'a> {
             return Ok(Outcome::FALSE);
         }
         let mut low = None;
-        for x in objects {
+        for (i, x) in objects.iter().enumerate() {
             let Some(child) = self.arrow_target(x, targets) else {
+                self.trace.undefined(x, computed);
+                self.skipped_objects(&objects[i + 1..], computed, targets);
                 return Ok(Outcome { value: false, low });
             };
             let out = self.eval(&child, depth + 1)?;
             low = min_low(low, out.low);
             if !out.value {
+                self.skipped_objects(&objects[i + 1..], computed, targets);
                 return Ok(Outcome { value: false, low });
             }
         }
@@ -693,10 +805,10 @@ impl<'a> Evaluator<'a> {
         Ok(found)
     }
 
-    fn read<T>(
+    fn read<R>(
         &mut self,
-        f: impl FnOnce(&dyn ReadStore, Revision) -> Result<T, StoreError>,
-    ) -> Result<T, Error> {
+        f: impl FnOnce(&dyn ReadStore, Revision) -> Result<R, StoreError>,
+    ) -> Result<R, Error> {
         self.check_reads += 1;
         if self.check_reads > self.limits.max_reads {
             return Err(Error::ReadLimitExceeded {

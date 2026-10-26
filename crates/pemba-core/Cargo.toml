@@ -21,3 +21,6 @@ tracing.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true
+# Checks the hand-written trace JSON escaper against a real parser (dev-only; the library
+# stays serde-free). Already in the tree via pemba-difftest.
+serde_json = "1.0.154"

@@ -1,0 +1,21 @@
+---
+source: crates/pemba-testkit/tests/trace.rs
+expression: "rendered(&e,\n&[\"document:many#approved@user:anne\", \"document:many#approved@user:bob\",\n\"document:none#approved@user:anne\",])"
+---
+allowed: document:many#approved@user:anne (revision 2)
+
+✓ document:many#approved = approver_group.all(member)
+├── ✓ group:g1#member  ← group:g1#member@user:anne
+├── ✓ group:g2#member  ← group:g2#member@user:anne
+└── ✓ group:g3#member  ← group:g3#member@user:anne
+
+denied: document:many#approved@user:bob (revision 2)
+
+✗ document:many#approved = approver_group.all(member)
+├── ✗ group:g1#member  (no matching relationship)
+├── · group:g2#member  (skipped)
+└── · group:g3#member  (skipped)
+
+denied: document:none#approved@user:anne (revision 2)
+
+✗ document:none#approved = approver_group.all(member)  (no related objects)

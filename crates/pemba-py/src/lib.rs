@@ -32,8 +32,8 @@ use pyo3::types::{PyInt, PyString, PyTuple};
 
 use crate::errors::{IntoPy, parse_err};
 use crate::types::{
-    CheckResult, DeleteResult, Diagnostic, GcStats, LookupResult, OrphanReport, Precondition,
-    Relationship, SubjectsResult, filter, revision,
+    CheckResult, CheckTrace, DeleteResult, Diagnostic, GcStats, LookupResult, OrphanReport,
+    Precondition, Relationship, SubjectsResult, TraceNode, filter, revision,
 };
 
 /// The engine over whichever store it was opened with.
@@ -426,6 +426,34 @@ impl Engine {
             .map(CheckResult::from)
     }
 
+    /// `check`, also returning how the answer was reached: a `CheckTrace` whose `root` is
+    /// the tree of steps the evaluation took (`docs/04-evaluation.md` §3.8).
+    ///
+    /// Takes the same arguments as `check`, in either form, and gives the same answer:
+    /// `check_with_trace(...).allowed == check(...)`. Raises the same `PembaError` where
+    /// `check` would, with no partial trace. `.render()` is the text `pemba check
+    /// --explain` prints; `.to_dict()` the JSON `pemba check --json` prints.
+    ///
+    /// At most `max_trace_nodes` nodes are recorded (at least 1, else `ValueError`); past
+    /// that the trace's `truncated` is `True` and the answer is still complete.
+    #[pyo3(signature = (*args, at_least=None, at_exactly=None, max_trace_nodes=10_000))]
+    fn check_with_trace(
+        &self,
+        py: Python<'_>,
+        args: &Bound<'_, PyTuple>,
+        at_least: Option<&Bound<'_, PyAny>>,
+        at_exactly: Option<&Bound<'_, PyAny>>,
+        max_trace_nodes: i64,
+    ) -> PyResult<CheckTrace> {
+        let max = usize::try_from(max_trace_nodes)
+            .ok()
+            .filter(|&m| m > 0)
+            .ok_or_else(|| PyValueError::new_err("max_trace_nodes must be at least 1"))?;
+        let req = Self::check_request(args, at_least, at_exactly)?;
+        let (_, trace) = run!(py, self.inner, e => e.check_with_trace_limit(req, max)).py(py)?;
+        CheckTrace::new(py, trace)
+    }
+
     /// Checks many `(resource, permission, subject)` items at one revision.
     ///
     /// Returns one entry per item, in order: `True`/`False`, or the `PembaError` that
@@ -642,6 +670,8 @@ fn _pemba(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<Relationship>()?;
     m.add_class::<Precondition>()?;
     m.add_class::<CheckResult>()?;
+    m.add_class::<CheckTrace>()?;
+    m.add_class::<TraceNode>()?;
     m.add_class::<LookupResult>()?;
     m.add_class::<SubjectsResult>()?;
     m.add_class::<Diagnostic>()?;

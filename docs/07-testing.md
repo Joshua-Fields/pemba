@@ -106,6 +106,17 @@ since T1.4c bounded check cost, OQ-021). Runs at a raised `PROPTEST_CASES` (defa
    the live tuples it would orphan (`schema_change_leaves_no_stale_tuple_at_head`).
 5. Memory store and SQLite store return identical results for identical op sequences.
 6. Schema pretty-print round-trip: `compile(print(ir)) == ir`.
+7. `check_with_trace` (T4.1, `04` §3.8): on both stores and both generator variants,
+   `check_with_trace(..).0.allowed == check(..) == reference.check`, the same error where
+   `check` fails, equal stats (bar `elapsed`), the root's result equal to `allowed`, and
+   every trace invariant of `04` §3.8 (`pemba_testkit::trace::violations`). A third engine
+   with `max_trace_nodes = 6` must give the same answers with truncated traces.
+   It also runs on `generate::cyclic_case`, built so cyclic regions re-run their head
+   (intersections, arrows and exclusion bases on data cycles; the general generators
+   almost never produce one). Its 1 000+ case run prints how many cases re-ran a head
+   (17–20% in local runs, up to 6 passes) and fails below 10%.
+   `generated_traces_exercise_every_feature` keeps the property from passing vacuously;
+   hand-built cases and insta snapshots of rendered traces are in `tests/trace.rs`.
 
 **The one accepted error (T3.4b).** Properties 1, 2, 4 and the schema-change property
 treat every engine error as a failure, except `AMBIGUOUS_WILDCARD_EXCLUSION` where the

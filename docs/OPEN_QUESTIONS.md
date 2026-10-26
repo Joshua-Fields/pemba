@@ -1067,3 +1067,62 @@ it is resolved.
   in a `const fn`), so an inverted span fails in tests and debug builds without changing
   release behaviour; run the schema test suite and the fuzz targets with it
 - Resolution: (fill in)
+
+## OQ-042 — A partial trace when `check_with_trace` fails
+- Raised in: T4.1
+- Blocking: no
+- Current choice: on any evaluation error `check_with_trace` returns the `Err` and no trace
+  (`04` §3.8), as fail closed requires: a partial tree could be read as an answer.
+- Proposal: the errors where a trace would help most are `MaxDepthExceeded`,
+  `NonMonotonicCycle`, `FanoutExceeded` and `ReadLimitExceeded`. A separate method,
+  `Engine::debug_check(req) -> DebugOutcome { result: Result<CheckResponse, Error>,
+  trace: Option<PartialTrace> }`, would hand back what was recorded up to the error under a
+  type that cannot be mistaken for an answer (no `allowed`; every open node `result: None`,
+  `source: aborted`). `MaxDepthExceeded` and `NonMonotonicCycle` already carry the path;
+  the partial tree would add the siblings tried before it. The CLI would print it under
+  `--explain` after the error, still exiting 2.
+- Resolve by: human decision on whether the extra API is worth it
+- Resolution: (fill in)
+
+## OQ-043 — Trace details decided in T4.1
+- Raised in: T4.1
+- Blocking: no
+- Current choice:
+  (a) *Kinds.* A permission is one node whose kind is its top operator, not a permission
+  node wrapping an operator node, and a bare-name operand is the member node itself; this
+  keeps the tree about half as deep. `subject_set` stays a wrapper (it carries the stored
+  tuple). Two kinds beyond the task's list: `undefined` (an arrow object whose type lacks
+  the target, ∅) and `self`.
+  (b) *Skipped siblings* include subject sets and arrow objects after the deciding one,
+  since the same query already read them; on a wide relation that can be many nodes, which
+  the cap bounds.
+  (c) *Discarded passes and memo references.* A member settled inside a pass that was later
+  re-run is memoised, so the final pass meets it as a memo hit while its full node sits in
+  the discarded pass. The trace shows it in full at the first such reference. A `cycle_hit`
+  inside it names its region's head, which may then be shown further down, or not at all if
+  that head is never referenced again (`ref: None`, rendered `unresolved`). Rare: it needs a
+  region that settles inside an outer region's discarded pass and is later entered through
+  a member rather than its head; no generated case has produced one. The hit's value is
+  settled or labelled either way, so the trace is not marked truncated (`04` §3.8 case 3).
+  (d) *Provisional values.* A region settled by the head-`true` shortcut keeps member
+  `false`s computed from failed assumptions in the trace, marked `provisional: true`, rather
+  than hiding them: they are what the evaluator did, and hiding them would leave a union
+  whose children do not explain it. The flag is only set on `false`; `true`s are sound.
+  (e) *Cap.* `EngineConfig::max_trace_nodes`, default 10 000, counts nodes of discarded
+  passes too, since they were held in memory. Per call: `Engine::check_with_trace_limit`
+  in Rust, `check_with_trace(..., max_trace_nodes=10_000)` in Python.
+  (f) *JSON.* Hand-written in `pemba-core` (a 40-line writer) rather than adding `serde` and
+  `serde_json` to the library crate every embedder compiles. Every key is always present
+  (`null` when it does not apply), keys in a fixed order, `"format": "pemba.check_trace"`,
+  `"version": 1`; a change that removes or renames a key bumps `version`. Durations are
+  integer nanoseconds. Python's `to_dict()` parses that same JSON, so the shapes cannot
+  drift.
+  (g) *Rendering.* Shared by the CLI and Python (`CheckTrace::render`). The granting path
+  (the children that decided each node, from the root down) is bold in colour; evaluated
+  nodes off it are dimmed and, without colour, end in `(not needed)`, once at the top of
+  each such branch. A relation shows a matching `direct`/`wildcard` tuple on its own line
+  (`← tuple`) and omits its failed point queries when it has subject sets. Durations are not
+  rendered, so the text is deterministic. Colour is plain ANSI SGR codes (no crate), only
+  when stdout is a terminal and `NO_COLOR` is unset or empty.
+- Resolve by: review of the first `--explain` output by a user who did not write it
+- Resolution: (fill in)

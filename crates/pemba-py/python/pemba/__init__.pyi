@@ -2,11 +2,12 @@
 
 import os
 from collections.abc import Iterable, Iterator, Mapping, Sequence
-from typing import Any, final, overload
+from typing import Any, Literal, final, overload
 
 __all__ = [
     "MIN_SQLITE_VERSION",
     "CheckResult",
+    "CheckTrace",
     "ConsistencyError",
     "DeleteResult",
     "Diagnostic",
@@ -27,6 +28,7 @@ __all__ = [
     "AmbiguousWildcardExclusionError",
     "StorageError",
     "SubjectsResult",
+    "TraceNode",
     "TransactionConflictError",
     "PembaError",
     "WriteConflictError",
@@ -91,6 +93,82 @@ class Precondition:
     ) -> Precondition: ...
     def __hash__(self) -> int: ...
     def __eq__(self, other: object) -> bool: ...
+
+TraceKind = Literal[
+    "relation",
+    "direct",
+    "wildcard",
+    "subject_set",
+    "self",
+    "computed",
+    "union",
+    "intersection",
+    "exclusion",
+    "arrow_any",
+    "arrow_all",
+    "undefined",
+]
+TraceSource = Literal["evaluated", "memo_hit", "cycle", "cycle_hit", "skipped"]
+
+@final
+class TraceNode:
+    """One step of a CheckTrace (docs/04-evaluation.md §3.8)."""
+    @property
+    def id(self) -> int:
+        """Position in a pre-order walk of the tree, root 0; what ref points at."""
+    @property
+    def node(self) -> str:
+        """What was evaluated: type:id#member, or the relationship a point query looked for."""
+    @property
+    def kind(self) -> TraceKind: ...
+    @property
+    def expr(self) -> str | None:
+        """The expression's source text, for permissions and operators."""
+    @property
+    def role(self) -> Literal["base", "subtracted"] | None:
+        """Which side of an exclusion this node is, for an exclusion's two children."""
+    @property
+    def result(self) -> bool | None:
+        """The value; None exactly when source is "skipped"."""
+    @property
+    def source(self) -> TraceSource: ...
+    @property
+    def ref(self) -> int | None:
+        """For memo_hit and cycle_hit, the id of the node referred to."""
+    @property
+    def passes(self) -> int | None:
+        """For a cycle head, how many passes its region took."""
+    @property
+    def provisional(self) -> bool:
+        """A False computed from a cycle assumption that did not hold: says nothing about this node."""
+    @property
+    def tuple(self) -> str | None:
+        """The stored relationship that matched (point queries) or was followed (subject sets)."""
+    @property
+    def duration_ns(self) -> int: ...
+    @property
+    def truncated(self) -> bool:
+        """Some children were not recorded (the node limit was reached)."""
+    @property
+    def children(self) -> list[TraceNode]: ...
+
+@final
+class CheckTrace:
+    """check_with_trace's answer: the steps one check took (docs/04-evaluation.md §3.8)."""
+    @property
+    def allowed(self) -> bool:
+        """The answer, as check gives it; always root.result."""
+    @property
+    def revision(self) -> Revision: ...
+    @property
+    def truncated(self) -> bool:
+        """Some nodes were not recorded (the node limit was reached); the answer is complete."""
+    @property
+    def root(self) -> TraceNode: ...
+    def to_dict(self) -> dict[str, Any]:
+        """The trace as dicts and lists, in the shape `pemba check --json` prints."""
+    def render(self) -> str:
+        """The text `pemba check --explain` prints, without colour."""
 
 @final
 class CheckResult:
@@ -275,6 +353,30 @@ class Engine:
         at_exactly: int | None = None,
     ) -> CheckResult:
         """check, returning the revision used and evaluation statistics."""
+    @overload
+    def check_with_trace(
+        self,
+        tuple_str: str,
+        /,
+        *,
+        at_least: int | None = None,
+        at_exactly: int | None = None,
+        max_trace_nodes: int = 10_000,
+    ) -> CheckTrace:
+        """check, also returning the tree of steps that reached the answer. Same answer and errors as check. Records at most max_trace_nodes nodes (at least 1, else ValueError); past that .truncated is True and the answer is still complete."""
+    @overload
+    def check_with_trace(
+        self,
+        resource: str,
+        permission: str,
+        subject: str,
+        /,
+        *,
+        at_least: int | None = None,
+        at_exactly: int | None = None,
+        max_trace_nodes: int = 10_000,
+    ) -> CheckTrace:
+        """check, also returning the tree of steps that reached the answer. Same answer and errors as check. Records at most max_trace_nodes nodes (at least 1, else ValueError); past that .truncated is True and the answer is still complete."""
     def check_bulk(
         self,
         items: Sequence[tuple[str, str, str]],

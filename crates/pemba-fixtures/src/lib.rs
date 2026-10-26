@@ -134,6 +134,57 @@ pub enum FixtureError {
         /// Why.
         source: std::io::Error,
     },
+    /// [`load`] only: the file is not a fixture, or its relationships do not parse.
+    #[error("`{}`: {message}", path.display())]
+    Invalid {
+        /// The file.
+        path: PathBuf,
+        /// What is wrong.
+        message: String,
+    },
+}
+
+/// A fixture's schema and `relationships` (its step 0), for loading into a store by hand,
+/// as `pemba check --fixture` does.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct Loaded {
+    /// The schema source (`schema`, or the contents of `schemaFile`).
+    pub schema: String,
+    /// The `relationships`, in file order.
+    pub relationships: Vec<Relationship>,
+}
+
+/// Reads the fixture file at `path`: its schema and relationships, nothing else.
+/// Assertions, lookups and steps are ignored; the schema is not compiled here.
+///
+/// # Errors
+///
+/// [`FixtureError::Io`] if the file or its `schemaFile` cannot be read;
+/// [`FixtureError::Invalid`] if it is not a valid fixture or a relationship does not parse.
+pub fn load(path: &Path) -> Result<Loaded, FixtureError> {
+    let invalid = |message: String| FixtureError::Invalid {
+        path: path.to_owned(),
+        message,
+    };
+    let source = lf(&read(path)?);
+    let fixture: FixtureFile = serde_saphyr::from_str(&source)
+        .map_err(|e| invalid(format!("not a valid fixture: {e}")))?;
+    let schema = match (fixture.schema, fixture.schema_file) {
+        (Some(s), None) => s,
+        (None, Some(file)) => lf(&read(&path.parent().unwrap_or(Path::new(".")).join(file))?),
+        _ => {
+            return Err(invalid(
+                "needs exactly one of `schema` and `schemaFile`".to_owned(),
+            ));
+        }
+    };
+    let relationships =
+        parse_tuples(fixture.relationships.as_deref().unwrap_or("")).map_err(invalid)?;
+    Ok(Loaded {
+        schema,
+        relationships,
+    })
 }
 
 /// One failing assertion, or a fixture problem that stopped part of it from running.

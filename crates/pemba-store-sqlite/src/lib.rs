@@ -105,15 +105,66 @@ impl SqliteStore {
         reason = "by value as in docs/06-api.md §1, so callers can pass `SqliteConfig::default()`"
     )]
     pub fn open(path: impl AsRef<Path>, config: SqliteConfig) -> Result<Self, Error> {
-        let path = path.as_ref();
+        Self::open_with(path.as_ref(), &config, false)
+    }
+
+    /// Opens an existing, migrated database at `path` without the right to change it:
+    /// every connection is read-only, nothing is created or migrated, and any write fails
+    /// with [`Error::Store`]. For inspection tools such as `pemba check --db`.
+    ///
+    /// The database file is never changed. As for any SQLite reader of a WAL database, the
+    /// `-wal` and `-shm` files next to it are created if missing (empty: no frames are
+    /// written) and may be left behind; that needs the directory to be writable.
+    ///
+    /// # Errors
+    ///
+    /// As [`open`](Self::open), with [`SqliteConfig::auto_migrate`] ignored:
+    /// [`Error::NotMigrated`] if the tables are missing or older,
+    /// [`Error::StorageVersionTooNew`] if newer, [`Error::InvalidRequest`] if the database
+    /// is not in WAL mode, and [`Error::Store`] if the file does not exist.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "by value like `open`, so callers can pass `SqliteConfig::default()`"
+    )]
+    pub fn open_read_only(path: impl AsRef<Path>, config: SqliteConfig) -> Result<Self, Error> {
+        Self::open_with(path.as_ref(), &config, true)
+    }
+
+    fn open_with(path: &Path, config: &SqliteConfig, read_only: bool) -> Result<Self, Error> {
         if config.reader_pool == 0 {
             return Err(Error::InvalidRequest {
                 message: "SqliteConfig::reader_pool must be at least 1".to_owned(),
             });
         }
-        let mut writer = Connection::open(path).map_err(db)?;
-        configure(&writer, &config)?;
-        if config.auto_migrate {
+        let mut writer = if read_only {
+            Connection::open_with_flags(
+                path,
+                OpenFlags::SQLITE_OPEN_READ_ONLY
+                    | OpenFlags::SQLITE_OPEN_URI
+                    | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+            )
+        } else {
+            Connection::open(path)
+        }
+        .map_err(db)?;
+        if read_only {
+            // `configure` switches to WAL, which a read-only connection cannot do; say why
+            // rather than fail with SQLite's "attempt to write a readonly database".
+            let mode: String = writer
+                .query_row("PRAGMA journal_mode", [], |row| row.get(0))
+                .map_err(db)?;
+            if !mode.eq_ignore_ascii_case("wal") {
+                return Err(Error::InvalidRequest {
+                    message: format!(
+                        "`{}` is not in WAL mode (journal_mode is {mode:?}), and a read-only \
+                         open cannot switch it; open it once with SqliteStore::open",
+                        path.display()
+                    ),
+                });
+            }
+        }
+        configure(&writer, config)?;
+        if config.auto_migrate && !read_only {
             migrate::migrate(&mut writer)?;
         } else {
             migrate::check(&writer)?;
@@ -133,7 +184,7 @@ impl SqliteStore {
                         | OpenFlags::SQLITE_OPEN_NO_MUTEX,
                 )
                 .map_err(db)?;
-                configure(&conn, &config)?;
+                configure(&conn, config)?;
                 Ok(conn)
             })
             .collect::<Result<Vec<_>, Error>>()?;

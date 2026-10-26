@@ -22,7 +22,29 @@ use crate::store::{
     WritableStore, WriteTxn,
 };
 use crate::subjects::{self, Gatherer, LookupSubjectsRequest, LookupSubjectsResponse, SubjectSet};
+use crate::trace::{CheckTrace, Recorder, Tracer};
 use crate::validate::{subject_kind, validate_filter, validate_ops, validate_relationship};
+
+/// The span of one `check` (`docs/04-evaluation.md` §1): request fields now, the rest once
+/// evaluated. A macro because `info_span!` needs a literal name.
+macro_rules! check_span {
+    ($name:literal, $req:expr) => {
+        tracing::info_span!(
+            $name,
+            resource = %$req.resource,
+            permission = %$req.permission,
+            subject = %$req.subject,
+            revision = tracing::field::Empty,
+            allowed = tracing::field::Empty,
+            store_reads = tracing::field::Empty,
+            tuples_read = tracing::field::Empty,
+            memo_hits = tracing::field::Empty,
+            max_depth_reached = tracing::field::Empty,
+            cycle_passes = tracing::field::Empty,
+            elapsed_us = tracing::field::Empty,
+        )
+    };
+}
 
 /// Limits and switches (`docs/02-data-model.md` §7). `Default` gives the spec defaults.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -42,6 +64,9 @@ pub struct EngineConfig {
     /// Maximum store reads one `check` (or `check_bulk` item) may make before erroring:
     /// a fail-closed backstop on total work (`docs/04-evaluation.md` §3.6).
     pub max_check_reads: u64,
+    /// Maximum nodes [`Engine::check_with_trace`] records; past it the trace is marked
+    /// truncated and the answer is unaffected (`docs/04-evaluation.md` §3.8).
+    pub max_trace_nodes: usize,
 }
 
 impl Default for EngineConfig {
@@ -54,6 +79,7 @@ impl Default for EngineConfig {
             max_lookup_nodes: 200_000,
             max_check_fanout: 100_000,
             max_check_reads: 200_000,
+            max_trace_nodes: 10_000,
         }
     }
 }
@@ -92,9 +118,11 @@ impl<S: WritableStore> EngineBuilder<S> {
             message: "Engine::builder() needs a store".to_owned(),
         })?;
         let c = &self.config;
-        if c.max_write_batch == 0 || c.max_lookup_results == 0 {
+        if c.max_write_batch == 0 || c.max_lookup_results == 0 || c.max_trace_nodes == 0 {
             return Err(Error::InvalidRequest {
-                message: "max_write_batch and max_lookup_results must be at least 1".to_owned(),
+                message: "max_write_batch, max_lookup_results and max_trace_nodes must be at \
+                          least 1"
+                    .to_owned(),
             });
         }
         let schema = match store.current_schema()? {
@@ -538,20 +566,9 @@ impl<S: WritableStore> Engine<S> {
         reason = "signature fixed by docs/06-api.md §1"
     )]
     pub fn check(&self, req: CheckRequest) -> Result<CheckResponse, Error> {
-        let span = tracing::info_span!(
-            "check",
-            resource = %req.resource,
-            permission = %req.permission,
-            subject = %req.subject,
-            revision = tracing::field::Empty,
-            allowed = tracing::field::Empty,
-            store_reads = tracing::field::Empty,
-            tuples_read = tracing::field::Empty,
-            memo_hits = tracing::field::Empty,
-            max_depth_reached = tracing::field::Empty,
-            cycle_passes = tracing::field::Empty,
-            elapsed_us = tracing::field::Empty,
-        );
+        // The hot path keeps its own body rather than sharing `run_check` with
+        // `check_with_trace`: the generic version measured 1-2% slower here (T4.1).
+        let span = check_span!("check", req);
         let _entered = span.enter();
         let start = Instant::now();
         let snapshot = self.store.snapshot()?;
@@ -580,6 +597,112 @@ impl<S: WritableStore> Engine<S> {
             revision,
             stats,
         })
+    }
+
+    /// [`check`](Self::check), also returning the tree of steps the evaluation took
+    /// (`docs/04-evaluation.md` §3.8): which members it evaluated, which stored
+    /// relationships matched, what it reused, skipped or iterated.
+    ///
+    /// Same evaluator, same answer, same errors: on an error there is no trace. At most
+    /// [`EngineConfig::max_trace_nodes`] nodes are recorded; past that the trace is marked
+    /// [`truncated`](CheckTrace::truncated) and the answer is still complete.
+    ///
+    /// # Errors
+    ///
+    /// As [`check`](Self::check).
+    pub fn check_with_trace(
+        &self,
+        req: CheckRequest,
+    ) -> Result<(CheckResponse, CheckTrace), Error> {
+        self.check_with_trace_limit(req, self.config.max_trace_nodes)
+    }
+
+    /// [`check_with_trace`](Self::check_with_trace) recording at most `max_trace_nodes`
+    /// nodes instead of [`EngineConfig::max_trace_nodes`], for one call.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::InvalidRequest`] if `max_trace_nodes` is 0; otherwise as
+    /// [`check`](Self::check).
+    #[allow(
+        clippy::needless_pass_by_value,
+        reason = "signature fixed by docs/06-api.md §1"
+    )]
+    pub fn check_with_trace_limit(
+        &self,
+        req: CheckRequest,
+        max_trace_nodes: usize,
+    ) -> Result<(CheckResponse, CheckTrace), Error> {
+        if max_trace_nodes == 0 {
+            return Err(Error::InvalidRequest {
+                message: "max_trace_nodes must be at least 1".to_owned(),
+            });
+        }
+        let span = check_span!("check_with_trace", req);
+        let _entered = span.enter();
+        let max = max_trace_nodes;
+        let (response, recorder) =
+            self.run_check(&span, &req, |schema| Recorder::new(Arc::clone(schema), max))?;
+        let (root, truncated) = recorder.into_tree().ok_or_else(|| Error::InvalidRequest {
+            message: "internal: check_with_trace recorded no root".to_owned(),
+        })?;
+        if root.result != Some(response.allowed) {
+            return Err(Error::InvalidRequest {
+                message: "internal: the trace's root disagrees with the answer".to_owned(),
+            });
+        }
+        let trace = CheckTrace {
+            resource: req.resource,
+            permission: req.permission,
+            subject: req.subject,
+            allowed: response.allowed,
+            revision: response.revision,
+            stats: response.stats,
+            truncated,
+            root,
+        };
+        Ok((response, trace))
+    }
+
+    /// One `check` reporting to the trace `make` builds for the request's schema: the body
+    /// of [`check`](Self::check), for `check_with_trace`.
+    fn run_check<T: Tracer>(
+        &self,
+        span: &tracing::Span,
+        req: &CheckRequest,
+        make: impl FnOnce(&Arc<CompiledSchema>) -> T,
+    ) -> Result<(CheckResponse, T), Error> {
+        let start = Instant::now();
+        let snapshot = self.store.snapshot()?;
+        let revision = resolve(&*snapshot, req.consistency)?;
+        span.record("revision", revision.0);
+        let loaded = self.schema_at(&*snapshot)?;
+        let schema = &loaded.compiled;
+        let (root, subject) = eval::resolve(schema, &req.resource, &req.permission, &req.subject)?;
+        let mut memo = Memo::new();
+        let mut evaluator = Evaluator::with_trace(
+            schema,
+            &*snapshot,
+            revision,
+            self.limits(loaded.stale_possible(revision)),
+            &subject,
+            &mut memo,
+            make(schema),
+        );
+        let result = evaluator.check(&root);
+        let mut stats = evaluator.stats();
+        stats.elapsed = start.elapsed();
+        record_stats(span, &stats);
+        let allowed = result?;
+        span.record("allowed", allowed);
+        Ok((
+            CheckResponse {
+                allowed,
+                revision,
+                stats,
+            },
+            evaluator.into_trace(),
+        ))
     }
 
     /// One page of the objects of `req.resource_type` on which `req.subject` has

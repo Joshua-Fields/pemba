@@ -868,6 +868,7 @@ dependencies = [
  "pemba",
  "pemba-fixtures",
  "pemba-schema",
+ "pemba-store-sqlite",
 ]
 
 [[package]]
@@ -876,6 +877,7 @@ version = "0.1.0-alpha.1"
 dependencies = [
  "pemba-schema",
  "proptest",
+ "serde_json",
  "thiserror",
  "tracing",
 ]
@@ -969,12 +971,14 @@ dependencies = [
 name = "pemba-testkit"
 version = "0.1.0-alpha.1"
 dependencies = [
+ "insta",
  "pemba-core",
  "pemba-fixtures",
  "pemba-schema",
  "pemba-store-memory",
  "pemba-store-sqlite",
  "proptest",
+ "serde_json",
  "tracing",
 ]
 

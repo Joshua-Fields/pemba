@@ -115,10 +115,27 @@ pub(crate) enum Hit<V> {
 
 /// What [`Scc::finish`] decided for a node whose expression was just evaluated.
 pub(crate) enum Finish<V> {
-    /// The node's value for this pass (settled if `low` is `None`).
-    Done(Outcome<V>),
+    /// The node's value for this pass (settled if `low` is `None`), and how it got there.
+    Done(Outcome<V>, Settle),
     /// The node heads a region whose assumptions failed: evaluate it again.
     Rerun,
+}
+
+/// How a [`Finish::Done`] node finished; read by the trace (`docs/04-evaluation.md` §3.8).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Settle {
+    /// A member of a region headed further down; its value is this pass's.
+    Member,
+    /// The head of its region, now settled. `cyclic`: something in the region was reached
+    /// again while in progress (else the region is the node alone). `exact`: every
+    /// assumption held, so every value of the final pass is the least fixed point; if not,
+    /// the head settled by the top-value shortcut and only top values are known exact.
+    Head {
+        /// The region is more than one node, or the node reached itself.
+        cyclic: bool,
+        /// No value grew past what a hit assumed for it.
+        exact: bool,
+    },
 }
 
 /// SCC stack, call stack, provisional values and negation depth for one evaluation.
@@ -296,10 +313,13 @@ impl<V: Lattice> Scc<V> {
             for e in &mut self.entries[p + 1..] {
                 e.low = e.low.min(l);
             }
-            return Finish::Done(Outcome {
-                value,
-                low: Some(l),
-            });
+            return Finish::Done(
+                Outcome {
+                    value,
+                    low: Some(l),
+                },
+                Settle::Member,
+            );
         }
 
         // `key` heads the region `entries[p..]`.
@@ -308,6 +328,7 @@ impl<V: Lattice> Scc<V> {
             .iter()
             .any(|e| e.assumed.as_ref().is_some_and(|a| !e.value.le(a)));
         if value.is_top() || !grew {
+            let cyclic = self.entries.len() > p + 1 || self.entries[p].assumed.is_some();
             // Consistent: every value is the least fixed point. Or the head is the top,
             // which is sound whatever was assumed, as is every member's top.
             for e in self.entries.drain(p..) {
@@ -317,7 +338,13 @@ impl<V: Lattice> Scc<V> {
                     memo.insert(e.key, e.value);
                 }
             }
-            return Finish::Done(Outcome::settled(value));
+            return Finish::Done(
+                Outcome::settled(value),
+                Settle::Head {
+                    cyclic,
+                    exact: !grew,
+                },
+            );
         }
 
         let region: Vec<Entry<V>> = self.entries.drain(p..).collect();
