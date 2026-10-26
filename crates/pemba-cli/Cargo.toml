@@ -29,3 +29,6 @@ pemba-fixtures.workspace = true
 
 [dev-dependencies]
 insta.workspace = true
+# `tests/check_cmd.rs` edits `--db` databases (storage version, journal mode) through its
+# `rusqlite` re-export, so it links the same SQLite the store does.
+pemba-store-sqlite.workspace = true

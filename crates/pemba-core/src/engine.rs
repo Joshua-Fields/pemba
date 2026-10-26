@@ -562,17 +562,37 @@ impl<S: WritableStore> Engine<S> {
     /// # Errors
     ///
     /// As [`check`](Self::check).
-    #[allow(
-        clippy::needless_pass_by_value,
-        reason = "signature fixed by docs/06-api.md §1"
-    )]
     pub fn check_with_trace(
         &self,
         req: CheckRequest,
     ) -> Result<(CheckResponse, CheckTrace), Error> {
+        self.check_with_trace_limit(req, self.config.max_trace_nodes)
+    }
+
+    /// [`check_with_trace`](Self::check_with_trace) recording at most `max_trace_nodes`
+    /// nodes instead of [`EngineConfig::max_trace_nodes`], for one call.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::InvalidRequest`] if `max_trace_nodes` is 0; otherwise as
+    /// [`check`](Self::check).
+    #[allow(
+        clippy::needless_pass_by_value,
+        reason = "signature fixed by docs/06-api.md §1"
+    )]
+    pub fn check_with_trace_limit(
+        &self,
+        req: CheckRequest,
+        max_trace_nodes: usize,
+    ) -> Result<(CheckResponse, CheckTrace), Error> {
+        if max_trace_nodes == 0 {
+            return Err(Error::InvalidRequest {
+                message: "max_trace_nodes must be at least 1".to_owned(),
+            });
+        }
         let span = check_span("check_with_trace", &req);
         let _entered = span.enter();
-        let max = self.config.max_trace_nodes;
+        let max = max_trace_nodes;
         let (response, recorder) =
             self.run_check(&span, &req, |schema| Recorder::new(Arc::clone(schema), max))?;
         let (root, truncated) = recorder.into_tree().ok_or_else(|| Error::InvalidRequest {

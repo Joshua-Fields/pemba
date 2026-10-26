@@ -112,11 +112,16 @@ impl SqliteStore {
     /// every connection is read-only, nothing is created or migrated, and any write fails
     /// with [`Error::Store`]. For inspection tools such as `pemba check --db`.
     ///
+    /// The database file is never changed. As for any SQLite reader of a WAL database, the
+    /// `-wal` and `-shm` files next to it are created if missing (empty: no frames are
+    /// written) and may be left behind; that needs the directory to be writable.
+    ///
     /// # Errors
     ///
     /// As [`open`](Self::open), with [`SqliteConfig::auto_migrate`] ignored:
-    /// [`Error::NotMigrated`] if the tables are missing or older, and [`Error::Store`] if
-    /// the file does not exist.
+    /// [`Error::NotMigrated`] if the tables are missing or older,
+    /// [`Error::StorageVersionTooNew`] if newer, [`Error::InvalidRequest`] if the database
+    /// is not in WAL mode, and [`Error::Store`] if the file does not exist.
     #[expect(
         clippy::needless_pass_by_value,
         reason = "by value like `open`, so callers can pass `SqliteConfig::default()`"
@@ -142,6 +147,22 @@ impl SqliteStore {
             Connection::open(path)
         }
         .map_err(db)?;
+        if read_only {
+            // `configure` switches to WAL, which a read-only connection cannot do; say why
+            // rather than fail with SQLite's "attempt to write a readonly database".
+            let mode: String = writer
+                .query_row("PRAGMA journal_mode", [], |row| row.get(0))
+                .map_err(db)?;
+            if !mode.eq_ignore_ascii_case("wal") {
+                return Err(Error::InvalidRequest {
+                    message: format!(
+                        "`{}` is not in WAL mode (journal_mode is {mode:?}), and a read-only \
+                         open cannot switch it; open it once with SqliteStore::open",
+                        path.display()
+                    ),
+                });
+            }
+        }
         configure(&writer, config)?;
         if config.auto_migrate && !read_only {
             migrate::migrate(&mut writer)?;

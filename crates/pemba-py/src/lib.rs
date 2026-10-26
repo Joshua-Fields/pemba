@@ -433,16 +433,24 @@ impl Engine {
     /// `check_with_trace(...).allowed == check(...)`. Raises the same `PembaError` where
     /// `check` would, with no partial trace. `.render()` is the text `pemba check
     /// --explain` prints; `.to_dict()` the JSON `pemba check --json` prints.
-    #[pyo3(signature = (*args, at_least=None, at_exactly=None))]
+    ///
+    /// At most `max_trace_nodes` nodes are recorded (at least 1, else `ValueError`); past
+    /// that the trace's `truncated` is `True` and the answer is still complete.
+    #[pyo3(signature = (*args, at_least=None, at_exactly=None, max_trace_nodes=10_000))]
     fn check_with_trace(
         &self,
         py: Python<'_>,
         args: &Bound<'_, PyTuple>,
         at_least: Option<&Bound<'_, PyAny>>,
         at_exactly: Option<&Bound<'_, PyAny>>,
+        max_trace_nodes: i64,
     ) -> PyResult<CheckTrace> {
+        let max = usize::try_from(max_trace_nodes)
+            .ok()
+            .filter(|&m| m > 0)
+            .ok_or_else(|| PyValueError::new_err("max_trace_nodes must be at least 1"))?;
         let req = Self::check_request(args, at_least, at_exactly)?;
-        let (_, trace) = run!(py, self.inner, e => e.check_with_trace(req)).py(py)?;
+        let (_, trace) = run!(py, self.inner, e => e.check_with_trace_limit(req, max)).py(py)?;
         CheckTrace::new(py, trace)
     }
 

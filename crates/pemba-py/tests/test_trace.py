@@ -160,3 +160,69 @@ def test_trace_agrees_with_check_on_every_fixture(path: Path, make_engine: Calla
         with pytest.raises(pemba.PembaError) as traced:
             e.check_with_trace(q)
         assert traced.value.code == plain.value.code, q
+
+
+# ---- the node cap ----
+
+
+def test_max_trace_nodes_truncates_and_keeps_the_answer(engine: pemba.Engine) -> None:
+    groups = [f"g{i}" for i in range(30)]
+    engine.write(
+        touch=[f"document:readme#viewer@group:{g}#member" for g in groups]
+        + [f"group:{g}#member@user:other" for g in groups]
+        + ["group:g29#member@user:anne"]
+    )
+    full = engine.check_with_trace("document:readme", "view", "user:anne")
+    capped = engine.check_with_trace("document:readme", "view", "user:anne", max_trace_nodes=8)
+    assert full.allowed is capped.allowed is True
+    assert engine.check("document:readme", "view", "user:anne") is True
+    assert not full.truncated and capped.truncated
+    assert capped.to_dict()["truncated"] is True
+    assert len(list(walk(capped.root))) <= 16 < len(list(walk(full.root)))
+    assert any(n.truncated for n in walk(capped.root))
+    assert "node limit" in capped.render()
+    # The default is 10 000, so a small trace is complete.
+    assert engine.check_with_trace("document:readme#view@user:anne", max_trace_nodes=10_000).truncated is False
+
+
+@pytest.mark.parametrize("bad", [0, -1])
+def test_max_trace_nodes_must_be_positive(engine: pemba.Engine, bad: int) -> None:
+    with pytest.raises(ValueError, match="max_trace_nodes"):
+        engine.check_with_trace("document:readme", "view", "user:anne", max_trace_nodes=bad)
+
+
+# ---- ids through to_dict ----
+
+ID_ALPHABET = "ABCXYZabcxyz0189_-=+/|."
+
+
+def test_ids_round_trip_through_to_dict(engine: pemba.Engine) -> None:
+    """Every character the id grammar allows (docs/02-data-model.md §1.2), short ids and ids
+    at the 1 024 maximum, comes back exactly from to_dict()."""
+    import random
+
+    rnd = random.Random(20261026)
+
+    def make_id() -> str:
+        n = rnd.choice([1, 2, 7, 40, 1024])
+        return "".join(rnd.choice(ID_ALPHABET) for _ in range(n))
+
+    for _ in range(200):
+        d, g, u = make_id(), make_id(), make_id()
+        link = f"document:{d}#viewer@group:{g}#member"
+        member = f"group:{g}#member@user:{u}"
+        engine.write(touch=[link, member])
+        t = engine.check_with_trace(f"document:{d}#view@user:{u}")
+        assert t.allowed
+        out = t.to_dict()
+        assert out["resource"] == f"document:{d}" and out["subject"] == f"user:{u}"
+        tuples = {n["tuple"] for n in walk_dict(out["root"])}
+        assert {link, member} <= tuples
+        assert json.loads(json.dumps(out)) == out
+        engine.write(delete=[link, member])
+
+
+@pytest.mark.parametrize("bad", ['a"b', "a\b", "a\x01b", "café", "a b"])
+def test_json_sensitive_ids_are_rejected(engine: pemba.Engine, bad: str) -> None:
+    with pytest.raises(ValueError):
+        engine.check_with_trace(f"document:{bad}#view@user:anne")

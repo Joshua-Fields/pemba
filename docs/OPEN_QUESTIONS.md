@@ -1109,8 +1109,8 @@ it is resolved.
   than hiding them: they are what the evaluator did, and hiding them would leave a union
   whose children do not explain it. The flag is only set on `false`; `true`s are sound.
   (e) *Cap.* `EngineConfig::max_trace_nodes`, default 10 000, counts nodes of discarded
-  passes too, since they were held in memory. Python has no way to change it yet (the
-  `Engine` constructors take only `max_depth`); add a keyword if anyone needs it.
+  passes too, since they were held in memory. Per call: `Engine::check_with_trace_limit`
+  in Rust, `check_with_trace(..., max_trace_nodes=10_000)` in Python.
   (f) *JSON.* Hand-written in `pemba-core` (a 40-line writer) rather than adding `serde` and
   `serde_json` to the library crate every embedder compiles. Every key is always present
   (`null` when it does not apply), keys in a fixed order, `"format": "pemba.check_trace"`,

@@ -29,6 +29,8 @@ impl<S: WritableStore> Engine<S> {
     pub fn check(&self, req: CheckRequest) -> Result<CheckResponse, Error>;
     pub fn check_with_trace(&self, req: CheckRequest)
         -> Result<(CheckResponse, CheckTrace), Error>;          // T4.1, 04 §3.8
+    pub fn check_with_trace_limit(&self, req: CheckRequest, max_trace_nodes: usize)
+        -> Result<(CheckResponse, CheckTrace), Error>;          // per-call cap; 0 -> InvalidRequest
     pub fn check_bulk(&self, items: Vec<CheckItem>, c: Consistency) -> Result<Vec<Result<bool, Error>>, Error>;
     pub fn lookup_resources(&self, req: LookupResourcesRequest) -> Result<LookupResourcesResponse, Error>;
     pub fn lookup_subjects(&self, req: LookupSubjectsRequest) -> Result<LookupSubjectsResponse, Error>;
@@ -413,10 +415,13 @@ class Engine:
                        at_least: int | None = None, at_exactly: int | None = None) -> "CheckResult": ...
     @overload
     def check_with_trace(self, tuple_str: str, /, *, at_least: int | None = None,
-                         at_exactly: int | None = None) -> "CheckTrace": ...   # T4.1
+                         at_exactly: int | None = None,
+                         max_trace_nodes: int = 10_000) -> "CheckTrace": ...   # T4.1
     @overload
     def check_with_trace(self, resource: str, permission: str, subject: str, /, *,
-                         at_least: int | None = None, at_exactly: int | None = None) -> "CheckTrace": ...
+                         at_least: int | None = None, at_exactly: int | None = None,
+                         max_trace_nodes: int = 10_000) -> "CheckTrace": ...
+    # max_trace_nodes < 1 -> ValueError; past it .truncated is True, the answer complete
     def check_bulk(self, items: Sequence[tuple[str, str, str]], /, *,
                    at_least: int | None = None, at_exactly: int | None = None
                    ) -> list[bool | "PembaError"]: ...
@@ -577,8 +582,9 @@ crate: on only when stdout is a terminal and `NO_COLOR` is unset or empty.
 `check` (T4.1) evaluates one check. `--fixture` loads a fixture file's `schema` (or
 `schemaFile`) and `relationships` into a memory store, ignoring its assertions and steps;
 the schema is revision 1 and the relationships, in batches of `max_write_batch`, follow.
-`--db` opens an existing SQLite database read-only (`SqliteStore::open_read_only`): never
-created, migrated or written. Without `--explain` or `--json` it prints `allowed
+`--db` opens an existing SQLite database read-only (`SqliteStore::open_read_only`, `05`
+§4.1): never created, migrated or written; an older or newer storage version, a database
+not in WAL mode, or a missing file is exit 2. Without `--explain` or `--json` it prints `allowed
 (revision N)` or `denied (revision N)`. `--explain` prints `CheckTrace::render()` (colour
 as above): a header line, then the tree, one node per line with `✓`/`✗` (`·` for skipped),
 the stored tuple that matched after `←`, subject sets as `via <stored tuple>`, memo hits

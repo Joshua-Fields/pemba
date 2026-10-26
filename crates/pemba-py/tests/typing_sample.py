@@ -62,7 +62,7 @@ def main() -> None:
     first: bool | None = kids[0].result
     assert trace.allowed and root.result is True and first is not None
     as_dict: dict[str, object] = trace.to_dict()
-    text: str = engine.check_with_trace("document:readme#view@user:anne").render()
+    text: str = engine.check_with_trace("document:readme#view@user:anne", max_trace_nodes=50).render()
     assert as_dict["allowed"] is True and text.startswith("allowed: ")
 
     bulk: list[bool | pemba.PembaError] = engine.check_bulk(

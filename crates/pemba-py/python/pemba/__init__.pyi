@@ -355,9 +355,15 @@ class Engine:
         """check, returning the revision used and evaluation statistics."""
     @overload
     def check_with_trace(
-        self, tuple_str: str, /, *, at_least: int | None = None, at_exactly: int | None = None
+        self,
+        tuple_str: str,
+        /,
+        *,
+        at_least: int | None = None,
+        at_exactly: int | None = None,
+        max_trace_nodes: int = 10_000,
     ) -> CheckTrace:
-        """check, also returning the tree of steps that reached the answer. Same answer and errors as check."""
+        """check, also returning the tree of steps that reached the answer. Same answer and errors as check. Records at most max_trace_nodes nodes (at least 1, else ValueError); past that .truncated is True and the answer is still complete."""
     @overload
     def check_with_trace(
         self,
@@ -368,8 +374,9 @@ class Engine:
         *,
         at_least: int | None = None,
         at_exactly: int | None = None,
+        max_trace_nodes: int = 10_000,
     ) -> CheckTrace:
-        """check, also returning the tree of steps that reached the answer. Same answer and errors as check."""
+        """check, also returning the tree of steps that reached the answer. Same answer and errors as check. Records at most max_trace_nodes nodes (at least 1, else ValueError); past that .truncated is True and the answer is still complete."""
     def check_bulk(
         self,
         items: Sequence[tuple[str, str, str]],

@@ -302,8 +302,14 @@ should use WAL for concurrency.
 - `SqliteStore::open_read_only(path, config)` (T4.1, for inspection tools such as `pemba
   check --db`) opens an existing file with every connection read-only, the "writer"
   included: it never creates the file, never migrates (`auto_migrate` is ignored, so an
-  old or empty database is `NotMigrated`), and every write fails with `Store`. The file
-  must already be in WAL mode, which every database `open()` created is.
+  old or empty database is `NotMigrated`, a newer one `StorageVersionTooNew`), and every
+  write fails with `Store`. The file must already be in WAL mode, which every database
+  `open()` (or the Python store) created is; otherwise `InvalidRequest` says so, since a
+  read-only connection cannot switch it. The database file itself is never changed, but as
+  for any SQLite reader of a WAL database, empty `-wal` / `-shm` files are created beside
+  it if missing (so the directory must be writable) and may be left behind; no WAL frame is
+  written. `immutable=1` would avoid them only by turning off locking, which is unsafe
+  while another process writes.
 - Newer `storage_version` than the library knows → `Err(StorageVersionTooNew)`.
 - Migrations are a static ordered list of SQL scripts in
   `pemba-sqlite-common/migrations/`. The shared runner executes them one statement at a
