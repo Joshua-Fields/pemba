@@ -21,7 +21,7 @@ database transaction**: the row you insert and the relationship that grants acce
 commit or roll back together. There is no second system to keep in sync, so no outbox, no
 reconciliation job, and no window where a document exists that nobody can open.
 
-**Status: alpha, published as 0.1.0-alpha.1. The API may change.** `check`, `lookup_resources`,
+**Status: alpha, published as 0.1.0-alpha.2. The API may change.** `check`, `lookup_resources`,
 `lookup_subjects`, the memory and SQLite stores, transactional writes and the Python
 bindings are implemented and tested, including against SpiceDB. The 0.1 release gate
 (`docs/08-milestones.md` T3.7) is not signed off. Expect breaking changes.
@@ -30,8 +30,8 @@ bindings are implemented and tested, including against SpiceDB. The 0.1 release 
 
 ```bash
 pip install --pre pemba                      # Python 3.11 or newer
-cargo add pemba@0.1.0-alpha.1                # Rust library
-cargo install pemba-cli@0.1.0-alpha.1        # `pemba` command-line tool
+cargo add pemba@0.1.0-alpha.2                # Rust library
+cargo install pemba-cli@0.1.0-alpha.2        # `pemba` command-line tool
 ```
 
 Only pre-releases exist so far, so pip needs `--pre` and cargo needs the explicit version.
@@ -140,7 +140,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-This is a complete `src/main.rs` after `cargo add pemba@0.1.0-alpha.1`, and the same example
+This is a complete `src/main.rs` after `cargo add pemba@0.1.0-alpha.2`, and the same example
 is a doctest on the `pemba` crate. For persistence, use
 `SqliteStore::open("app.db", SqliteConfig::default())` in place of `MemoryStore::new()`.
 
@@ -348,7 +348,7 @@ fine-grained sharing without running another service. Use
   database comfortably holds;
 - you need caveats (conditional relationships), expiring relationships, or a Watch API;
 - you want a mature, supported product today. pemba is an alpha, published as
-  0.1.0-alpha.1.
+  0.1.0-alpha.2.
 
 pemba's schema language is a strict subset of SpiceDB's, so if you outgrow pemba your
 schema and relationships move over as they are. The exceptions are listed in
