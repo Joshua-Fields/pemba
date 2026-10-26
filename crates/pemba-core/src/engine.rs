@@ -22,8 +22,29 @@ use crate::store::{
     WritableStore, WriteTxn,
 };
 use crate::subjects::{self, Gatherer, LookupSubjectsRequest, LookupSubjectsResponse, SubjectSet};
-use crate::trace::{CheckTrace, NoTrace, Recorder, Tracer};
+use crate::trace::{CheckTrace, Recorder, Tracer};
 use crate::validate::{subject_kind, validate_filter, validate_ops, validate_relationship};
+
+/// The span of one `check` (`docs/04-evaluation.md` §1): request fields now, the rest once
+/// evaluated. A macro because `info_span!` needs a literal name.
+macro_rules! check_span {
+    ($name:literal, $req:expr) => {
+        tracing::info_span!(
+            $name,
+            resource = %$req.resource,
+            permission = %$req.permission,
+            subject = %$req.subject,
+            revision = tracing::field::Empty,
+            allowed = tracing::field::Empty,
+            store_reads = tracing::field::Empty,
+            tuples_read = tracing::field::Empty,
+            memo_hits = tracing::field::Empty,
+            max_depth_reached = tracing::field::Empty,
+            cycle_passes = tracing::field::Empty,
+            elapsed_us = tracing::field::Empty,
+        )
+    };
+}
 
 /// Limits and switches (`docs/02-data-model.md` §7). `Default` gives the spec defaults.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -545,10 +566,37 @@ impl<S: WritableStore> Engine<S> {
         reason = "signature fixed by docs/06-api.md §1"
     )]
     pub fn check(&self, req: CheckRequest) -> Result<CheckResponse, Error> {
-        let span = check_span("check", &req);
+        // The hot path keeps its own body rather than sharing `run_check` with
+        // `check_with_trace`: the generic version measured 1-2% slower here (T4.1).
+        let span = check_span!("check", req);
         let _entered = span.enter();
-        self.run_check(&span, &req, |_| NoTrace)
-            .map(|(r, NoTrace)| r)
+        let start = Instant::now();
+        let snapshot = self.store.snapshot()?;
+        let revision = resolve(&*snapshot, req.consistency)?;
+        span.record("revision", revision.0);
+        let loaded = self.schema_at(&*snapshot)?;
+        let schema = &loaded.compiled;
+        let (root, subject) = eval::resolve(schema, &req.resource, &req.permission, &req.subject)?;
+        let mut memo = Memo::new();
+        let mut evaluator = Evaluator::new(
+            schema,
+            &*snapshot,
+            revision,
+            self.limits(loaded.stale_possible(revision)),
+            &subject,
+            &mut memo,
+        );
+        let result = evaluator.check(&root);
+        let mut stats = evaluator.stats();
+        stats.elapsed = start.elapsed();
+        record_stats(&span, &stats);
+        let allowed = result?;
+        span.record("allowed", allowed);
+        Ok(CheckResponse {
+            allowed,
+            revision,
+            stats,
+        })
     }
 
     /// [`check`](Self::check), also returning the tree of steps the evaluation took
@@ -590,7 +638,7 @@ impl<S: WritableStore> Engine<S> {
                 message: "max_trace_nodes must be at least 1".to_owned(),
             });
         }
-        let span = check_span("check_with_trace", &req);
+        let span = check_span!("check_with_trace", req);
         let _entered = span.enter();
         let max = max_trace_nodes;
         let (response, recorder) =
@@ -616,7 +664,8 @@ impl<S: WritableStore> Engine<S> {
         Ok((response, trace))
     }
 
-    /// One `check`, reporting to the trace `make` builds for the request's schema.
+    /// One `check` reporting to the trace `make` builds for the request's schema: the body
+    /// of [`check`](Self::check), for `check_with_trace`.
     fn run_check<T: Tracer>(
         &self,
         span: &tracing::Span,
@@ -1047,35 +1096,6 @@ fn resolve(snapshot: &dyn ReadStore, c: Consistency) -> Result<Revision, Error> 
         return Err(Error::RevisionExpired { requested, horizon });
     }
     Ok(requested)
-}
-
-/// The span of one `check` (`docs/04-evaluation.md` §1): request fields now, the rest once
-/// evaluated.
-fn check_span(name: &'static str, req: &CheckRequest) -> tracing::Span {
-    // `info_span!` needs a literal name, hence the two arms.
-    macro_rules! span {
-        ($name:literal) => {
-            tracing::info_span!(
-                $name,
-                resource = %req.resource,
-                permission = %req.permission,
-                subject = %req.subject,
-                revision = tracing::field::Empty,
-                allowed = tracing::field::Empty,
-                store_reads = tracing::field::Empty,
-                tuples_read = tracing::field::Empty,
-                memo_hits = tracing::field::Empty,
-                max_depth_reached = tracing::field::Empty,
-                cycle_passes = tracing::field::Empty,
-                elapsed_us = tracing::field::Empty,
-            )
-        };
-    }
-    if name == "check_with_trace" {
-        span!("check_with_trace")
-    } else {
-        span!("check")
-    }
 }
 
 fn record_stats(span: &tracing::Span, stats: &EvalStats) {

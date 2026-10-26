@@ -135,11 +135,15 @@ impl Memo {
     }
 
     /// The settled value usable outside any subtracted side.
+    // Inlined into `Evaluator::eval`, as it was before T4.1 split `eval_expr`: one lookup
+    // per node, and out of line it cost the memory-store checks 2-3%.
+    #[inline]
     pub(crate) fn get(&self, key: &NodeKey) -> Option<&bool> {
         self.plain.get(key).or_else(|| self.negated.get(key))
     }
 
     /// The settled value usable under a subtracted side.
+    #[inline]
     fn get_negated(&self, key: &NodeKey) -> Option<&bool> {
         self.negated.get(key)
     }
