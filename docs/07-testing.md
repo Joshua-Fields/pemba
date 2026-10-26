@@ -114,7 +114,8 @@ since T1.4c bounded check cost, OQ-021). Runs at a raised `PROPTEST_CASES` (defa
    It also runs on `generate::cyclic_case`, built so cyclic regions re-run their head
    (intersections, arrows and exclusion bases on data cycles; the general generators
    almost never produce one). Its 1 000+ case run prints how many cases re-ran a head
-   (17–20% in local runs, up to 6 passes) and fails below 10%.
+   (15–20% in local runs, up to 6 passes) and fails below 10%. It never puts a cycle on a
+   subtracted side; why, and what covers that instead, is in `04` §3.8.
    `generated_traces_exercise_every_feature` keeps the property from passing vacuously;
    hand-built cases and insta snapshots of rendered traces are in `tests/trace.rs`.
 

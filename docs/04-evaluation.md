@@ -397,6 +397,20 @@ differ from the settled one, and what is recorded and drawn for each:
    (about 15 000 cycle hits in the coverage samples); covered by unit tests that drive the
    recorder through the event sequence (`trace::record::tests`).
 
+**Coverage gap: no cycle on a subtracted side.** The generator built to make heads re-run
+(`generate::cyclic_case`, `07` §2.3) never places a cycle on the subtracted side of an
+exclusion: every subtracted side it writes is a relation with no dependencies, so cycles
+run only through unions, intersections, arrows and exclusion *bases*. That is deliberate.
+A data cycle that crosses a subtracted side is `NonMonotonicCycle` (§3.6): an error, so
+there is no trace to check, and the reference evaluator refuses such schemas as not
+stratifiable (`07` §2.1), so there would be no oracle either. The other case, a monotone
+cycle wholly beneath a subtracted side, settles as an ordinary region at its own negation
+depth before the exclusion negates it (§3.6, stratified negation); the trace records it by
+the same code as any region. It is exercised by property 7 on the `SubSides::Recursive`
+generator, but in 600 sampled cases the general generators made no head re-run at all,
+so re-runs beneath a subtracted side are covered by reasoning, not by generated cases. The
+hand-written `NonMonotonicCycle` tests check that the trace fails closed there.
+
 **Invariants** (tested on every generated case, `07` §2.3, for nodes that are not
 `truncated`): the root's `result` is `allowed`; `relation`/`union`/`arrow_any` are `true`
 iff some child is; `intersection` iff every evaluated child is; `arrow_all` iff it has a
