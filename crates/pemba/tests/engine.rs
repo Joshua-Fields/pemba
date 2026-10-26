@@ -95,14 +95,8 @@ fn builder_without_store_is_invalid_request() {
 #[test]
 fn builder_rejects_zero_limits() {
     for config in [
-        EngineConfig {
-            max_write_batch: 0,
-            ..EngineConfig::default()
-        },
-        EngineConfig {
-            max_lookup_results: 0,
-            ..EngineConfig::default()
-        },
+        EngineConfig::default().with_max_write_batch(0),
+        EngineConfig::default().with_max_lookup_results(0),
     ] {
         let err = Engine::builder()
             .store(MemoryStore::new())
@@ -707,20 +701,14 @@ fn many(n: usize) -> WriteRequest {
 
 #[test]
 fn batch_at_the_limit_is_accepted() {
-    let e = engine_with_config(EngineConfig {
-        max_write_batch: 3,
-        ..EngineConfig::default()
-    });
+    let e = engine_with_config(EngineConfig::default().with_max_write_batch(3));
     e.write(many(3)).unwrap();
     assert_eq!(all(&e, "document").len(), 3);
 }
 
 #[test]
 fn batch_over_the_limit_is_batch_too_large() {
-    let e = engine_with_config(EngineConfig {
-        max_write_batch: 3,
-        ..EngineConfig::default()
-    });
+    let e = engine_with_config(EngineConfig::default().with_max_write_batch(3));
     let err = e.write(many(4)).unwrap_err();
     assert!(
         matches!(err, Error::BatchTooLarge { max: 3, got: 4 }),
@@ -749,10 +737,7 @@ fn default_batch_limit_is_1000() {
 
 #[test]
 fn batch_size_is_checked_before_validation() {
-    let e = engine_with_config(EngineConfig {
-        max_write_batch: 1,
-        ..EngineConfig::default()
-    });
+    let e = engine_with_config(EngineConfig::default().with_max_write_batch(1));
     let err = e
         .write(touch(&[
             "document:readme#view@user:anne",
@@ -856,10 +841,7 @@ fn a_full_last_page_has_no_cursor() {
 
 #[test]
 fn read_relationships_default_page_size_is_max_lookup_results() {
-    let e = engine_with_config(EngineConfig {
-        max_lookup_results: 2,
-        ..EngineConfig::default()
-    });
+    let e = engine_with_config(EngineConfig::default().with_max_lookup_results(2));
     e.write(many(3)).unwrap();
     let res = e
         .read_relationships(ReadRelationshipsRequest::new(RelationshipFilter::new(ty(

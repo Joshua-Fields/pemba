@@ -375,10 +375,7 @@ fn ids(v: &[&str]) -> Vec<ObjectId> {
 fn limit_must_be_between_one_and_max_lookup_results() {
     let e = engine_on(
         MemoryStore::new(),
-        EngineConfig {
-            max_lookup_results: 2,
-            ..EngineConfig::default()
-        },
+        EngineConfig::default().with_max_lookup_results(2),
         &[
             "document:a#viewer@user:anne",
             "document:b#viewer@user:anne",
@@ -407,10 +404,7 @@ fn lookup_too_large_past_max_lookup_nodes() {
         .map(|i| format!("document:d{i}#viewer@user:anne"))
         .collect();
     let rels: Vec<&str> = rels.iter().map(String::as_str).collect();
-    let config = |max_lookup_nodes| EngineConfig {
-        max_lookup_nodes,
-        ..EngineConfig::default()
-    };
+    let config = |max_lookup_nodes| EngineConfig::default().with_max_lookup_nodes(max_lookup_nodes);
     // Each document reaches viewer, view, both and view_not_banned: 40 nodes.
     let e = engine_on(MemoryStore::new(), config(39), &rels);
     let err = e
@@ -432,10 +426,7 @@ fn lookup_too_large_past_max_lookup_nodes() {
 fn a_candidate_check_error_fails_the_page() {
     let e = engine_on(
         MemoryStore::new(),
-        EngineConfig {
-            max_depth: 2,
-            ..EngineConfig::default()
-        },
+        EngineConfig::default().with_max_depth(2),
         &[
             "document:a#viewer@user:anne",
             "group:g#member@user:bob",

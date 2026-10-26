@@ -386,10 +386,7 @@ fn the_node_cap_truncates_without_changing_the_answer() {
     let capped = engine_with(
         GROUPS,
         &tuples,
-        EngineConfig {
-            max_trace_nodes: 20,
-            ..EngineConfig::default()
-        },
+        EngineConfig::default().with_max_trace_nodes(20),
     );
     let (r_full, t_full) = full
         .check_with_trace(request("doc:d#view@user:anne"))
@@ -411,10 +408,7 @@ fn the_node_cap_truncates_without_changing_the_answer() {
 fn a_zero_node_cap_is_refused() {
     let err = Engine::builder()
         .store(MemoryStore::new())
-        .config(EngineConfig {
-            max_trace_nodes: 0,
-            ..EngineConfig::default()
-        })
+        .config(EngineConfig::default().with_max_trace_nodes(0))
         .build()
         .unwrap_err();
     assert_eq!(err.code(), "INVALID_REQUEST");

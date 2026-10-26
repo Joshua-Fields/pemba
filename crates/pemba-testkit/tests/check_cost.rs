@@ -81,11 +81,11 @@ fn check_on_dense_cyclic_data_reads_a_bounded_number_of_tuples() {
     let tuples: Vec<Relationship> = TUPLES.iter().map(|t| t.parse().unwrap()).collect();
     let engine = Engine::builder()
         .store(MemoryStore::new())
-        .config(EngineConfig {
-            max_depth: 1_000_000,
-            max_check_fanout: usize::MAX,
-            ..EngineConfig::default()
-        })
+        .config(
+            EngineConfig::default()
+                .with_max_depth(1_000_000)
+                .with_max_check_fanout(usize::MAX),
+        )
         .build()
         .unwrap();
     engine.write_schema(SCHEMA).unwrap();
@@ -265,11 +265,11 @@ impl Groups {
                 reads: Arc::clone(&reads),
                 budget: Arc::clone(&limit),
             })
-            .config(EngineConfig {
-                max_depth: 1_000_000,
-                max_check_fanout: usize::MAX,
-                ..EngineConfig::default()
-            })
+            .config(
+                EngineConfig::default()
+                    .with_max_depth(1_000_000)
+                    .with_max_check_fanout(usize::MAX),
+            )
             .build()
             .unwrap();
         engine.write_schema(GROUP_SCHEMA).unwrap();
@@ -382,12 +382,12 @@ fn bounded_by_config(tuples: &[String], max: u64) -> Groups {
             reads: Arc::clone(&groups.reads),
             budget: Arc::new(AtomicU64::new(u64::MAX)),
         })
-        .config(EngineConfig {
-            max_depth: 1_000_000,
-            max_check_fanout: usize::MAX,
-            max_check_reads: max,
-            ..EngineConfig::default()
-        })
+        .config(
+            EngineConfig::default()
+                .with_max_depth(1_000_000)
+                .with_max_check_fanout(usize::MAX)
+                .with_max_check_reads(max),
+        )
         .build()
         .unwrap();
     engine.write_schema(GROUP_SCHEMA).unwrap();

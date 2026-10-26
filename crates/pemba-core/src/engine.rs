@@ -47,7 +47,18 @@ macro_rules! check_span {
 }
 
 /// Limits and switches (`docs/02-data-model.md` §7). `Default` gives the spec defaults.
+///
+/// Build one from the defaults with the `with_*` setters; the fields stay readable.
+/// `#[non_exhaustive]`, so new limits can be added without breaking callers:
+///
+/// ```
+/// use pemba_core::EngineConfig;
+///
+/// let config = EngineConfig::default().with_max_depth(100).with_max_trace_nodes(500);
+/// assert_eq!(config.max_depth, 100);
+/// ```
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct EngineConfig {
     /// Maximum evaluation depth before `check` fails.
     pub max_depth: u32,
@@ -81,6 +92,74 @@ impl Default for EngineConfig {
             max_check_reads: 200_000,
             max_trace_nodes: 10_000,
         }
+    }
+}
+
+impl EngineConfig {
+    /// Sets [`max_depth`](Self::max_depth): maximum evaluation depth before `check` fails
+    /// (default 50).
+    #[must_use]
+    pub const fn with_max_depth(mut self, max_depth: u32) -> Self {
+        self.max_depth = max_depth;
+        self
+    }
+
+    /// Sets [`max_write_batch`](Self::max_write_batch): maximum ops in one [`WriteRequest`]
+    /// (default 1000; at least 1).
+    #[must_use]
+    pub const fn with_max_write_batch(mut self, max_write_batch: usize) -> Self {
+        self.max_write_batch = max_write_batch;
+        self
+    }
+
+    /// Sets [`max_delete_by_filter`](Self::max_delete_by_filter): maximum rows one
+    /// `delete_relationships` call may delete (default 10 000).
+    #[must_use]
+    pub const fn with_max_delete_by_filter(mut self, max_delete_by_filter: usize) -> Self {
+        self.max_delete_by_filter = max_delete_by_filter;
+        self
+    }
+
+    /// Sets [`max_lookup_results`](Self::max_lookup_results): maximum results per page of a
+    /// lookup or of [`Engine::read_relationships`] (default 1000; at least 1).
+    #[must_use]
+    pub const fn with_max_lookup_results(mut self, max_lookup_results: u32) -> Self {
+        self.max_lookup_results = max_lookup_results;
+        self
+    }
+
+    /// Sets [`max_lookup_nodes`](Self::max_lookup_nodes): maximum nodes `lookup_resources` may
+    /// visit in phase 1 (default 200 000).
+    #[must_use]
+    pub const fn with_max_lookup_nodes(mut self, max_lookup_nodes: usize) -> Self {
+        self.max_lookup_nodes = max_lookup_nodes;
+        self
+    }
+
+    /// Sets [`max_check_fanout`](Self::max_check_fanout): maximum tuples read per node during
+    /// `check` before erroring (default 100 000).
+    #[must_use]
+    pub const fn with_max_check_fanout(mut self, max_check_fanout: usize) -> Self {
+        self.max_check_fanout = max_check_fanout;
+        self
+    }
+
+    /// Sets [`max_check_reads`](Self::max_check_reads): maximum store reads one `check` (or
+    /// `check_bulk` item) may make before erroring (default 200 000; `docs/04-evaluation.md`
+    /// §3.6).
+    #[must_use]
+    pub const fn with_max_check_reads(mut self, max_check_reads: u64) -> Self {
+        self.max_check_reads = max_check_reads;
+        self
+    }
+
+    /// Sets [`max_trace_nodes`](Self::max_trace_nodes): maximum nodes
+    /// [`Engine::check_with_trace`] records (default 10 000; at least 1;
+    /// `docs/04-evaluation.md` §3.8).
+    #[must_use]
+    pub const fn with_max_trace_nodes(mut self, max_trace_nodes: usize) -> Self {
+        self.max_trace_nodes = max_trace_nodes;
+        self
     }
 }
 

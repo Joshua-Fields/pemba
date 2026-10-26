@@ -82,17 +82,11 @@ fn engine(schema: &str, rels: &[&str]) -> Engine<MemoryStore> {
 }
 
 fn depth_config(max_depth: u32) -> EngineConfig {
-    EngineConfig {
-        max_depth,
-        ..EngineConfig::default()
-    }
+    EngineConfig::default().with_max_depth(max_depth)
 }
 
 fn fanout_config(max_check_fanout: usize) -> EngineConfig {
-    EngineConfig {
-        max_check_fanout,
-        ..EngineConfig::default()
-    }
+    EngineConfig::default().with_max_check_fanout(max_check_fanout)
 }
 
 /// Splits a check string `resource#permission@subject` (`docs/02-data-model.md` §3).
@@ -743,10 +737,7 @@ fn store_reads_above_limit_is_an_error() {
         "group:a#member@group:b#member",
         "group:b#member@user:anne",
     ];
-    let config = |max_check_reads| EngineConfig {
-        max_check_reads,
-        ..EngineConfig::default()
-    };
+    let config = |max_check_reads| EngineConfig::default().with_max_check_reads(max_check_reads);
     // viewer: exact, wildcard, subject sets; a: exact, subject sets; b: exact (hit) = 6.
     let e = engine_cfg(SCHEMA, config(5), &rels);
     match check(&e, "document:d#viewer@user:anne") {

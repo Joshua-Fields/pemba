@@ -385,10 +385,7 @@ fn delete_relationships_is_one_atomic_revision_with_a_limit() {
 fn delete_relationships_validates_limit_and_filter() {
     let e = Engine::builder()
         .store(MemoryStore::new())
-        .config(EngineConfig {
-            max_delete_by_filter: 5,
-            ..EngineConfig::default()
-        })
+        .config(EngineConfig::default().with_max_delete_by_filter(5))
         .build()
         .unwrap();
     let f = RelationshipFilter::new("doc".parse().unwrap());

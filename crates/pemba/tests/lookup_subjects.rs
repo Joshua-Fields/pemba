@@ -235,10 +235,7 @@ fn reads_count_against_max_check_reads() {
         .map(|i| format!("group:g{i}#member@group:g{}#member", i + 1))
         .collect();
     let rels: Vec<&str> = rels.iter().map(String::as_str).collect();
-    let config = |max_check_reads| EngineConfig {
-        max_check_reads,
-        ..EngineConfig::default()
-    };
+    let config = |max_check_reads| EngineConfig::default().with_max_check_reads(max_check_reads);
     // A chain of 21 groups: one read each.
     let e = engine_cfg(config(20), &rels);
     let err = e
@@ -255,10 +252,7 @@ fn reads_count_against_max_check_reads() {
 #[test]
 fn depth_and_fanout_limits_apply() {
     let e = engine_cfg(
-        EngineConfig {
-            max_depth: 2,
-            ..EngineConfig::default()
-        },
+        EngineConfig::default().with_max_depth(2),
         &[
             "group:a#member@group:b#member",
             "group:b#member@group:c#member",
@@ -269,10 +263,7 @@ fn depth_and_fanout_limits_apply() {
         .unwrap_err();
     assert!(matches!(err, Error::MaxDepthExceeded { .. }), "{err:?}");
     let e = engine_cfg(
-        EngineConfig {
-            max_check_fanout: 1,
-            ..EngineConfig::default()
-        },
+        EngineConfig::default().with_max_check_fanout(1),
         &["document:a#viewer@user:anne", "document:a#viewer@user:bob"],
     );
     let err = e
