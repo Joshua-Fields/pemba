@@ -343,7 +343,27 @@ fn json_str(out: &mut String, s: &str) {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
+    use proptest::prelude::*;
+
     use super::*;
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(2000))]
+
+        /// Any string at all, with a quote, a backslash, a control character and non-ASCII
+        /// always in it (none of which the id grammar admits today, `docs/02` §1.2), comes
+        /// back exactly from a real JSON parser.
+        #[test]
+        fn json_strings_round_trip_through_serde_json(s in any::<String>(), c in 0u32..0x20) {
+            let s = format!("{s}\"\\{}é\u{10FFFF}", char::from_u32(c).unwrap());
+            let mut out = String::new();
+            json_str(&mut out, &s);
+            let back: String = serde_json::from_str(&out).unwrap();
+            prop_assert_eq!(back, s);
+        }
+    }
 
     #[test]
     fn json_strings_escape_quotes_backslashes_and_controls() {

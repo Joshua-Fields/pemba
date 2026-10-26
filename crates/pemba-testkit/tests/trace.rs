@@ -462,3 +462,91 @@ fn direct_hits_carry_the_matching_tuple() {
         .unwrap();
     assert_eq!(hit.tuple.as_deref(), Some("document:press#viewer@user:*"));
 }
+
+/// Ids from the whole id alphabet (`docs/02-data-model.md` §1.2), up to its maximum
+/// length, come back exactly from the trace JSON parsed by a real parser.
+mod json_ids {
+    use pemba_core::model::{Relationship, WriteOp, WriteRequest};
+    use pemba_core::{Engine, EngineConfig};
+    use pemba_store_memory::MemoryStore;
+    use proptest::prelude::*;
+
+    use super::request;
+
+    const SCHEMA: &str = "definition user {}\n\
+        definition group { relation member: user | group#member }\n\
+        definition doc { relation viewer: user | group#member\n permission view = viewer }\n";
+
+    /// Every character the grammar allows, `/` and `|` included; short or near 1 024.
+    fn id() -> impl Strategy<Value = String> {
+        prop_oneof![
+            4 => "[A-Za-z0-9_=+/|.-]{1,40}",
+            1 => "[A-Za-z0-9_=+/|.-]{1000,1024}",
+        ]
+    }
+
+    fn nodes(v: &serde_json::Value, out: &mut Vec<serde_json::Value>) {
+        out.push(v.clone());
+        for c in v["children"].as_array().unwrap() {
+            nodes(c, out);
+        }
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(500))]
+
+        #[test]
+        fn ids_round_trip_through_the_trace_json(d in id(), g in id(), u in id()) {
+            let engine = Engine::builder()
+                .store(MemoryStore::new())
+                .config(EngineConfig::default())
+                .build()
+                .unwrap();
+            engine.write_schema(SCHEMA).unwrap();
+            let link = format!("doc:{d}#viewer@group:{g}#member");
+            let member = format!("group:{g}#member@user:{u}");
+            engine
+                .write(WriteRequest {
+                    ops: [&link, &member]
+                        .iter()
+                        .map(|t| WriteOp::Touch(t.parse::<Relationship>().unwrap()))
+                        .collect(),
+                    preconditions: Vec::new(),
+                })
+                .unwrap();
+            let (_, trace) = engine
+                .check_with_trace(request(&format!("doc:{d}#view@user:{u}")))
+                .unwrap();
+            prop_assert!(trace.allowed);
+            let json: serde_json::Value = serde_json::from_str(&trace.to_json()).unwrap();
+            let doc = format!("doc:{d}");
+            let subject = format!("user:{u}");
+            prop_assert_eq!(json["resource"].as_str(), Some(doc.as_str()));
+            prop_assert_eq!(json["subject"].as_str(), Some(subject.as_str()));
+            let mut all = Vec::new();
+            nodes(&json["root"], &mut all);
+            let tuples: Vec<&str> = all.iter().filter_map(|n| n["tuple"].as_str()).collect();
+            prop_assert!(tuples.contains(&link.as_str()), "{:?}", tuples);
+            prop_assert!(tuples.contains(&member.as_str()), "{:?}", tuples);
+            // Every node string is exactly the tree's.
+            for (j, n) in all.iter().zip(trace.nodes()) {
+                prop_assert_eq!(j["node"].as_str(), Some(n.node.as_str()));
+            }
+        }
+    }
+
+    /// What the grammar keeps out never reaches the JSON: such an id does not parse.
+    #[test]
+    fn ids_with_json_sensitive_characters_are_rejected() {
+        for bad in [
+            "a\"b", r"a\b", "a\u{1}b", "a\nb", "café", "a b", "a#b", "a:b", "a@b",
+        ] {
+            assert!(
+                format!("doc:{bad}")
+                    .parse::<pemba_core::model::ObjectRef>()
+                    .is_err(),
+                "{bad:?}"
+            );
+        }
+    }
+}
