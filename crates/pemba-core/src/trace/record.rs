@@ -30,14 +30,16 @@ pub(crate) trait Tracer {
     fn mark(&self) -> Self::Mark;
     /// The next node recorded is this side of an exclusion.
     fn role(&mut self, role: TraceRole);
-    /// `key` answered from the request memo.
-    fn memo_hit(&mut self, key: &NodeKey, value: bool);
-    /// `key` reached again while on the SCC stack.
-    fn cycle_hit(&mut self, key: &NodeKey, out: &Outcome<bool>);
+    /// `key` answered from the request memo: from its values computed under a subtracted
+    /// side if `negated`, else from the others (`Memo`: the two are kept apart for a
+    /// subject-set subject, so one key can be settled once on each side).
+    fn memo_hit(&mut self, key: &NodeKey, value: bool, negated: bool);
+    /// `key` reached again while on the SCC stack, evaluating on side `negated`.
+    fn cycle_hit(&mut self, key: &NodeKey, out: &Outcome<bool>, negated: bool);
     /// `key` is the subject itself.
     fn self_member(&mut self, key: &NodeKey);
-    /// `key` is about to be evaluated.
-    fn open_member(&mut self, key: &NodeKey, member: &Member);
+    /// `key` is about to be evaluated, on side `negated` (as for `memo_hit`).
+    fn open_member(&mut self, key: &NodeKey, member: &Member, negated: bool);
     /// The head now open is re-running: forget this pass.
     fn rerun(&mut self);
     /// The member opened last finished.
@@ -84,13 +86,13 @@ impl Tracer for NoTrace {
     #[inline(always)]
     fn role(&mut self, _: TraceRole) {}
     #[inline(always)]
-    fn memo_hit(&mut self, _: &NodeKey, _: bool) {}
+    fn memo_hit(&mut self, _: &NodeKey, _: bool, _: bool) {}
     #[inline(always)]
-    fn cycle_hit(&mut self, _: &NodeKey, _: &Outcome<bool>) {}
+    fn cycle_hit(&mut self, _: &NodeKey, _: &Outcome<bool>, _: bool) {}
     #[inline(always)]
     fn self_member(&mut self, _: &NodeKey) {}
     #[inline(always)]
-    fn open_member(&mut self, _: &NodeKey, _: &Member) {}
+    fn open_member(&mut self, _: &NodeKey, _: &Member, _: bool) {}
     #[inline(always)]
     fn rerun(&mut self) {}
     #[inline(always)]
@@ -151,8 +153,10 @@ pub(crate) struct Recorder {
     nodes: Vec<Raw>,
     /// Nodes entered and not yet left; `None` for one past the cap.
     open: Vec<Option<usize>>,
-    /// The most recent member node of each key: what a memo hit or cycle hit points at.
-    latest: HashMap<NodeKey, usize>,
+    /// The most recent member node of each key on each memo side (evaluated under a
+    /// subtracted side or not): what a memo hit or cycle hit points at. Per side, because
+    /// a key settled on one side may be evaluated again, and end unsettled, on the other.
+    latest: HashMap<(NodeKey, bool), usize>,
     /// The role of the next node recorded.
     role: Option<TraceRole>,
     truncated: bool,
@@ -300,8 +304,8 @@ impl Tracer for Recorder {
         self.role = Some(role);
     }
 
-    fn memo_hit(&mut self, key: &NodeKey, value: bool) {
-        let of = self.latest.get(key).copied();
+    fn memo_hit(&mut self, key: &NodeKey, value: bool, negated: bool) {
+        let of = self.latest.get(&(key.clone(), negated)).copied();
         let kind = self.member_kind(key);
         self.leaf(
             name(&self.schema, key),
@@ -311,8 +315,8 @@ impl Tracer for Recorder {
         );
     }
 
-    fn cycle_hit(&mut self, key: &NodeKey, out: &Outcome<bool>) {
-        let of = self.latest.get(key).copied();
+    fn cycle_hit(&mut self, key: &NodeKey, out: &Outcome<bool>, negated: bool) {
+        let of = self.latest.get(&(key.clone(), negated)).copied();
         let kind = self.member_kind(key);
         if let Some(i) = self.push(name(&self.schema, key), kind, Source::CycleHit(of)) {
             let n = &mut self.nodes[i];
@@ -330,7 +334,7 @@ impl Tracer for Recorder {
         );
     }
 
-    fn open_member(&mut self, key: &NodeKey, member: &Member) {
+    fn open_member(&mut self, key: &NodeKey, member: &Member, negated: bool) {
         let (kind, expr) = match member {
             Member::Relation(_) => (TraceKind::Relation, None),
             Member::Permission(p) => (expr_kind(&p.expr), self.expr_text(key.ty, &p.expr)),
@@ -338,7 +342,7 @@ impl Tracer for Recorder {
         let i = self.push(name(&self.schema, key), kind, Source::Evaluated);
         if let Some(i) = i {
             self.nodes[i].expr = expr;
-            self.latest.insert(key.clone(), i);
+            self.latest.insert((key.clone(), negated), i);
         }
         self.open.push(i);
     }
@@ -610,10 +614,10 @@ mod tests {
         let (outer, head, inner) = (key(&schema, "o"), key(&schema, "h"), key(&schema, "k"));
         let group = member(&schema).clone();
         let mut rec = Recorder::new(Arc::clone(&schema), 1000);
-        rec.open_member(&outer, &group);
-        rec.open_member(&head, &group);
-        rec.open_member(&inner, &group);
-        rec.cycle_hit(&head, &UNSETTLED_FALSE);
+        rec.open_member(&outer, &group, false);
+        rec.open_member(&head, &group, false);
+        rec.open_member(&inner, &group, false);
+        rec.cycle_hit(&head, &UNSETTLED_FALSE, false);
         rec.close_member(&UNSETTLED_FALSE, Settle::Member, 1);
         rec.close_member(
             &FALSE,
@@ -624,9 +628,9 @@ mod tests {
             1,
         );
         rec.rerun();
-        rec.memo_hit(&inner, false);
+        rec.memo_hit(&inner, false, false);
         if then_h {
-            rec.memo_hit(&head, false);
+            rec.memo_hit(&head, false, false);
         }
         rec.close_member(
             &FALSE,
