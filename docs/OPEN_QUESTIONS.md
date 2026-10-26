@@ -1100,9 +1100,10 @@ it is resolved.
   re-run is memoised, so the final pass meets it as a memo hit while its full node sits in
   the discarded pass. The trace shows it in full at the first such reference. A `cycle_hit`
   inside it names its region's head, which may then be shown further down, or not at all if
-  that head is never referenced again (`ref: None`). Rare: it needs a region that settles
-  inside an outer region's discarded pass and is later entered through a member rather than
-  its head.
+  that head is never referenced again (`ref: None`, rendered `unresolved`). Rare: it needs a
+  region that settles inside an outer region's discarded pass and is later entered through
+  a member rather than its head; no generated case has produced one. The hit's value is
+  settled or labelled either way, so the trace is not marked truncated (`04` §3.8 case 3).
   (d) *Provisional values.* A region settled by the head-`true` shortcut keeps member
   `false`s computed from failed assumptions in the trace, marked `provisional: true`, rather
   than hiding them: they are what the evaluator did, and hiding them would leave a union

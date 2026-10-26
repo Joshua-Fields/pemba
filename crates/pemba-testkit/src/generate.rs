@@ -655,6 +655,145 @@ pub fn case_with(mode: SubSides) -> impl Strategy<Value = Case> {
         })
 }
 
+// ---- cyclic regions whose head re-runs (T4.1 follow-up) ----
+
+/// Permission templates for [`cyclic_case`], over `node`'s relations `rel0` (leaf),
+/// `rel1` (gate), `rel2` (ban), `rel3` / `rel4` (links to other nodes' permissions).
+/// `Member(5 + k)` is permission `k`; a template may only use permissions before it.
+fn cyclic_template(i: usize, before: usize) -> ExprModel {
+    use ExprModel::{Exclusion, Intersection, Member, Union};
+    let arrow = |tupleset, target: usize, all| ExprModel::Arrow {
+        tupleset,
+        target: format!("perm{target}"),
+        all,
+    };
+    let earlier = if before == 0 {
+        Member(4)
+    } else {
+        Member(5 + (i % before))
+    };
+    match i % 11 {
+        0 => Union(vec![Member(3), Member(4), Member(0)]),
+        1 => Intersection(vec![Member(3), Member(1)]),
+        2 => Intersection(vec![
+            Union(vec![Member(3), Member(0)]),
+            Union(vec![Member(4), Member(1)]),
+        ]),
+        3 => Exclusion(
+            Box::new(Union(vec![Member(3), Member(4)])),
+            Box::new(Member(2)),
+        ),
+        4 => Intersection(vec![Member(3), Member(4)]),
+        5 => Intersection(vec![earlier, Member(4)]),
+        6 => Union(vec![arrow(3, i % 3, false), Member(0)]),
+        7 => Intersection(vec![arrow(4, (i + 1) % 3, true), Member(1)]),
+        8 => Exclusion(
+            Box::new(Intersection(vec![
+                Member(3),
+                Union(vec![Member(4), Member(0)]),
+            ])),
+            Box::new(Member(2)),
+        ),
+        // The shapes of `tests/cycle_passes.rs`'s two- and three-pass cases: a link then a
+        // leaf under an intersection, and two links then a leaf under a union.
+        9 => Intersection(vec![Member(4), Member(0)]),
+        _ => Union(vec![Member(4), Member(3), Member(0)]),
+    }
+}
+
+/// The [`cyclic_template`]s each of [`cyclic_case`]'s three permissions draws from, so
+/// every schema has the three roles a re-run needs (`tests/cycle_passes.rs`): `perm0` an
+/// AND over the cycle that can end `false` (the head), `perm1` an OR that turns `true`
+/// through an operand after its links, `perm2` an AND whose first operand is a link
+/// (which meets the OR in progress and short-circuits on its assumed `false`).
+const CYCLIC_SLOTS: [&[usize]; 3] = [&[1, 3, 4, 7, 8], &[0, 6, 10], &[2, 5, 9]];
+
+/// Ids [`cyclic_case`] uses: the first three of [`IDS`].
+const CYCLIC_IDS: usize = 3;
+
+/// Cases built to make cyclic regions re-run their head (`docs/04-evaluation.md` §3.6):
+/// one `ty1` type whose three permissions are drawn from templates that put intersections,
+/// arrows and exclusion bases on data cycles through two link relations, with 10–48
+/// tuples (three in four on the links) over three ids. A head re-runs when a member it reached assumed something
+/// `false` that turned out `true` and the head still ended `false`, which needs an
+/// intersection (or an exclusion's base) on the cycle; [`case`] makes that rare.
+/// Subtracted sides are always the `ban` relation, so schemas stay stratifiable.
+pub fn cyclic_case() -> impl Strategy<Value = Case> {
+    // `member` mostly picks one of ty1's permissions (members 5..8 of its 8): a re-run
+    // starts at a permission.
+    let member = prop_oneof![
+        3 => (0..1000usize).prop_map(|k| 8 * k + 5 + k % 3),
+        1 => any::<usize>(),
+    ];
+    let query = (
+        any::<usize>(),
+        member,
+        any::<usize>(),
+        any::<usize>(),
+        0u8..3,
+    )
+        .prop_map(
+            |(resource, member, subject, subject_member, kind)| RawQuery {
+                resource,
+                member,
+                subject,
+                subject_member,
+                kind,
+            },
+        );
+    (
+        prop::collection::vec(0..11usize, 3),
+        prop::collection::vec(
+            (
+                // Mostly links, so cycles close often; three ids, so they close quickly.
+                prop_oneof![1 => 0..3usize, 3 => 3..5usize],
+                any::<usize>(),
+                0..CYCLIC_IDS,
+                0..CYCLIC_IDS,
+            ),
+            10..=48,
+        ),
+        prop::collection::vec(query, 4..=24),
+    )
+        .prop_map(|(templates, raw, queries)| {
+            let links: Vec<Allowed> = (5..8).map(|m| Allowed::Set(1, m)).collect();
+            let schema = SchemaModel {
+                types: vec![
+                    TypeModel {
+                        relations: vec![vec![Allowed::Object(0)]],
+                        permissions: Vec::new(),
+                    },
+                    TypeModel {
+                        relations: vec![
+                            vec![Allowed::Object(0)],
+                            vec![Allowed::Object(0)],
+                            vec![Allowed::Object(0)],
+                            links.clone(),
+                            links,
+                        ],
+                        permissions: templates
+                            .iter()
+                            .enumerate()
+                            .map(|(k, &t)| {
+                                cyclic_template(CYCLIC_SLOTS[k][t % CYCLIC_SLOTS[k].len()], k)
+                            })
+                            .collect(),
+                    },
+                ],
+            };
+            // Every raw tuple on ty1: (relation, allowed form, resource, subject).
+            let raw: Vec<RawTuple> = raw
+                .into_iter()
+                .map(|(rel, form, res, sub)| (1, rel, form, res, sub))
+                .collect();
+            Case {
+                tuples: tuples(&schema, &raw),
+                schema,
+                queries,
+            }
+        })
+}
+
 // ---- store op sequences (property 5) ----
 
 /// Resource types, relations and subjects of [`store_ops`] tuples: no schema, since stores

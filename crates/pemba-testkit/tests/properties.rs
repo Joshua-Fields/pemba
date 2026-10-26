@@ -1579,14 +1579,18 @@ mod schema_change {
 /// its stats match `check`'s, and every trace invariant holds. A second memory engine with
 /// a tiny node cap checks that truncation never changes the answer.
 mod trace {
+    use pemba_core::model::SubjectRef;
     use pemba_core::model::{Consistency, WriteOp, WriteRequest};
     use pemba_core::store::WritableStore;
-    use pemba_core::{CheckRequest, Engine, EngineConfig};
+    use pemba_core::{
+        CheckRequest, CheckTrace, Engine, EngineConfig, TraceKind, TraceNode, TraceSource,
+    };
     use pemba_store_memory::MemoryStore;
     use pemba_testkit::generate::{self, Case, SubSides};
     use pemba_testkit::reference::Reference;
     use pemba_testkit::trace::violations;
     use proptest::prelude::*;
+    use proptest::test_runner::TestRunner;
 
     use super::{ambiguity_accepted, compile, config, query, unlimited};
 
@@ -1614,7 +1618,146 @@ mod trace {
         engine
     }
 
-    fn agrees(case: &Case) -> Result<(), TestCaseError> {
+    /// Whether `n` is a member node (`type:id#member`, its value `S(o, m)`), not a point
+    /// query, an `undefined` leaf, a skipped node or an operand of the permission above it.
+    fn member_like(n: &TraceNode, parent: Option<&TraceNode>) -> bool {
+        let operator = |k: TraceKind| {
+            matches!(
+                k,
+                TraceKind::Computed
+                    | TraceKind::Union
+                    | TraceKind::Intersection
+                    | TraceKind::Exclusion
+                    | TraceKind::ArrowAny
+                    | TraceKind::ArrowAll
+            )
+        };
+        let operand = operator(n.kind)
+            && n.source == TraceSource::Evaluated
+            && parent.is_some_and(|p| p.node == n.node && operator(p.kind));
+        n.result.is_some()
+            && !operand
+            && !matches!(
+                n.kind,
+                TraceKind::Direct | TraceKind::Wildcard | TraceKind::Undefined
+            )
+    }
+
+    /// The hard rule of `04` §3.8: every member node shows its settled value (the oracle's)
+    /// or carries a label saying it does not (`provisional`), in the tree, in the JSON and
+    /// on its rendered line.
+    fn settled_or_labelled(
+        trace: &CheckTrace,
+        oracle: &Reference,
+        subject: &SubjectRef,
+    ) -> Vec<String> {
+        fn drawn<'a>(
+            n: &'a TraceNode,
+            parent: Option<&'a TraceNode>,
+            out: &mut Vec<(&'a TraceNode, &'a TraceNode, Option<&'a TraceNode>)>,
+        ) {
+            let shown = match (n.kind, n.children.as_slice()) {
+                (TraceKind::SubjectSet, [m]) => m,
+                _ => n,
+            };
+            out.push((n, shown, parent));
+            for c in &shown.children {
+                if shown.kind == TraceKind::Relation
+                    && matches!(c.kind, TraceKind::Direct | TraceKind::Wildcard)
+                {
+                    continue;
+                }
+                drawn(c, Some(shown), out);
+            }
+        }
+        fn flat<'a>(v: &'a serde_json::Value, out: &mut Vec<&'a serde_json::Value>) {
+            out.push(v);
+            for c in v["children"].as_array().unwrap() {
+                flat(c, out);
+            }
+        }
+        let mut out = Vec::new();
+        let settled = |node: &str| -> bool {
+            let (object, member) = node.split_once('#').unwrap();
+            oracle
+                .check(&object.parse().unwrap(), &member.parse().unwrap(), subject)
+                .unwrap()
+        };
+
+        // The tree, and the rendered line of each drawn node (as `render` draws them: a
+        // subject set on its member's line, a relation's point queries folded away).
+        let text = trace.render();
+        let mut lines = text
+            .lines()
+            .skip_while(|l| !l.is_empty())
+            .skip(1)
+            .filter(|l| !l.contains("… (not recorded"));
+        let mut nodes = Vec::new();
+        drawn(&trace.root, None, &mut nodes);
+        for (n, shown, parent) in nodes {
+            let Some(line) = lines.next() else {
+                out.push(format!("no rendered line for #{}", n.id));
+                break;
+            };
+            let glyph = match n.result {
+                Some(true) => '✓',
+                Some(false) => '✗',
+                None => '·',
+            };
+            let labelled = n.provisional || shown.provisional;
+            if !line
+                .trim_start_matches(['│', '├', '└', '─', ' '])
+                .starts_with(glyph)
+            {
+                out.push(format!(
+                    "#{} {}: line `{line}` does not show {:?}",
+                    n.id, n.node, n.result
+                ));
+            }
+            if labelled && !line.contains("provisional") {
+                out.push(format!(
+                    "#{} {}: provisional but line `{line}` says nothing",
+                    n.id, n.node
+                ));
+            }
+            for (node, p) in [(n, parent), (shown, Some(n))] {
+                if member_like(node, p) && !labelled && node.result != Some(settled(&node.node)) {
+                    out.push(format!(
+                        "#{} {}: shows {:?} unlabelled, settled value is {}\n{text}",
+                        node.id,
+                        node.node,
+                        node.result,
+                        settled(&node.node)
+                    ));
+                }
+            }
+        }
+
+        // The JSON: the same nodes, results and labels as the tree.
+        let json: serde_json::Value = serde_json::from_str(&trace.to_json()).unwrap();
+        let mut js = Vec::new();
+        flat(&json["root"], &mut js);
+        let tree = trace.nodes();
+        if js.len() != tree.len() {
+            out.push(format!(
+                "JSON has {} nodes, the tree {}",
+                js.len(),
+                tree.len()
+            ));
+        }
+        for (j, n) in js.iter().zip(&tree) {
+            if j["node"] != n.node.as_str()
+                || j["result"].as_bool() != n.result
+                || j["provisional"].as_bool() != Some(n.provisional)
+            {
+                out.push(format!("JSON node {j} differs from #{} {}", n.id, n.node));
+            }
+        }
+        out
+    }
+
+    /// Property 7 for one case; returns each check's `cycle_passes`, for the distribution.
+    fn agrees(case: &Case) -> Result<Vec<u64>, TestCaseError> {
         let src = case.schema.source();
         let schema = compile(&src);
         let oracle = Reference::new(&schema, &case.tuples)
@@ -1630,6 +1773,7 @@ mod trace {
         let capped = engine(MemoryStore::new(), &src, case, CAP);
         let mut dir = super::prop5::TempSqlite::new();
         let sqlite = engine(dir.store.take().unwrap(), &src, case, usize::MAX);
+        let mut passes = Vec::new();
 
         for (resource, member, subject) in &queries {
             let req = CheckRequest {
@@ -1660,6 +1804,9 @@ mod trace {
             for (store, plain, traced) in outcomes {
                 match (plain, traced) {
                     (Ok(plain), Ok((response, trace))) => {
+                        if store == "memory" {
+                            passes.push(plain.stats.cycle_passes);
+                        }
                         prop_assert_eq!(plain.allowed, want, "[{}] check {}", store, at);
                         prop_assert_eq!(response.allowed, want, "[{}] traced {}", store, at);
                         prop_assert_eq!(trace.root.result, Some(want), "[{}] root {}", store, at);
@@ -1667,7 +1814,8 @@ mod trace {
                         a.elapsed = std::time::Duration::ZERO;
                         b.elapsed = a.elapsed;
                         prop_assert_eq!(a, b, "[{}] stats {}", store, at);
-                        let v = violations(&trace);
+                        let mut v = violations(&trace);
+                        v.extend(settled_or_labelled(&trace, &oracle, subject));
                         prop_assert!(
                             v.is_empty(),
                             "[{}] {}:\n{}\n{}",
@@ -1703,14 +1851,13 @@ mod trace {
             }
         }
         drop(sqlite);
-        Ok(())
+        Ok(passes)
     }
 
-    /// Keeps the property from passing vacuously: over fixed samples of both variants,
-    /// traces must contain every kind of source, provisional values and truncation. The
-    /// generators never produce a region whose head re-runs (that needs an intersection on
-    /// a cycle whose head ends `false`), so discarded passes are covered by the hand-built
-    /// cases in `tests/trace.rs` instead.
+    /// Keeps the property from passing vacuously: over fixed samples of both variants and
+    /// of [`generate::cyclic_case`] (the general generators almost never make a head
+    /// re-run), traces must contain every kind of source, provisional values, heads that
+    /// re-ran and truncation.
     #[test]
     fn generated_traces_exercise_every_feature() {
         use std::collections::BTreeMap;
@@ -1720,7 +1867,8 @@ mod trace {
         let mut seen = BTreeMap::<&str, u32>::new();
         let cases = super::sample(generate::case(), 300)
             .into_iter()
-            .chain(super::sample(generate::case_with(SubSides::Recursive), 300));
+            .chain(super::sample(generate::case_with(SubSides::Recursive), 300))
+            .chain(super::sample(generate::cyclic_case(), 300));
         for case in cases {
             let src = case.schema.source();
             let schema = compile(&src);
@@ -1750,8 +1898,16 @@ mod trace {
                     let mut add = |k: &'static str| *seen.entry(k).or_default() += 1;
                     match n.source {
                         TraceSource::MemoHit { .. } => add("memo_hit"),
-                        TraceSource::CycleHit { .. } => add("cycle_hit"),
-                        TraceSource::Cycle { .. } => add("cycle"),
+                        TraceSource::CycleHit { of } => {
+                            add("cycle_hit");
+                            match of {
+                                None => add("cycle_hit unresolved"),
+                                Some(of) if of > n.id => add("cycle_hit forward"),
+                                Some(_) => {}
+                            }
+                        }
+                        TraceSource::Cycle { passes: 1 } => add("cycle"),
+                        TraceSource::Cycle { .. } => add("cycle 2+ passes"),
                         TraceSource::Skipped => add("skipped"),
                         _ => {}
                     }
@@ -1769,10 +1925,12 @@ mod trace {
                 }
             }
         }
+        eprintln!("trace features over the samples: {seen:?}");
         for key in [
             "memo_hit",
             "cycle_hit",
             "cycle",
+            "cycle 2+ passes",
             "skipped",
             "provisional",
             "subject_set",
@@ -1802,6 +1960,54 @@ mod trace {
         ) {
             agrees(&case)?;
         }
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig { cases: 64, ..config(0) })]
+
+        /// The trace property, quick, on cases built so cyclic heads re-run.
+        #[test]
+        fn trace_cyclic_matches_check_and_reference(case in generate::cyclic_case()) {
+            agrees(&case)?;
+        }
+    }
+
+    /// The trace property on [`generate::cyclic_case`], ≥ 1 000 cases, printing how many
+    /// cases (and checks) made a head re-run, and failing if too few did to test it.
+    #[test]
+    #[ignore = "slow: 1 000+ cases; run with --ignored"]
+    fn trace_cyclic_matches_check_and_reference_full() {
+        use std::collections::BTreeMap;
+        use std::sync::Mutex;
+
+        let seen: Mutex<(u32, u32, BTreeMap<u64, u32>)> = Mutex::new((0, 0, BTreeMap::new()));
+        let mut runner = TestRunner::new(config(1000));
+        let result = runner.run(&generate::cyclic_case(), |case| {
+            let passes = agrees(&case)?;
+            let mut s = seen.lock().unwrap();
+            s.0 += 1;
+            if passes.iter().any(|&p| p > 1) {
+                s.1 += 1;
+            }
+            for p in passes {
+                *s.2.entry(p).or_default() += 1;
+            }
+            Ok(())
+        });
+        if let Err(e) = result {
+            panic!("{e}");
+        }
+        let (cases, reran, per_check) = seen.into_inner().unwrap();
+        eprintln!(
+            "cyclic cases: {cases}; with a check whose head re-ran (cycle_passes > 1): {reran}; \
+             checks by cycle_passes: {per_check:?}"
+        );
+        assert!(cases >= 1000);
+        // About 20% re-run a head; 10% leaves room for seed variance (17% seen).
+        assert!(
+            reran * 10 >= cases,
+            "only {reran} of {cases} cases re-ran a head"
+        );
     }
 
     proptest! {

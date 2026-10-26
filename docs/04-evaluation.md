@@ -350,9 +350,7 @@ parent.
 `source: memo_hit { ref }`, no children, and `ref` names the one node where that member is
 shown in full. A member is shown in full exactly once; every later occurrence is a
 reference, so the trace is linear in the nodes evaluated, never exponential in the paths
-to them. A member settled inside a pass that was later discarded (below) is shown in full
-at its first reference instead. `ref` is `None` only when the full node was never recorded
-(cap).
+to them. `ref` is `None` only when the full node was never recorded (cap).
 
 **Cycles (§3.6).** The trace shows only the final pass of each region; passes that were
 re-run are discarded, so no intermediate pass's value is shown as an answer. The head of a
@@ -360,12 +358,44 @@ region (a member some node reached again while it was in progress) has `source: 
 passes }`, `passes ≥ 1`; its `result` is the region's least fixed point. A node reached
 again on the stack within a pass has `source: cycle_hit { ref }`, no children, `result` the
 value the evaluator used there (its provisional value if in progress, its finished value if
-already done this pass), and `ref` names that node. When a region settles with every
-assumption confirmed, every value in its final pass is exact. When it settles by the
-head-`true` shortcut instead, `true` values are still exact (soundness, §3.6), but a `false`
-computed from an assumption that failed is not, and is marked `provisional: true`. In the
-`A = B + C`, `B = A` example: `A` is `true` (`cycle`, 1 pass), the hit on `A` inside `B` is
-a `cycle_hit` assumed `false`, and `B` is `false` and `provisional`.
+already done this pass), and `ref` names that node.
+
+**Settled values (hard rule).** A node's shown `result` (in the tree, the JSON and the
+rendered line) is its settled value, the least fixed point `S(o, m) ∋ subject`, or the node
+says it is not. There is exactly one such label, `provisional: true` (rendered
+`(provisional: computed from a cycle assumption that did not hold)`), and it only ever sits
+on a `false`, because every `true` is sound (§3.6). This holds for member nodes, subject
+sets, hits and the operands under them. `07` §2.3 tests it on every generated case against
+the reference evaluator, in all three forms. The three cases where a shown value could
+differ from the settled one, and what is recorded and drawn for each:
+
+1. *A provisional `false`.* A region that settles by the head-`true` shortcut has values
+   from a pass in which some assumption failed. Its `true`s are exact; every `false` that
+   depended on an unsettled value (`low` set when the node finished, and every cycle hit) is
+   recorded with `provisional: true` when the head settles, and drawn `✗ … (provisional: …)`.
+   A region that settles with every assumption confirmed marks nothing: its values are
+   exact. In the `A = B + C`, `B = A` example: `A` is `✓ … (cycle: settled after 1 pass)`,
+   the hit on `A` inside `B` is `✗ … (cycle: reached again, see above; provisional: …)`,
+   and `B` is `✗ … (provisional: …)`. A later evaluation of `B` in the same check (the
+   shortcut does not memoise `B`) is shown in full with its real value.
+2. *A memo hit on a node computed in a discarded pass.* An inner region (or an acyclic
+   node) that settled inside a pass of an outer head that was later re-run is in the memo,
+   so the final pass meets it as a memo hit, while its full node was in the discarded pass.
+   Its value is settled (only settled values enter the memo), so the trace shows that full
+   node, with its subtree, at the first such hit, `source: evaluated` (or `cycle`), exactly
+   as if evaluated there; later hits refer to it. Nothing else of the discarded pass is
+   shown. In the three-pass case of `tests/cycle_passes.rs`, `node_h:1#rel_k` was evaluated
+   in pass 1 and is drawn in full under the final pass.
+3. *A cycle reference that cannot be resolved.* Case 2 can show a member `k` of an inner
+   region without its head `h`: `k`'s subtree has a `cycle_hit` on `h`, and `h` is reached
+   later in the final pass or not at all. The hit's *value* is still settled or labelled
+   (it was resolved when `h` settled, in the discarded pass); only its reference is
+   unusual. If `h` is shown later, `ref` names it and the line says `(cycle: reached again,
+   see below)`. If `h` is not in the trace, `ref` is `None` and the line says `(cycle:
+   reached again, unresolved: that node is not in this trace)`. Neither changes `truncated`:
+   nothing was left out, and no value is wrong. Not produced by any generated case so far
+   (about 15 000 cycle hits in the coverage samples); covered by unit tests that drive the
+   recorder through the event sequence (`trace::record::tests`).
 
 **Invariants** (tested on every generated case, `07` §2.3, for nodes that are not
 `truncated`): the root's `result` is `allowed`; `relation`/`union`/`arrow_any` are `true`
@@ -376,8 +406,8 @@ come only after a sibling whose value decided the parent (`true` in an OR, `fals
 AND, a `false` base); every `direct`/`wildcard` that is `true` carries its `tuple`; every
 `ref` names a node shown in full with the same `node`; a `memo_hit`'s names an earlier one
 with the same `result`. A `cycle_hit`'s `result` is the value used at that point, which a
-region that later grew can exceed (`A` above), and a `cycle_hit` inside a member shown at
-its first reference can name its region's head shown further down (OQ-043).
+region that later grew can exceed (then it is `provisional`), and its `ref` can point down or
+be `None` (case 3 above).
 
 **Limits.** `EngineConfig::max_trace_nodes` (default **10 000**) caps the nodes recorded,
 counting those of discarded passes. Past it nothing more is recorded but evaluation runs to

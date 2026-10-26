@@ -247,6 +247,25 @@ fn head_true_shortcut_marks_dropped_falses_provisional() {
             .into_iter()
             .all(|n| n.node != "group:c#member" || !n.provisional)
     );
+    // The lines `docs/04-evaluation.md` §3.8 (case 1) promises.
+    let p = "provisional: computed from a cycle assumption that did not hold";
+    assert_eq!(
+        t.render(),
+        [
+            "allowed: group:a#member@user:anne (revision 2)",
+            "",
+            "✓ group:a#member  (cycle: settled after 1 pass)",
+            &format!("├── ✗ group:b#member  via group:a#member@group:b#member  ({p}; not needed)"),
+            &format!(
+                "│   └── ✗ group:a#member  via group:b#member@group:a#member  \
+                 (cycle: reached again, see above; {p})"
+            ),
+            "└── ✓ group:c#member  via group:a#member@group:c#member  \
+             ← group:c#member@user:anne",
+            "",
+        ]
+        .join("\n")
+    );
 }
 
 /// A region whose head re-runs (`tests/cycle_passes.rs`'s three-pass case: `H = A & k`,

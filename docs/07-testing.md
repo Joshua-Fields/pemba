@@ -111,9 +111,12 @@ since T1.4c bounded check cost, OQ-021). Runs at a raised `PROPTEST_CASES` (defa
    `check` fails, equal stats (bar `elapsed`), the root's result equal to `allowed`, and
    every trace invariant of `04` §3.8 (`pemba_testkit::trace::violations`). A third engine
    with `max_trace_nodes = 6` must give the same answers with truncated traces.
-   `generated_traces_exercise_every_feature` keeps it from passing vacuously. The
-   generators never produce a region whose head re-runs, so discarded passes are covered
-   by hand-built cases in `tests/trace.rs`, beside the insta snapshots of rendered traces.
+   It also runs on `generate::cyclic_case`, built so cyclic regions re-run their head
+   (intersections, arrows and exclusion bases on data cycles; the general generators
+   almost never produce one). Its 1 000+ case run prints how many cases re-ran a head
+   (17–20% in local runs, up to 6 passes) and fails below 10%.
+   `generated_traces_exercise_every_feature` keeps the property from passing vacuously;
+   hand-built cases and insta snapshots of rendered traces are in `tests/trace.rs`.
 
 **The one accepted error (T3.4b).** Properties 1, 2, 4 and the schema-change property
 treat every engine error as a failure, except `AMBIGUOUS_WILDCARD_EXCLUSION` where the

@@ -566,3 +566,140 @@ fn patch_cycle_refs(n: &mut TraceNode, fix: &HashMap<u32, Option<u32>>) {
         patch_cycle_refs(c, fix);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
+    use super::*;
+    use crate::trace::CheckTrace;
+
+    const GROUPS: &str = "definition user {}\n\
+        definition group { relation member: user | group#member }\n";
+
+    fn key(schema: &CompiledSchema, g: &str) -> NodeKey {
+        let ty = schema.type_id("group").unwrap();
+        NodeKey {
+            ty,
+            id: g.parse().unwrap(),
+            rel: schema.type_def(ty).unwrap().member_id("member").unwrap(),
+        }
+    }
+
+    fn member(schema: &CompiledSchema) -> &Member {
+        let ty = schema.type_id("group").unwrap();
+        let def = schema.type_def(ty).unwrap();
+        def.member(def.member_id("member").unwrap()).unwrap()
+    }
+
+    const UNSETTLED_FALSE: Outcome<bool> = Outcome {
+        value: false,
+        low: Some(1),
+    };
+    const FALSE: Outcome<bool> = Outcome {
+        value: false,
+        low: None,
+    };
+
+    /// The recorder driven through the case OQ-043 (c) describes: outer head `o` reaches
+    /// `h`, an inner region `h ⇄ k` that settles `false` (exactly) inside `o`'s first pass;
+    /// `o` re-runs, discarding that pass, and its second pass meets `k` as a memo hit
+    /// before `h` (and `h` itself only after, or never).
+    fn discarded_inner_region(then_h: bool) -> TraceNode {
+        let schema = Arc::new(pemba_schema::compile(GROUPS).unwrap().schema);
+        let (outer, head, inner) = (key(&schema, "o"), key(&schema, "h"), key(&schema, "k"));
+        let group = member(&schema).clone();
+        let mut rec = Recorder::new(Arc::clone(&schema), 1000);
+        rec.open_member(&outer, &group);
+        rec.open_member(&head, &group);
+        rec.open_member(&inner, &group);
+        rec.cycle_hit(&head, &UNSETTLED_FALSE);
+        rec.close_member(&UNSETTLED_FALSE, Settle::Member, 1);
+        rec.close_member(
+            &FALSE,
+            Settle::Head {
+                cyclic: true,
+                exact: true,
+            },
+            1,
+        );
+        rec.rerun();
+        rec.memo_hit(&inner, false);
+        if then_h {
+            rec.memo_hit(&head, false);
+        }
+        rec.close_member(
+            &FALSE,
+            Settle::Head {
+                cyclic: true,
+                exact: true,
+            },
+            2,
+        );
+        rec.into_tree().unwrap().0
+    }
+
+    fn render(root: TraceNode) -> String {
+        CheckTrace {
+            resource: "group:o".parse().unwrap(),
+            permission: "member".parse().unwrap(),
+            subject: "user:anne".parse().unwrap(),
+            allowed: false,
+            revision: crate::model::Revision(1),
+            stats: crate::eval::EvalStats::default(),
+            truncated: false,
+            root,
+        }
+        .render()
+    }
+
+    /// `k` is shown in full at its memo hit (its value is settled), and the cycle hit
+    /// inside it names `h`, which the trace never shows: unresolved, labelled as such.
+    #[test]
+    fn a_member_of_a_discarded_region_is_shown_in_full_with_an_unresolved_cycle_hit() {
+        let root = discarded_inner_region(false);
+        assert_eq!(root.source, TraceSource::Cycle { passes: 2 });
+        let [k] = root.children.as_slice() else {
+            panic!("{root:?}")
+        };
+        assert_eq!(
+            (k.node.as_str(), k.source),
+            ("group:k#member", TraceSource::Evaluated)
+        );
+        assert_eq!(k.result, Some(false));
+        assert!(!k.provisional, "settled exactly");
+        let [hit] = k.children.as_slice() else {
+            panic!("{k:?}")
+        };
+        assert_eq!(hit.source, TraceSource::CycleHit { of: None });
+        let text = render(root);
+        assert!(
+            text.contains("✗ group:h#member  (cycle: reached again, unresolved: that node is not in this trace)"),
+            "{text}"
+        );
+    }
+
+    /// When `h` is reached after `k`, `h` is shown in full there, `k` inside it becomes a
+    /// reference back to the earlier full `k`, and `k`'s cycle hit names `h` below it.
+    #[test]
+    fn a_head_shown_after_its_member_is_referenced_forward() {
+        let root = discarded_inner_region(true);
+        let [k, h] = root.children.as_slice() else {
+            panic!("{root:?}")
+        };
+        assert_eq!(h.node, "group:h#member");
+        assert_eq!(h.source, TraceSource::Cycle { passes: 1 });
+        assert_eq!(
+            k.children[0].source,
+            TraceSource::CycleHit { of: Some(h.id) }
+        );
+        assert!(h.id > k.children[0].id);
+        assert_eq!(
+            h.children[0].source,
+            TraceSource::MemoHit { of: Some(k.id) }
+        );
+        let text = render(root);
+        assert!(text.contains("(cycle: reached again, see below)"), "{text}");
+        assert!(text.contains("✗ group:k#member  (see above)"), "{text}");
+    }
+}

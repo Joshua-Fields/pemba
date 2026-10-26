@@ -204,10 +204,13 @@ fn is_operator(k: TraceKind) -> bool {
 /// little.
 fn suffixes(n: &TraceNode, shown: &TraceNode) -> Vec<String> {
     let mut s = Vec::new();
+    // A reference names where the node is shown in full; `None` only past the node cap
+    // (memo hits) or when that node is in no pass the trace kept (`04` §3.8, "unresolved").
     let refer = |of: Option<u32>, what: &str| match of {
         Some(of) if of < shown.id => format!("{what}see above"),
         Some(_) => format!("{what}see below"),
-        None => format!("{what}not recorded"),
+        None if what.is_empty() => "not recorded: trace node limit reached".to_owned(),
+        None => format!("{what}unresolved: that node is not in this trace"),
     };
     match shown.source {
         TraceSource::Evaluated => {}
