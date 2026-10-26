@@ -1,10 +1,20 @@
 name: Differential test vs SpiceDB
 
 # pemba against SpiceDB on every fixture and at least 500 generated cases
-# (docs/07-testing.md §4, T3.4). Weekly and on demand: it needs Docker and takes minutes.
+# (docs/07-testing.md §4, T3.4). Weekly, on demand, and on pull requests that touch what
+# decides answers (the evaluator, the schema compiler, the harness, the fixtures or the
+# locked dependencies): it needs Docker and takes minutes, so not on every PR.
 on:
   schedule:
     - cron: "41 4 * * 1"
+  pull_request:
+    paths:
+      - "crates/pemba-core/**"
+      - "crates/pemba-schema/**"
+      - "crates/pemba-difftest/**"
+      - "testdata/fixtures/**"
+      - "Cargo.lock"
+      - ".github/workflows/difftest.yml"
   workflow_dispatch:
     inputs:
       cases:
@@ -16,7 +26,8 @@ permissions:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: false
+  # A newer push to a pull request cancels the older run; others always finish (09 §4).
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   CARGO_TERM_COLOR: always
