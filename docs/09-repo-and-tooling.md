@@ -107,7 +107,8 @@ Other conventions:
 Every workflow has a concurrency group per workflow and ref. On pull requests a newer
 push cancels the older run (`cancel-in-progress` only for `pull_request` events); runs on
 main, tags, schedules and manual dispatches always finish. Only `ci.yml` runs on every PR
-(the wheel builds and SpiceDB runs are slow and change rarely).
+(the wheel builds and SpiceDB runs are slow and change rarely); `difftest.yml` runs on the
+PRs that can change an answer (below).
 
 The repository is public. Never commit secrets (tokens, keys, `.env`, credentials in test
 data). CI must not print secrets: pass them through `secrets.*` into `env`, never echo
@@ -136,8 +137,10 @@ them, never `set -x` around them, and do not expose them to workflows triggered 
   `PROPTEST_CASES` (10 000 on the weekly run; an input on a manual run), for soaking.
   Test builds use `opt-level = 3` for `pemba-core`, `pemba-testkit`,
   `pemba-store-memory` and `pemba-schema` (`[profile.test.package.*]`).
-- `difftest.yml` (weekly + manual): SpiceDB `serve-testing` (`authzed/spicedb:v1.56.2`) in
-  Docker, `cargo test -p pemba-difftest --test difftest -- --ignored` (`07` §4).
+- `difftest.yml` (weekly + manual, and pull requests touching `crates/pemba-core`,
+  `crates/pemba-schema`, `crates/pemba-difftest`, `testdata/fixtures`, `Cargo.lock` or the
+  workflow itself): SpiceDB `serve-testing` (`authzed/spicedb:v1.56.2`) in Docker,
+  `cargo test -p pemba-difftest --test difftest -- --ignored` (`07` §4).
 - `oq032-probe.yml` (manual, and PRs touching the probe): the T3.2 SQLite-copies probe.
 - `fuzz.yml` (manual): nightly toolchain, each target for a fixed time.
 - Weekly: `cargo-mutants` on `pemba-core::eval` and `pemba-schema` validator.
