@@ -336,6 +336,14 @@ subject sets (KD-1, KD-3).
 - Mutation testing on the evaluator and schema validator: 202 mutants, 0 survivors
   ([`docs/MUTANTS.md`](https://github.com/Joshua-Fields/pemba/blob/main/docs/MUTANTS.md)).
 
+## Examples
+
+- [`examples/agent_authz.py`](https://github.com/Joshua-Fields/pemba/blob/main/examples/agent_authz.py):
+  authorising an AI agent's tool calls. The agent only borrows the authority of the person
+  it acts for: its tool list is a `lookup_resources`, each call is one `check_bulk` of
+  delegation, tool grant and the person's own access, and revoking the agent commits in
+  the application's transaction. CI runs it.
+
 ## Documentation
 
 The specification lives in [`docs/`](https://github.com/Joshua-Fields/pemba/tree/main/docs/); start with
