@@ -17,6 +17,7 @@ impl<S: WritableStore> Engine<S> {
     pub fn write_schema(&self, source: &str) -> Result<SchemaWriteResult, Error>;
     pub fn read_schema(&self) -> Result<Option<String>, Error>;
     pub fn validate_schema(source: &str) -> Result<ValidatedSchema, SchemaErrors>; // static, no store
+                                                         // (not yet implemented; OQ-044)
 
     // ---- writes ----
     pub fn write(&self, req: WriteRequest) -> Result<Revision, Error>;
@@ -41,6 +42,7 @@ impl<S: WritableStore> Engine<S> {
     pub fn gc(&self, keep_from: Revision) -> Result<GcStats, Error>;
 }
 
+#[non_exhaustive]
 pub struct EngineConfig {
     pub max_depth: u32,                 // 50
     pub max_write_batch: usize,         // 1000
@@ -51,7 +53,18 @@ pub struct EngineConfig {
     pub max_check_reads: u64,           // 200_000 (04 §3.6)
     pub max_trace_nodes: usize,         // 10_000 (04 §3.8); 0 -> InvalidRequest at build
 }
+impl EngineConfig {                     // one `const fn with_<field>(self, v) -> Self` per field
+    pub const fn with_max_depth(self, max_depth: u32) -> Self;
+    // ... with_max_write_batch, with_max_delete_by_filter, with_max_lookup_results,
+    //     with_max_lookup_nodes, with_max_check_fanout, with_max_check_reads,
+    //     with_max_trace_nodes
+}
 ```
+
+`EngineConfig` is `#[non_exhaustive]` (alpha.2): outside `pemba-core` it cannot be built
+with a struct literal, not even `..EngineConfig::default()`, so adding a limit never breaks
+a caller. Build it from the defaults with the setters; the fields stay readable:
+`EngineConfig::default().with_max_depth(100).with_max_trace_nodes(500)`.
 
 Migrations are a store concern, not an engine one (OQ-025 (d)): the store is opened, and its
 storage version checked, before any engine exists. SQLite: `SqliteConfig::auto_migrate`
@@ -265,7 +278,8 @@ let rev = engine.write_in(&mut SqliteTxn::new(&tx), req)?;
 tx.commit()?;                       // only now is `rev` real
 ```
 
-Ergonomic helpers (thin wrappers, all tested):
+Ergonomic helpers (thin wrappers; **not yet implemented**, OQ-044. Python has the
+single-string `check` form already):
 
 ```rust
 engine.check_str("document:readme", "view", "user:anne", Consistency::Latest)?;   // -> bool

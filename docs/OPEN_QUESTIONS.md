@@ -1126,3 +1126,24 @@ it is resolved.
   when stdout is a terminal and `NO_COLOR` is unset or empty.
 - Resolve by: review of the first `--explain` output by a user who did not write it
 - Resolution: (fill in)
+
+## OQ-044 — Build or drop the Rust convenience helpers before 0.1.0
+- Raised in: 0.1.0-alpha.2 preparation
+- Blocking: no (decide before the 0.1.0 gate, since 0.1.0 freezes the public surface,
+  `06` header)
+- Current choice: `06` §1 has always specified `Engine::check_str`, `Engine::write_str`,
+  `Engine::delete_str` and the static `Engine::validate_schema(source) ->
+  Result<ValidatedSchema, SchemaErrors>`. None was ever implemented (found while writing
+  the alpha.2 changelog), so `06` now marks them "not yet implemented". What exists
+  instead: `CheckRequest` with `str::parse` for each part (`"document:readme".parse()?`),
+  `WriteRequest` with `WriteOp::Touch(..)`, and `pemba_schema::compile(source)` for
+  store-less validation (which `pemba schema validate` and Python's
+  `Engine.validate_schema` use). Python already has the single-string
+  `check("document:readme#view@user:anne")`.
+- Options: (a) build them: about 60 lines plus tests; `check_str` would take four `&str`s
+  and return `Result<bool, Error>`, mapping parse errors to `Error::Parse`; `ValidatedSchema`
+  needs defining (or reuse `pemba_schema::Compiled`). (b) Drop them from `06`, and document
+  `parse()` + `CheckRequest` as the way. (c) Build only `check_str` (the common case in
+  examples and tests).
+- Resolve by: human decision during T3.9 (the 0.1.0 public-surface audit, `08`)
+- Resolution: (fill in)

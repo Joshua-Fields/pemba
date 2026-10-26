@@ -63,11 +63,7 @@ fn seed(input: &[u8]) -> [u8; 32] {
 
 /// Limits that never trigger on generated cases (as in property 1).
 fn unlimited() -> EngineConfig {
-    EngineConfig {
-        max_depth: 1_000_000,
-        max_check_fanout: usize::MAX,
-        ..EngineConfig::default()
-    }
+    EngineConfig::default().with_max_depth(1_000_000).with_max_check_fanout(usize::MAX)
 }
 
 fn accepted(oracle: &Reference, o: &ObjectRef, m: &RelName, s: &SubjectRef, code: &str) -> bool {

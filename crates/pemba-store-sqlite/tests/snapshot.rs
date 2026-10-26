@@ -450,11 +450,9 @@ fn snapshot_is_released_on_every_exit_path() {
     // One reader connection: a leaked read transaction would make the next request wait
     // forever (or, if the connection came back mid-transaction, read a stale snapshot).
     let dir = TempDir::new();
-    let config = EngineConfig {
-        max_depth: 1,
-        max_lookup_nodes: 2,
-        ..EngineConfig::default()
-    };
+    let config = EngineConfig::default()
+        .with_max_depth(1)
+        .with_max_lookup_nodes(2);
     let e = Engine::builder()
         .store(open(&dir, 1))
         .config(config)

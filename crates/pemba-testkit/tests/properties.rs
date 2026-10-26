@@ -48,11 +48,9 @@ fn compile(src: &str) -> CompiledSchema {
 /// Limits high enough that they can never trigger on generated cases: the deepest
 /// possible evaluation visits each `(object, member)` node once.
 fn unlimited() -> EngineConfig {
-    EngineConfig {
-        max_depth: 1_000_000,
-        max_check_fanout: usize::MAX,
-        ..EngineConfig::default()
-    }
+    EngineConfig::default()
+        .with_max_depth(1_000_000)
+        .with_max_check_fanout(usize::MAX)
 }
 
 /// The one engine error a check over generated data may return (T3.4b).
@@ -1582,9 +1580,7 @@ mod trace {
     use pemba_core::model::SubjectRef;
     use pemba_core::model::{Consistency, WriteOp, WriteRequest};
     use pemba_core::store::WritableStore;
-    use pemba_core::{
-        CheckRequest, CheckTrace, Engine, EngineConfig, TraceKind, TraceNode, TraceSource,
-    };
+    use pemba_core::{CheckRequest, CheckTrace, Engine, TraceKind, TraceNode, TraceSource};
     use pemba_store_memory::MemoryStore;
     use pemba_testkit::generate::{self, Case, SubSides};
     use pemba_testkit::reference::Reference;
@@ -1600,10 +1596,7 @@ mod trace {
     fn engine<S: WritableStore>(store: S, src: &str, case: &Case, cap: usize) -> Engine<S> {
         let engine = Engine::builder()
             .store(store)
-            .config(EngineConfig {
-                max_trace_nodes: cap,
-                ..unlimited()
-            })
+            .config(unlimited().with_max_trace_nodes(cap))
             .build()
             .unwrap();
         engine.write_schema(src).unwrap();

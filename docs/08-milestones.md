@@ -281,6 +281,20 @@ AC:
 - Plain comments (`//` and `/* */`) survive `pemba schema fmt`.
 - `pemba schema fmt --check` passes on canonical files containing comments.
 
+### T3.9 Audit public structs for `#[non_exhaustive]` + constructors before 0.1.0
+Refs: `06` (frozen once 0.1 ships), `09` §3 ("`#[non_exhaustive]` where future fields are
+likely"; "builders for configs"), OQ-044. Lands before the T3.7 gate.
+AC:
+- Every public struct and enum in the published crates is listed with a decision: made
+  `#[non_exhaustive]` with a constructor or setters (as `EngineConfig` was in alpha.2), or
+  left exhaustive with a one-line reason. The request structs (`CheckRequest`,
+  `LookupResourcesRequest`, `LookupSubjectsRequest`, `ReadRelationshipsRequest`,
+  `WriteRequest`, `CheckItem`, ...) are the main question: users build them with struct
+  literals today.
+- Each change is in `06` and the CHANGELOG with a migration line.
+- OQ-044 (the `check_str` / `write_str` / `validate_schema` helpers) is resolved: built or
+  removed from `06`.
+
 ### T3.7 Documentation and 0.1 gate
 AC (release gate — human signs off):
 - README: pitch, install, quick start (Python + Rust), the transactional-write example,
@@ -290,6 +304,7 @@ AC (release gate — human signs off):
 - All CI jobs green, differential tests green, no open `OPEN_QUESTIONS.md` items marked
   `blocking`.
 - Final name chosen (ADR-012) and rename completed.
+- T3.9 (public-struct audit) done.
 
 ### Stretch (only after the gate, in this order)
 1. `check_with_trace` (`04` §3.8) + `pemba check --explain` (T4.1).

@@ -74,10 +74,7 @@ macro_rules! run {
 }
 
 fn config(max_depth: u32) -> EngineConfig {
-    EngineConfig {
-        max_depth,
-        ..EngineConfig::default()
-    }
+    EngineConfig::default().with_max_depth(max_depth)
 }
 
 fn parse<T: std::str::FromStr<Err = pemba::model::ParseError>>(s: &str) -> PyResult<T> {

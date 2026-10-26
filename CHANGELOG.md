@@ -23,8 +23,8 @@ The Rust crates and the Python package share one version: `0.1.0-alpha.2` on cra
   `CheckTrace::render()` (the `--explain` text), `render_ansi()` and `to_json()`, a public
   JSON format (`"format": "pemba.check_trace"`, version 1) documented in `docs/06-api.md`
   §3.1.
-- `EngineConfig::max_trace_nodes` (default 10 000). Past it the trace is marked truncated;
-  the answer is unaffected.
+- `EngineConfig::max_trace_nodes` (default 10 000; `with_max_trace_nodes`). Past it the
+  trace is marked truncated; the answer is unaffected.
 - `pemba check <resource>#<permission>@<subject>` in the CLI, against a fixture file
   (`--fixture`) or an existing SQLite database opened read-only (`--db`), with `--explain`
   (the trace as a tree, coloured on a terminal unless `NO_COLOR` is set), `--json` and
@@ -40,8 +40,14 @@ The Rust crates and the Python package share one version: `0.1.0-alpha.2` on cra
 
 ### Changed
 
-- `EngineConfig` has a new public field, `max_trace_nodes`. Code that builds it with a
-  struct literal must add the field or use `..EngineConfig::default()`.
+- `EngineConfig` is now `#[non_exhaustive]`, with a `with_*` setter per field (and a new
+  field, `max_trace_nodes`). It can no longer be built with a struct literal outside
+  `pemba-core`, `..EngineConfig::default()` included; fields stay readable:
+
+  ```rust
+  // before: EngineConfig { max_depth: 100, ..EngineConfig::default() }
+  // after:  EngineConfig::default().with_max_depth(100)
+  ```
 - `EngineBuilder::build` rejects `max_trace_nodes = 0` with `InvalidRequest`.
 
 ### Fixed
