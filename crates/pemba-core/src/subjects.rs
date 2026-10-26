@@ -286,7 +286,7 @@ impl<'a> Gatherer<'a> {
             };
             self.cycle.pop_frame();
             match self.cycle.finish(key, p, out?, &mut self.memo) {
-                Finish::Done(out) => {
+                Finish::Done(out, _) => {
                     if out.low.is_none() && passes > 1 {
                         self.stats.cycle_passes += passes;
                     }

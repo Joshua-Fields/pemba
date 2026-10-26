@@ -281,12 +281,112 @@ nested groups that contain each other) is legal. Rules:
 (`MaxDepthExceeded`) carrying the stack as human-readable path strings
 (`document:a#view → folder:b#view → ...`) for debugging.
 
-### 3.8 Trace (debug feature)
+### 3.8 Trace (T4.1)
 
-`check_with_trace` (M3 stretch) returns `CheckTrace`: a tree of
-`{ node: "document:x#view", result, cached, children, duration }`. Same evaluator, with a
-trace sink enabled; off by default (zero cost when off — use a generic `Sink` type param or
-`Option`).
+```rust
+fn check_with_trace(&self, req: CheckRequest) -> Result<(CheckResponse, CheckTrace), Error>;
+```
+
+**Same evaluator.** `check` and `check_with_trace` run one evaluator, generic over a trace
+sink. `check` passes a zero-sized no-op sink whose hooks compile away (every hook is an
+empty inlined method, and any work to describe a node sits behind the sink's `ENABLED`
+constant or inside a closure the no-op sink never calls). So the trace cannot change an
+answer, a read, or an error: `check_with_trace(r).0` equals `check(r)` in everything but
+`stats.elapsed`, and returns the same `Err` whenever `check` would. The sink only observes.
+
+**Fail closed.** If evaluation fails, `check_with_trace` returns the `Err` and no trace: a
+partial tree could be read as an answer (OQ-042 proposes a separate debugging channel).
+
+**Shape.** `CheckTrace { resource, permission, subject, allowed, revision, stats,
+truncated, root: TraceNode }`. The tree is the evaluation in the order it happened: the root
+is the requested `resource#permission`, and each node's children are the steps it took, in
+evaluation order. Each node:
+
+| Field | Meaning |
+|---|---|
+| `id` | position in a pre-order walk of the tree, root `0`; what `ref` points at |
+| `node` | the thing evaluated: `type:id#member`, or for `direct`/`wildcard` the relationship queried |
+| `kind` | how it is evaluated (table below) |
+| `expr` | the expression's source text (canonical form) for permission and operator nodes, else `None` |
+| `role` | `base` / `subtracted` for the two children of an `exclusion`, else `None` |
+| `result` | `Some(bool)`; `None` exactly when `source` is `skipped` |
+| `source` | `evaluated`, `memo_hit { ref }`, `cycle { passes }`, `cycle_hit { ref }`, `skipped` |
+| `provisional` | `true` only on a `false` that never settled (cycles, below) |
+| `tuple` | the stored relationship: the match on a `direct`/`wildcard` that is `true`, the stored subject set on a `subject_set` |
+| `duration` | wall time from entering the node to leaving it, children included; zero for hits and skipped nodes |
+| `truncated` | some of this node's children were not recorded (cap, below) |
+| `children` | the steps, in order |
+
+Kinds. A **member node** is one `eval(o#m)` (§3.2) and is named `type:id#member`; its kind
+is `relation` for a relation, `self` for self membership, and for a permission the kind of
+its expression's top operator (so `permission view = viewer + owner` is one `union` node,
+not a permission node wrapping a union). An operand that is a bare name (`viewer`) appears
+as the member node it evaluates; any other operand is an **operator node**, named like the
+permission it belongs to, with `expr` set to the operand.
+
+| Kind | Children | `result` |
+|---|---|---|
+| `relation` | a `direct` leaf, then a `wildcard` leaf if that query ran (§3.3 step 2), then one `subject_set` per stored subject set, in store order | any child `true` |
+| `direct` | none; `node` is `o#r@subject` | the exact tuple exists |
+| `wildcard` | none; `node` is `o#r@t:*` | the wildcard tuple exists |
+| `subject_set` | the member node of the stored set `x:id#y` (`node` is `x:id#y`, `tuple` the stored `o#r@x:id#y`) | its child's |
+| `self` | none | `true` (§2 self membership) |
+| `computed` | the member node named (`permission edit = owner`) | its child's |
+| `union` | operands | any child `true` |
+| `intersection` | operands | every evaluated child `true` |
+| `exclusion` | `base`, then `subtracted` | `base && !subtracted` |
+| `arrow_any` / `arrow_all` | one member node `x:id#p` per related object, in store order, or an `undefined` leaf where `x`'s type lacks `p` | any `true` / at least one child and every evaluated child `true` |
+| `undefined` | none; `node` is `x:id#p` | `false` (contributes ∅) |
+
+**Skipped.** Where evaluation short-circuits (§3.4), the siblings it never evaluated still
+appear, `source: skipped`, `result: None`, no children: union operands after a `true`,
+intersection operands after a `false`, the subtracted side after a `false` base, arrow
+objects after the deciding one, and subject sets after a `true` one (already read by the
+same query). A skipped bare-name operand or arrow object is named and kinded like the
+member node it would have been. Skipped nodes appear only after a sibling that decided its
+parent.
+
+**Memo hits (a DAG flattened into a tree).** A node answered from the request memo has
+`source: memo_hit { ref }`, no children, and `ref` names the one node where that member is
+shown in full. A member is shown in full exactly once; every later occurrence is a
+reference, so the trace is linear in the nodes evaluated, never exponential in the paths
+to them. A member settled inside a pass that was later discarded (below) is shown in full
+at its first reference instead. `ref` is `None` only when the full node was never recorded
+(cap).
+
+**Cycles (§3.6).** The trace shows only the final pass of each region; passes that were
+re-run are discarded, so no intermediate pass's value is shown as an answer. The head of a
+region (a member some node reached again while it was in progress) has `source: cycle {
+passes }`, `passes ≥ 1`; its `result` is the region's least fixed point. A node reached
+again on the stack within a pass has `source: cycle_hit { ref }`, no children, `result` the
+value the evaluator used there (its provisional value if in progress, its finished value if
+already done this pass), and `ref` names that node. When a region settles with every
+assumption confirmed, every value in its final pass is exact. When it settles by the
+head-`true` shortcut instead, `true` values are still exact (soundness, §3.6), but a `false`
+computed from an assumption that failed is not, and is marked `provisional: true`. In the
+`A = B + C`, `B = A` example: `A` is `true` (`cycle`, 1 pass), the hit on `A` inside `B` is
+a `cycle_hit` assumed `false`, and `B` is `false` and `provisional`.
+
+**Invariants** (tested on every generated case, `07` §2.3, for nodes that are not
+`truncated`): the root's `result` is `allowed`; `relation`/`union`/`arrow_any` are `true`
+iff some child is; `intersection` iff every evaluated child is; `arrow_all` iff it has a
+child and every evaluated child is; `exclusion` = `base && !subtracted` (a skipped
+`subtracted` counts as `false`); `computed`/`subject_set` equal their child; skipped nodes
+come only after a sibling whose value decided the parent (`true` in an OR, `false` in an
+AND, a `false` base); every `direct`/`wildcard` that is `true` carries its `tuple`; every
+`ref` names a node shown in full with the same `node`; a `memo_hit`'s names an earlier one
+with the same `result`. A `cycle_hit`'s `result` is the value used at that point, which a
+region that later grew can exceed (`A` above), and a `cycle_hit` inside a member shown at
+its first reference can name its region's head shown further down (OQ-043).
+
+**Limits.** `EngineConfig::max_trace_nodes` (default **10 000**) caps the nodes recorded,
+counting those of discarded passes. Past it nothing more is recorded but evaluation runs to
+the end: the answer, stats and errors are unchanged, `CheckTrace::truncated` is `true`, and
+each node that lost children has `truncated: true`. Tracing does not count against
+`max_check_reads`; its own time is included in `stats.elapsed`.
+
+**Formats.** `CheckTrace::to_json()` is the public JSON format (`06` §3.1);
+`CheckTrace::render()` is the text `pemba check --explain` prints (`06` §3).
 
 ---
 

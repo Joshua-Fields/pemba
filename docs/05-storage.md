@@ -299,6 +299,11 @@ should use WAL for concurrency.
   `SqliteConfig::auto_migrate = true` (default `true` for SQLite file convenience, `false`
   documented as recommended for production). Migration is a store concern; the engine has
   no `migrate` and no `auto_migrate` (OQ-025 (d)).
+- `SqliteStore::open_read_only(path, config)` (T4.1, for inspection tools such as `pemba
+  check --db`) opens an existing file with every connection read-only, the "writer"
+  included: it never creates the file, never migrates (`auto_migrate` is ignored, so an
+  old or empty database is `NotMigrated`), and every write fails with `Store`. The file
+  must already be in WAL mode, which every database `open()` created is.
 - Newer `storage_version` than the library knows → `Err(StorageVersionTooNew)`.
 - Migrations are a static ordered list of SQL scripts in
   `pemba-sqlite-common/migrations/`. The shared runner executes them one statement at a

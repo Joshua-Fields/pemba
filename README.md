@@ -242,7 +242,8 @@ use (`SchemaChangeOrphansError` in Python, listing each group and its count). De
 relationships first.
 
 **Tooling:** the `pemba` CLI validates and formats schemas (`pemba schema validate`,
-`pemba schema fmt`, which keeps comments) and runs YAML fixture tests (`pemba test`).
+`pemba schema fmt`, which keeps comments), runs YAML fixture tests (`pemba test`) and
+explains single checks (`pemba check`, below).
 `Engine.validate_schema` returns the same diagnostics from Python.
 
 ## Consistency guide
@@ -271,6 +272,38 @@ snapshot, so one answer never mixes two points in time.
 undefined cycle) into `False` or `True`. It raises a `PembaError` subclass in Python and
 returns an `Err` in Rust, and the caller decides what that means.
 
+## Debugging permissions
+
+When an answer surprises you, ask how it was reached. `pemba check --explain` prints every
+step of one check: which members were evaluated, which stored relationship matched, what
+was skipped and what was reused. Point it at your SQLite database (opened read-only) or at
+a fixture file:
+
+```console
+$ pemba check 'document:d#view@user:mallory' --db app.db --explain
+denied: document:d#view@user:mallory (revision 2)
+
+✗ document:d#view = (viewer + edit) - banned
+├── ✓ base: viewer + edit  (not needed)
+│   ├── ✓ document:d#viewer
+│   │   └── ✓ group:staff#member  via document:d#viewer@group:staff#member  ← group:staff#member@user:mallory
+│   └── · document:d#edit  (skipped)
+└── ✓ subtracted: document:d#banned
+    └── ✓ group:blocked#member  via document:d#banned@group:blocked#member  ← group:blocked#member@user:mallory
+```
+
+Mallory can view through `group:staff`, but she is also in `group:blocked`, which is
+banned, and the ban wins. `←` shows the stored relationship that matched, `via` the
+subject set that was followed, `·` a branch never evaluated because a sibling had already
+decided. On a terminal the path that decided the answer is bold and the rest dimmed
+(`NO_COLOR` turns colour off).
+
+`pemba check` exits 0 if allowed, 1 if denied and 2 on any error, so scripts can rely on
+it; `--at-exactly REV` checks an older revision and `--json` prints the same tree as JSON.
+From code: `engine.check_with_trace(...)` in Python (`.render()` gives this text,
+`.to_dict()` the JSON) and `Engine::check_with_trace` in Rust. Tracing never changes the
+answer, and costs nothing when you call plain `check`.
+
 ## Limits
 
 Defaults, configurable per engine (`EngineConfig` in Rust; `max_depth` in Python):
@@ -284,6 +317,7 @@ Defaults, configurable per engine (`EngineConfig` in Rust; `max_depth` in Python
 | Nodes visited by one `lookup_resources` | 200 000 |
 | Relationships read per node in `check` | 100 000 |
 | Store reads per `check` | 200 000 |
+| Nodes recorded by one `check_with_trace` | 10 000 (past that the trace is marked truncated; the answer is unaffected) |
 
 Hitting a limit raises an error (`EvaluationLimitError` in Python); it never answers.
 

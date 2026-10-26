@@ -1,0 +1,134 @@
+---
+source: crates/pemba-testkit/tests/trace.rs
+expression: "rendered(&e,\n&[\"document:arch#view@user:frank\", \"document:arch#view@user:carol\",\n\"document:press#view@user:ivan\", \"folder:specs#edit@user:dave\",\n\"document:secret#view@user:frank\",])"
+---
+allowed: document:arch#view@user:frank (revision 2)
+
+✓ document:arch#view = (comment + viewer + folder->view) - blocked
+├── ✓ base: comment + viewer + folder->view
+│   ├── ✓ document:arch#comment = edit + commenter
+│   │   ├── ✗ document:arch#edit = (owner + editor + folder->edit) - blocked  (not needed)
+│   │   │   ├── ✗ base: owner + editor + folder->edit
+│   │   │   │   ├── ✗ document:arch#owner  (no matching relationship)
+│   │   │   │   ├── ✗ document:arch#editor  (no matching relationship)
+│   │   │   │   └── ✗ folder->edit
+│   │   │   │       └── ✗ folder:specs#edit = owner + editor + parent->edit + org->manage
+│   │   │   │           ├── ✗ folder:specs#owner  (no matching relationship)
+│   │   │   │           ├── ✗ folder:specs#editor  (no matching relationship)
+│   │   │   │           ├── ✗ parent->edit
+│   │   │   │           │   └── ✗ folder:engineering#edit = owner + editor + parent->edit + org->manage
+│   │   │   │           │       ├── ✗ folder:engineering#owner  (no matching relationship)
+│   │   │   │           │       ├── ✗ folder:engineering#editor
+│   │   │   │           │       │   └── ✗ group:eng#member  via folder:engineering#editor@group:eng#member
+│   │   │   │           │       │       └── ✗ group:eng_leads#member  via group:eng#member@group:eng_leads#member  (no matching relationship)
+│   │   │   │           │       ├── ✗ parent->edit
+│   │   │   │           │       │   └── ✗ folder:root#edit = owner + editor + parent->edit + org->manage
+│   │   │   │           │       │       ├── ✗ folder:root#owner  (no matching relationship)
+│   │   │   │           │       │       ├── ✗ folder:root#editor  (no matching relationship)
+│   │   │   │           │       │       ├── ✗ parent->edit  (no related objects)
+│   │   │   │           │       │       └── ✗ org->manage
+│   │   │   │           │       │           └── ✗ organization:acme#manage = admin
+│   │   │   │           │       │               └── ✗ organization:acme#admin  (no matching relationship)
+│   │   │   │           │       └── ✗ org->manage
+│   │   │   │           │           └── ✗ organization:acme#manage  (see above)
+│   │   │   │           └── ✗ org->manage
+│   │   │   │               └── ✗ organization:acme#manage  (see above)
+│   │   │   └── · subtracted: document:arch#blocked  (skipped)
+│   │   └── ✓ document:arch#commenter  ← document:arch#commenter@user:frank
+│   ├── · document:arch#viewer  (skipped)
+│   └── · folder->view  (skipped)
+└── ✗ subtracted: document:arch#blocked  (no matching relationship)
+
+denied: document:arch#view@user:carol (revision 2)
+
+✗ document:arch#view = (comment + viewer + folder->view) - blocked
+├── ✓ base: comment + viewer + folder->view  (not needed)
+│   ├── ✗ document:arch#comment = edit + commenter
+│   │   ├── ✗ document:arch#edit = (owner + editor + folder->edit) - blocked
+│   │   │   ├── ✓ base: owner + editor + folder->edit
+│   │   │   │   ├── ✗ document:arch#owner  (no matching relationship)
+│   │   │   │   ├── ✗ document:arch#editor  (no matching relationship)
+│   │   │   │   └── ✓ folder->edit
+│   │   │   │       └── ✓ folder:specs#edit = owner + editor + parent->edit + org->manage
+│   │   │   │           ├── ✗ folder:specs#owner  (no matching relationship)
+│   │   │   │           ├── ✗ folder:specs#editor  (no matching relationship)
+│   │   │   │           ├── ✓ parent->edit
+│   │   │   │           │   └── ✓ folder:engineering#edit = owner + editor + parent->edit + org->manage
+│   │   │   │           │       ├── ✗ folder:engineering#owner  (no matching relationship)
+│   │   │   │           │       ├── ✓ folder:engineering#editor
+│   │   │   │           │       │   └── ✓ group:eng#member  via folder:engineering#editor@group:eng#member  ← group:eng#member@user:carol
+│   │   │   │           │       ├── · parent->edit  (skipped)
+│   │   │   │           │       └── · org->manage  (skipped)
+│   │   │   │           └── · org->manage  (skipped)
+│   │   │   └── ✓ subtracted: document:arch#blocked  ← document:arch#blocked@user:carol
+│   │   └── ✗ document:arch#commenter  (no matching relationship)
+│   ├── ✗ document:arch#viewer  (no matching relationship)
+│   └── ✓ folder->view
+│       └── ✓ folder:specs#view = edit + viewer + parent->view
+│           ├── ✓ folder:specs#edit  (see above)
+│           ├── · folder:specs#viewer  (skipped)
+│           └── · parent->view  (skipped)
+└── ✓ subtracted: document:arch#blocked  (see above)
+
+allowed: document:press#view@user:ivan (revision 2)
+
+✓ document:press#view = (comment + viewer + folder->view) - blocked
+├── ✓ base: comment + viewer + folder->view
+│   ├── ✗ document:press#comment = edit + commenter  (not needed)
+│   │   ├── ✗ document:press#edit = (owner + editor + folder->edit) - blocked
+│   │   │   ├── ✗ base: owner + editor + folder->edit
+│   │   │   │   ├── ✗ document:press#owner  (no matching relationship)
+│   │   │   │   ├── ✗ document:press#editor  (no matching relationship)
+│   │   │   │   └── ✗ folder->edit  (no related objects)
+│   │   │   └── · subtracted: document:press#blocked  (skipped)
+│   │   └── ✗ document:press#commenter  (no matching relationship)
+│   ├── ✓ document:press#viewer  ← document:press#viewer@user:*
+│   └── · folder->view  (skipped)
+└── ✗ subtracted: document:press#blocked  (no matching relationship)
+
+allowed: folder:specs#edit@user:dave (revision 2)
+
+✓ folder:specs#edit = owner + editor + parent->edit + org->manage
+├── ✗ folder:specs#owner  (no matching relationship; not needed)
+├── ✗ folder:specs#editor  (no matching relationship; not needed)
+├── ✓ parent->edit
+│   └── ✓ folder:engineering#edit = owner + editor + parent->edit + org->manage
+│       ├── ✗ folder:engineering#owner  (no matching relationship; not needed)
+│       ├── ✓ folder:engineering#editor
+│       │   └── ✓ group:eng#member  via folder:engineering#editor@group:eng#member
+│       │       └── ✓ group:eng_leads#member  via group:eng#member@group:eng_leads#member  ← group:eng_leads#member@user:dave
+│       ├── · parent->edit  (skipped)
+│       └── · org->manage  (skipped)
+└── · org->manage  (skipped)
+
+denied: document:secret#view@user:frank (revision 2)
+
+✗ document:secret#view = (comment + viewer + folder->view) - blocked
+├── ✓ base: comment + viewer + folder->view  (not needed)
+│   ├── ✗ document:secret#comment = edit + commenter
+│   │   ├── ✗ document:secret#edit = (owner + editor + folder->edit) - blocked
+│   │   │   ├── ✗ base: owner + editor + folder->edit
+│   │   │   │   ├── ✗ document:secret#owner  (no matching relationship)
+│   │   │   │   ├── ✗ document:secret#editor  (no matching relationship)
+│   │   │   │   └── ✗ folder->edit
+│   │   │   │       └── ✗ folder:engineering#edit = owner + editor + parent->edit + org->manage
+│   │   │   │           ├── ✗ folder:engineering#owner  (no matching relationship)
+│   │   │   │           ├── ✗ folder:engineering#editor
+│   │   │   │           │   └── ✗ group:eng#member  via folder:engineering#editor@group:eng#member
+│   │   │   │           │       └── ✗ group:eng_leads#member  via group:eng#member@group:eng_leads#member  (no matching relationship)
+│   │   │   │           ├── ✗ parent->edit
+│   │   │   │           │   └── ✗ folder:root#edit = owner + editor + parent->edit + org->manage
+│   │   │   │           │       ├── ✗ folder:root#owner  (no matching relationship)
+│   │   │   │           │       ├── ✗ folder:root#editor  (no matching relationship)
+│   │   │   │           │       ├── ✗ parent->edit  (no related objects)
+│   │   │   │           │       └── ✗ org->manage
+│   │   │   │           │           └── ✗ organization:acme#manage = admin
+│   │   │   │           │               └── ✗ organization:acme#admin  (no matching relationship)
+│   │   │   │           └── ✗ org->manage
+│   │   │   │               └── ✗ organization:acme#manage  (see above)
+│   │   │   └── · subtracted: document:secret#blocked  (skipped)
+│   │   └── ✗ document:secret#commenter  (no matching relationship)
+│   ├── ✓ document:secret#viewer  ← document:secret#viewer@user:frank
+│   └── · folder->view  (skipped)
+└── ✓ subtracted: document:secret#blocked
+    └── ✓ group:contractors#member  via document:secret#blocked@group:contractors#member  ← group:contractors#member@user:frank

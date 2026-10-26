@@ -56,6 +56,15 @@ def main() -> None:
     reads: int = detailed.store_reads
     assert detailed.allowed and reads >= 1
 
+    trace: pemba.CheckTrace = engine.check_with_trace("document:readme", "view", "user:anne")
+    root: pemba.TraceNode = trace.root
+    kids: list[pemba.TraceNode] = root.children
+    first: bool | None = kids[0].result
+    assert trace.allowed and root.result is True and first is not None
+    as_dict: dict[str, object] = trace.to_dict()
+    text: str = engine.check_with_trace("document:readme#view@user:anne").render()
+    assert as_dict["allowed"] is True and text.startswith("allowed: ")
+
     bulk: list[bool | pemba.PembaError] = engine.check_bulk(
         [("document:readme", "view", "user:anne"), ("document:readme", "nope", "user:anne")]
     )

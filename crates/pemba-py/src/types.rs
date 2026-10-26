@@ -259,6 +259,154 @@ impl CheckResult {
     }
 }
 
+/// `check_with_trace`'s answer: the steps one check took (`docs/04-evaluation.md` §3.8).
+#[pyclass(frozen, module = "pemba")]
+pub(crate) struct CheckTrace {
+    inner: pemba::CheckTrace,
+    /// The requested `resource#permission`, the root of the tree.
+    #[pyo3(get)]
+    root: Py<TraceNode>,
+}
+
+impl CheckTrace {
+    pub(crate) fn new(py: Python<'_>, inner: pemba::CheckTrace) -> PyResult<Self> {
+        let root = TraceNode::build(py, &inner.root)?;
+        Ok(Self { inner, root })
+    }
+}
+
+#[pymethods]
+impl CheckTrace {
+    /// The answer, as `check` gives it; always `root.result`.
+    #[getter]
+    fn allowed(&self) -> bool {
+        self.inner.allowed
+    }
+    /// The revision the check evaluated at.
+    #[getter]
+    fn revision<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        revision(py, self.inner.revision)
+    }
+    /// Some nodes were not recorded (the node limit was reached); the answer is complete.
+    #[getter]
+    fn truncated(&self) -> bool {
+        self.inner.truncated
+    }
+    /// The trace as plain dicts and lists, in the shape `pemba check --json` prints
+    /// (`docs/06-api.md` §3.1).
+    fn to_dict<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        // Parsing the one JSON writer's output keeps the two shapes identical.
+        py.import("json")?
+            .call_method1("loads", (self.inner.to_json(),))
+    }
+    /// The text `pemba check --explain` prints, without colour.
+    fn render(&self) -> String {
+        self.inner.render()
+    }
+    fn __repr__(&self) -> String {
+        format!(
+            "CheckTrace(allowed={}, revision={}, nodes={})",
+            py_bool(self.inner.allowed),
+            self.inner.revision,
+            self.inner.nodes().len()
+        )
+    }
+}
+
+/// One step of a `CheckTrace`; see `docs/04-evaluation.md` §3.8 for each field.
+#[pyclass(frozen, module = "pemba")]
+pub(crate) struct TraceNode {
+    /// Position in a pre-order walk of the tree, root 0; what `ref` points at.
+    #[pyo3(get)]
+    id: u32,
+    /// What was evaluated: `type:id#member`, or the relationship a point query looked for.
+    #[pyo3(get)]
+    node: String,
+    /// How: `relation`, `direct`, `wildcard`, `subject_set`, `self`, `computed`, `union`,
+    /// `intersection`, `exclusion`, `arrow_any`, `arrow_all` or `undefined`.
+    #[pyo3(get)]
+    kind: &'static str,
+    /// The expression's source text, for permissions and operators.
+    #[pyo3(get)]
+    expr: Option<String>,
+    /// `base` or `subtracted` for an exclusion's two children, else `None`.
+    #[pyo3(get)]
+    role: Option<&'static str>,
+    /// The value; `None` exactly when `source` is `skipped`.
+    #[pyo3(get)]
+    result: Option<bool>,
+    /// `evaluated`, `memo_hit`, `cycle`, `cycle_hit` or `skipped`.
+    #[pyo3(get)]
+    source: &'static str,
+    /// For a hit, the `id` of the node it refers to.
+    #[pyo3(get, name = "ref")]
+    reference: Option<u32>,
+    /// For a cycle head, the passes its region took.
+    #[pyo3(get)]
+    passes: Option<u32>,
+    /// A `false` computed from a cycle assumption that did not hold.
+    #[pyo3(get)]
+    provisional: bool,
+    /// The stored relationship that matched (point queries) or was followed (subject sets).
+    #[pyo3(get)]
+    tuple: Option<String>,
+    /// Wall time inside this node in nanoseconds, children included.
+    #[pyo3(get)]
+    duration_ns: u64,
+    /// Some children were not recorded (the node limit was reached).
+    #[pyo3(get)]
+    truncated: bool,
+    /// The steps this node took, in order.
+    #[pyo3(get)]
+    children: Vec<Py<TraceNode>>,
+}
+
+impl TraceNode {
+    fn build(py: Python<'_>, n: &pemba::TraceNode) -> PyResult<Py<Self>> {
+        let children = n
+            .children
+            .iter()
+            .map(|c| Self::build(py, c))
+            .collect::<PyResult<Vec<_>>>()?;
+        Py::new(
+            py,
+            Self {
+                id: n.id,
+                node: n.node.clone(),
+                kind: n.kind.as_str(),
+                expr: n.expr.clone(),
+                role: n.role.map(pemba::TraceRole::as_str),
+                result: n.result,
+                source: n.source.as_str(),
+                reference: n.source.reference(),
+                passes: match n.source {
+                    pemba::TraceSource::Cycle { passes } => Some(passes),
+                    _ => None,
+                },
+                provisional: n.provisional,
+                tuple: n.tuple.clone(),
+                duration_ns: u64::try_from(n.duration.as_nanos()).unwrap_or(u64::MAX),
+                truncated: n.truncated,
+                children,
+            },
+        )
+    }
+}
+
+#[pymethods]
+impl TraceNode {
+    fn __repr__(&self) -> String {
+        let result = match self.result {
+            Some(b) => py_bool(b),
+            None => "None",
+        };
+        format!(
+            "TraceNode({:?}, kind={:?}, result={result}, source={:?})",
+            self.node, self.kind, self.source
+        )
+    }
+}
+
 fn py_bool(b: bool) -> &'static str {
     if b { "True" } else { "False" }
 }

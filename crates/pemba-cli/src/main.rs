@@ -2,15 +2,18 @@
 //!
 //! Exit codes: 0 success, 1 the input was rejected (schema errors, `fmt --check` found a
 //! file that is not canonical, or a fixture failed), 2 usage or I/O error (bad arguments,
-//! unreadable file, unwritable output).
+//! unreadable file, unwritable output). `check` has its own: 0 allowed, 1 denied, 2 error.
 
 #![forbid(unsafe_code)]
 
-use std::io::{self, Write};
+use std::io::{self, IsTerminal, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use clap::{Parser, Subcommand};
+use clap::{ArgGroup, Parser, Subcommand};
+use pemba::model::{Consistency, Relationship, Revision, WriteOp, WriteRequest};
+use pemba::store::WritableStore;
+use pemba::{CheckRequest, Engine, EngineConfig, MemoryStore, SqliteConfig, SqliteStore};
 use pemba_fixtures::{self as fixtures, StoreKind};
 use pemba_schema::{FormatError, SchemaError, compile};
 
@@ -39,6 +42,31 @@ enum Command {
         /// Fixture files or directories.
         #[arg(required = true)]
         paths: Vec<PathBuf>,
+    },
+    /// Check one permission: does the subject have it on the resource?
+    ///
+    /// Prints `allowed` or `denied` and the revision; `--explain` shows every step of the
+    /// evaluation, `--json` the same as JSON. Exits 0 if allowed, 1 if denied, 2 on any
+    /// error (the engine fails closed: an error is never reported as denied).
+    #[command(group(ArgGroup::new("source").required(true).args(["fixture", "db"])))]
+    Check {
+        /// `resource#permission@subject`, e.g. `document:readme#view@user:anne`.
+        query: String,
+        /// Load the schema and relationships of this fixture file into memory.
+        #[arg(long, value_name = "FILE")]
+        fixture: Option<PathBuf>,
+        /// Read this existing SQLite database (opened read-only).
+        #[arg(long, value_name = "FILE")]
+        db: Option<PathBuf>,
+        /// Print the evaluation as a tree: what was checked, what matched, what was skipped.
+        #[arg(long)]
+        explain: bool,
+        /// Print the evaluation as JSON (the format `pemba.check_trace`, version 1).
+        #[arg(long, conflicts_with = "explain")]
+        json: bool,
+        /// Evaluate at exactly this revision instead of the latest.
+        #[arg(long, value_name = "REV")]
+        at_exactly: Option<u64>,
     },
 }
 
@@ -70,9 +98,12 @@ const EXIT_CODES: &str = "Exit codes:
   0  success (warnings alone do not fail `validate`)
   1  input rejected: schema errors, `fmt --check` found a non-canonical file, or a
      `test` fixture failed
-  2  usage or I/O error: bad arguments, unreadable file, unwritable output";
+  2  usage or I/O error: bad arguments, unreadable file, unwritable output
+`check` exits 0 if allowed, 1 if denied, 2 on any error";
 
 const REJECTED: u8 = 1;
+/// `check`: the subject does not have the permission.
+const DENIED: u8 = 1;
 const FAILED: u8 = 2;
 
 fn main() -> ExitCode {
@@ -81,6 +112,28 @@ fn main() -> ExitCode {
         Command::Schema(SchemaCommand::Validate { file }) => validate(&file),
         Command::Schema(SchemaCommand::Fmt { file, check }) => fmt(&file, check),
         Command::Test { paths } => test(&paths),
+        Command::Check {
+            query,
+            fixture,
+            db,
+            explain,
+            json,
+            at_exactly,
+        } => {
+            let output = match (explain, json) {
+                (_, true) => Output::Json,
+                (true, false) => Output::Explain,
+                (false, false) => Output::Answer,
+            };
+            let consistency =
+                at_exactly.map_or(Consistency::Latest, |r| Consistency::Exact(Revision(r)));
+            match (fixture, db) {
+                (Some(f), _) => check_fixture(&query, &f, consistency, output),
+                (None, Some(d)) => check_db(&query, &d, consistency, output),
+                // clap's `source` group requires one of them.
+                (None, None) => Err("one of --fixture and --db is required".to_owned()),
+            }
+        }
     };
     match result {
         Ok(code) => code,
@@ -288,4 +341,107 @@ fn test(paths: &[PathBuf]) -> CmdResult {
         .map_err(|e| io_error(&e))?;
         Ok(ExitCode::from(REJECTED))
     }
+}
+
+/// What `pemba check` prints.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Output {
+    /// `allowed (revision N)`.
+    Answer,
+    /// The rendered trace (`docs/06-api.md` §3).
+    Explain,
+    /// The trace as JSON (`docs/06-api.md` §3.1).
+    Json,
+}
+
+fn check_request(query: &str, consistency: Consistency) -> Result<CheckRequest, String> {
+    let q: Relationship = query
+        .trim()
+        .parse()
+        .map_err(|e| format!("`{query}` is not a check (`resource#permission@subject`): {e}"))?;
+    Ok(CheckRequest {
+        resource: q.resource,
+        permission: q.relation,
+        subject: q.subject,
+        consistency,
+    })
+}
+
+fn engine_error(e: &pemba::Error) -> String {
+    format!("{}: {e}", e.code())
+}
+
+/// `--fixture`: the fixture's schema and relationships in a memory store.
+fn check_fixture(query: &str, file: &Path, c: Consistency, output: Output) -> CmdResult {
+    let req = check_request(query, c)?;
+    let loaded = fixtures::load(file).map_err(|e| e.to_string())?;
+    let config = EngineConfig::default();
+    let batch = config.max_write_batch;
+    let engine = Engine::builder()
+        .store(MemoryStore::new())
+        .config(config)
+        .build()
+        .map_err(|e| engine_error(&e))?;
+    engine
+        .write_schema(&loaded.schema)
+        .map_err(|e| format!("`{}`: the schema is rejected: {e}", file.display()))?;
+    for chunk in loaded.relationships.chunks(batch) {
+        engine
+            .write(WriteRequest {
+                ops: chunk.iter().cloned().map(WriteOp::Touch).collect(),
+                preconditions: Vec::new(),
+            })
+            .map_err(|e| format!("`{}`: the relationships are rejected: {e}", file.display()))?;
+    }
+    run_check(&engine, req, output)
+}
+
+/// `--db`: an existing database, read-only.
+fn check_db(query: &str, file: &Path, c: Consistency, output: Output) -> CmdResult {
+    let req = check_request(query, c)?;
+    if !file.is_file() {
+        return Err(format!("`{}` is not a file", file.display()));
+    }
+    let mut config = SqliteConfig::default();
+    config.reader_pool = 1;
+    let store = SqliteStore::open_read_only(file, config)
+        .map_err(|e| format!("cannot open `{}`: {}", file.display(), engine_error(&e)))?;
+    let engine = Engine::builder()
+        .store(store)
+        .config(EngineConfig::default())
+        .build()
+        .map_err(|e| engine_error(&e))?;
+    run_check(&engine, req, output)
+}
+
+fn run_check<S: WritableStore>(engine: &Engine<S>, req: CheckRequest, output: Output) -> CmdResult {
+    let mut out = io::stdout().lock();
+    let allowed = if output == Output::Answer {
+        let r = engine.check(req).map_err(|e| engine_error(&e))?;
+        let verdict = if r.allowed { "allowed" } else { "denied" };
+        writeln!(out, "{verdict} (revision {})", r.revision).map_err(|e| io_error(&e))?;
+        r.allowed
+    } else {
+        let (r, trace) = engine.check_with_trace(req).map_err(|e| engine_error(&e))?;
+        let text = if output == Output::Json {
+            trace.to_json() + "\n"
+        } else if color(&out) {
+            trace.render_ansi()
+        } else {
+            trace.render()
+        };
+        out.write_all(text.as_bytes()).map_err(|e| io_error(&e))?;
+        r.allowed
+    };
+    Ok(if allowed {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::from(DENIED)
+    })
+}
+
+/// Colour only on a terminal, and never when `NO_COLOR` is set to anything but the empty
+/// string (<https://no-color.org>).
+fn color(out: &impl IsTerminal) -> bool {
+    out.is_terminal() && std::env::var_os("NO_COLOR").is_none_or(|v| v.is_empty())
 }

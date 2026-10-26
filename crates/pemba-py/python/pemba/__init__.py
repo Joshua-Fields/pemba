@@ -28,6 +28,7 @@ from pemba._revision import Revision
 from pemba._pemba import (
     MIN_SQLITE_VERSION,
     CheckResult,
+    CheckTrace,
     DeleteResult,
     Diagnostic,
     Engine,
@@ -37,11 +38,13 @@ from pemba._pemba import (
     Precondition,
     Relationship,
     SubjectsResult,
+    TraceNode,
 )
 
 __all__ = [
     "MIN_SQLITE_VERSION",
     "CheckResult",
+    "CheckTrace",
     "ConsistencyError",
     "DeleteResult",
     "Diagnostic",
@@ -62,6 +65,7 @@ __all__ = [
     "AmbiguousWildcardExclusionError",
     "StorageError",
     "SubjectsResult",
+    "TraceNode",
     "TransactionConflictError",
     "PembaError",
     "WriteConflictError",

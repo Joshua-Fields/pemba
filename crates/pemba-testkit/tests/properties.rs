@@ -11,7 +11,8 @@
 //! stores) likewise: 64 cases plainly, at least 1 000 in the ignored `prop4_*_full`. So
 //! does property 2 (`lookup_resources`, on both stores), in `prop2_*_full`, and property 3
 //! (`lookup_subjects`, on both stores), in `prop3_*_full`.
-//! Property 6 always runs at least 1 000.
+//! Property 6 always runs at least 1 000. Property 7 (`check_with_trace`, on both stores)
+//! runs 64 cases plainly and at least 1 000 in the ignored `trace::*_full`.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
@@ -1568,6 +1569,258 @@ mod schema_change {
             (case, v2, deletes, clean) in changes()
         ) {
             change_is_safe(&case, &v2, &deletes, clean)?;
+        }
+    }
+}
+
+/// The trace property (T4.1, `docs/04-evaluation.md` §3.8): on every generated case, cyclic
+/// data included, on both stores, `check_with_trace` answers exactly as `check` and the
+/// reference evaluator do (or fails with the same error), its root's result is the answer,
+/// its stats match `check`'s, and every trace invariant holds. A second memory engine with
+/// a tiny node cap checks that truncation never changes the answer.
+mod trace {
+    use pemba_core::model::{Consistency, WriteOp, WriteRequest};
+    use pemba_core::store::WritableStore;
+    use pemba_core::{CheckRequest, Engine, EngineConfig};
+    use pemba_store_memory::MemoryStore;
+    use pemba_testkit::generate::{self, Case, SubSides};
+    use pemba_testkit::reference::Reference;
+    use pemba_testkit::trace::violations;
+    use proptest::prelude::*;
+
+    use super::{ambiguity_accepted, compile, config, query, unlimited};
+
+    /// Recorded nodes on the capped engine: small enough that most traces truncate.
+    const CAP: usize = 6;
+
+    fn engine<S: WritableStore>(store: S, src: &str, case: &Case, cap: usize) -> Engine<S> {
+        let engine = Engine::builder()
+            .store(store)
+            .config(EngineConfig {
+                max_trace_nodes: cap,
+                ..unlimited()
+            })
+            .build()
+            .unwrap();
+        engine.write_schema(src).unwrap();
+        if !case.tuples.is_empty() {
+            engine
+                .write(WriteRequest {
+                    ops: case.tuples.iter().cloned().map(WriteOp::Touch).collect(),
+                    preconditions: Vec::new(),
+                })
+                .unwrap();
+        }
+        engine
+    }
+
+    fn agrees(case: &Case) -> Result<(), TestCaseError> {
+        let src = case.schema.source();
+        let schema = compile(&src);
+        let oracle = Reference::new(&schema, &case.tuples)
+            .map_err(|e| TestCaseError::fail(format!("oracle refused a generated case: {e}")))?;
+        let universe = oracle.universe();
+        let queries: Vec<_> = case
+            .queries
+            .iter()
+            .map(|&q| query(&schema, &oracle, &universe, q))
+            .collect();
+
+        let memory = engine(MemoryStore::new(), &src, case, usize::MAX);
+        let capped = engine(MemoryStore::new(), &src, case, CAP);
+        let mut dir = super::prop5::TempSqlite::new();
+        let sqlite = engine(dir.store.take().unwrap(), &src, case, usize::MAX);
+
+        for (resource, member, subject) in &queries {
+            let req = CheckRequest {
+                resource: resource.clone(),
+                permission: member.clone(),
+                subject: subject.clone(),
+                consistency: Consistency::Latest,
+            };
+            let at = format!("{resource}#{member}@{subject}");
+            let want = oracle.check(resource, member, subject).unwrap();
+            let outcomes = [
+                (
+                    "memory",
+                    memory.check(req.clone()),
+                    memory.check_with_trace(req.clone()),
+                ),
+                (
+                    "sqlite",
+                    sqlite.check(req.clone()),
+                    sqlite.check_with_trace(req.clone()),
+                ),
+                (
+                    "capped",
+                    capped.check(req.clone()),
+                    capped.check_with_trace(req.clone()),
+                ),
+            ];
+            for (store, plain, traced) in outcomes {
+                match (plain, traced) {
+                    (Ok(plain), Ok((response, trace))) => {
+                        prop_assert_eq!(plain.allowed, want, "[{}] check {}", store, at);
+                        prop_assert_eq!(response.allowed, want, "[{}] traced {}", store, at);
+                        prop_assert_eq!(trace.root.result, Some(want), "[{}] root {}", store, at);
+                        let (mut a, mut b) = (plain.stats, response.stats);
+                        a.elapsed = std::time::Duration::ZERO;
+                        b.elapsed = a.elapsed;
+                        prop_assert_eq!(a, b, "[{}] stats {}", store, at);
+                        let v = violations(&trace);
+                        prop_assert!(
+                            v.is_empty(),
+                            "[{}] {}:\n{}\n{}",
+                            store,
+                            at,
+                            v.join("\n"),
+                            trace.render()
+                        );
+                        if store == "capped" {
+                            prop_assert!(trace.nodes().len() <= 2 * CAP, "[capped] {}", at);
+                        } else {
+                            prop_assert!(!trace.truncated, "[{}] {}", store, at);
+                        }
+                    }
+                    (Err(a), Err(b)) => {
+                        prop_assert_eq!(a.code(), b.code(), "[{}] {}", store, at);
+                        prop_assert!(
+                            ambiguity_accepted(&oracle, resource, member, subject, a.code()),
+                            "[{}] {} failed: {}",
+                            store,
+                            at,
+                            a
+                        );
+                    }
+                    (plain, traced) => {
+                        return Err(TestCaseError::fail(format!(
+                            "[{store}] {at}: check gave {:?}, check_with_trace {:?}",
+                            plain.map(|r| r.allowed),
+                            traced.map(|(r, _)| r.allowed)
+                        )));
+                    }
+                }
+            }
+        }
+        drop(sqlite);
+        Ok(())
+    }
+
+    /// Keeps the property from passing vacuously: over fixed samples of both variants,
+    /// traces must contain every kind of source, provisional values and truncation. The
+    /// generators never produce a region whose head re-runs (that needs an intersection on
+    /// a cycle whose head ends `false`), so discarded passes are covered by the hand-built
+    /// cases in `tests/trace.rs` instead.
+    #[test]
+    fn generated_traces_exercise_every_feature() {
+        use std::collections::BTreeMap;
+
+        use pemba_core::{TraceKind, TraceSource};
+
+        let mut seen = BTreeMap::<&str, u32>::new();
+        let cases = super::sample(generate::case(), 300)
+            .into_iter()
+            .chain(super::sample(generate::case_with(SubSides::Recursive), 300));
+        for case in cases {
+            let src = case.schema.source();
+            let schema = compile(&src);
+            let Ok(oracle) = Reference::new(&schema, &case.tuples) else {
+                continue;
+            };
+            let universe = oracle.universe();
+            let memory = engine(MemoryStore::new(), &src, &case, usize::MAX);
+            let capped = engine(MemoryStore::new(), &src, &case, CAP);
+            for &q in &case.queries {
+                let (resource, permission, subject) = query(&schema, &oracle, &universe, q);
+                let req = CheckRequest {
+                    resource,
+                    permission,
+                    subject,
+                    consistency: Consistency::Latest,
+                };
+                if let Ok((_, t)) = capped.check_with_trace(req.clone())
+                    && t.truncated
+                {
+                    *seen.entry("truncated").or_default() += 1;
+                }
+                let Ok((_, t)) = memory.check_with_trace(req) else {
+                    continue;
+                };
+                for n in t.nodes() {
+                    let mut add = |k: &'static str| *seen.entry(k).or_default() += 1;
+                    match n.source {
+                        TraceSource::MemoHit { .. } => add("memo_hit"),
+                        TraceSource::CycleHit { .. } => add("cycle_hit"),
+                        TraceSource::Cycle { .. } => add("cycle"),
+                        TraceSource::Skipped => add("skipped"),
+                        _ => {}
+                    }
+                    if n.provisional {
+                        add("provisional");
+                    }
+                    match n.kind {
+                        TraceKind::SubjectSet => add("subject_set"),
+                        TraceKind::Exclusion => add("exclusion"),
+                        TraceKind::ArrowAll => add("arrow_all"),
+                        TraceKind::SelfMembership => add("self"),
+                        TraceKind::Wildcard if n.result == Some(true) => add("wildcard hit"),
+                        _ => {}
+                    }
+                }
+            }
+        }
+        for key in [
+            "memo_hit",
+            "cycle_hit",
+            "cycle",
+            "skipped",
+            "provisional",
+            "subject_set",
+            "exclusion",
+            "arrow_all",
+            "self",
+            "wildcard hit",
+            "truncated",
+        ] {
+            assert!(seen.get(key).copied().unwrap_or(0) >= 5, "{key}: {seen:?}");
+        }
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig { cases: 64, ..config(0) })]
+
+        /// The trace property, quick: 64 cases per generator variant.
+        #[test]
+        fn trace_matches_check_and_reference(case in generate::case()) {
+            agrees(&case)?;
+        }
+
+        /// Quick, with monotone recursion beneath subtracted sides.
+        #[test]
+        fn trace_recursive_sub_matches_check_and_reference(
+            case in generate::case_with(SubSides::Recursive)
+        ) {
+            agrees(&case)?;
+        }
+    }
+
+    proptest! {
+        #![proptest_config(config(1000))]
+
+        /// The trace property, ≥ 1 000 cases.
+        #[test]
+        #[ignore = "slow: 1 000+ cases; run with --ignored"]
+        fn trace_matches_check_and_reference_full(case in generate::case()) {
+            agrees(&case)?;
+        }
+
+        /// With monotone recursion beneath subtracted sides, ≥ 1 000 cases.
+        #[test]
+        #[ignore = "slow: 1 000+ cases; run with --ignored"]
+        fn trace_recursive_sub_matches_check_and_reference_full(
+            case in generate::case_with(SubSides::Recursive)
+        ) {
+            agrees(&case)?;
         }
     }
 }

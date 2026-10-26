@@ -13,6 +13,7 @@ pub mod model;
 mod scc;
 pub mod store;
 mod subjects;
+mod trace;
 mod validate;
 pub mod write;
 
@@ -25,3 +26,4 @@ pub use eval::{CheckItem, CheckRequest, CheckResponse, EvalStats};
 pub use lookup::{LookupResourcesRequest, LookupResourcesResponse};
 pub use pemba_schema::{ErrorCode, SchemaError, SchemaErrors};
 pub use subjects::{LookupSubjectsRequest, LookupSubjectsResponse};
+pub use trace::{CheckTrace, TRACE_FORMAT_VERSION, TraceKind, TraceNode, TraceRole, TraceSource};

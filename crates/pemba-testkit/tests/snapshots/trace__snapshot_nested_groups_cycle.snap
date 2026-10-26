@@ -1,0 +1,31 @@
+---
+source: crates/pemba-testkit/tests/trace.rs
+expression: "rendered(&e,\n&[\"group:a#member@user:bob\", \"group:a#member@user:eve\",\n\"document:d#view@user:bob\", \"group:x#member@group:x#member\",\n\"group:x#member@user:bob\",])"
+---
+allowed: group:a#member@user:bob (revision 2)
+
+✓ group:a#member
+└── ✓ group:b#member  via group:a#member@group:b#member  ← group:b#member@user:bob
+
+denied: group:a#member@user:eve (revision 2)
+
+✗ group:a#member  (cycle: settled after 1 pass)
+└── ✗ group:b#member  via group:a#member@group:b#member
+    └── ✗ group:c#member  via group:b#member@group:c#member
+        └── ✗ group:a#member  via group:c#member@group:a#member  (cycle: reached again, see above)
+
+allowed: document:d#view@user:bob (revision 2)
+
+✓ document:d#view = viewer
+└── ✓ document:d#viewer
+    └── ✓ group:a#member  via document:d#viewer@group:a#member
+        └── ✓ group:b#member  via group:a#member@group:b#member  ← group:b#member@user:bob
+
+allowed: group:x#member@group:x#member (revision 2)
+
+✓ group:x#member  (the subject itself)
+
+denied: group:x#member@user:bob (revision 2)
+
+✗ group:x#member  (cycle: settled after 1 pass)
+└── ✗ group:x#member  via group:x#member@group:x#member  (cycle: reached again, see above)

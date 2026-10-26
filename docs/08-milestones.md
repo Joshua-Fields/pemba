@@ -292,8 +292,44 @@ AC (release gate — human signs off):
 - Final name chosen (ADR-012) and rename completed.
 
 ### Stretch (only after the gate, in this order)
-1. `check_with_trace` (`04` §3.8) + `pemba check --explain`.
+1. `check_with_trace` (`04` §3.8) + `pemba check --explain` (T4.1).
 2. FastAPI helper (`06` §2.4).
 3. Batched arrow reads (`04` §4).
 4. Postgres store (requires resolving ADR-003/ADR-005 open questions).
 5. Node bindings (napi-rs), WASM build.
+
+---
+
+## M4 — Stretch
+
+### T4.1 `check_with_trace` + `pemba check --explain`
+Refs: `04` §3.6, §3.8; `06` §1, §2.2, §3; `07` §2. Stretch item 1.
+AC:
+- `Engine::check_with_trace(CheckRequest) -> Result<(CheckResponse, CheckTrace), Error>`
+  in `pemba-core`, re-exported from `pemba`. Same evaluator as `check` with a trace sink;
+  `check` uses a no-op sink that compiles away, and the `check` benchmarks in `benches/`
+  do not regress beyond noise (numbers before and after in the summary).
+- `CheckTrace` is the tree specified in `04` §3.8: per node `node`, `kind`, `result`,
+  `source` (evaluated, memo hit, cycle with its pass count, cycle hit, skipped),
+  `children`, `tuple` (the matched relationship on every direct `true`), `duration`.
+- Memo hits are references to the one node shown in full; subtrees are never duplicated.
+- Cycles: the trace shows the final, settled pass and records the pass count; no
+  intermediate pass's value is shown as an answer.
+- Fail closed: an evaluation error returns the `Err` and no trace.
+- `EngineConfig::max_trace_nodes` caps the nodes recorded; reaching it returns the
+  correct answer with the trace marked `truncated`, never an error.
+- Property test (`pemba-testkit`): for every generated case, cyclic data included, on
+  both stores, `check_with_trace(..).0.allowed == check(..) == reference`, the root's
+  result equals `allowed`, and the trace invariants of `04` §3.8 hold; 1 000+ cases in the
+  ignored variant.
+- insta snapshots of rendered traces for `google_docs`, `nested_groups_cycle`,
+  `exclusion_banned` and `all_arrow`.
+- CLI: `pemba check <resource>#<permission>@<subject> (--fixture f.yaml | --db app.db)
+  [--explain] [--json] [--at-exactly REV]`; `--db` opens the database read-only; exit 0
+  allowed, 1 denied, 2 error (`06` §3). `--explain` renders the tree with colour only on a
+  TTY and never with `NO_COLOR`; `--json` emits the public trace format (`06` §3.1).
+- Python: `Engine.check_with_trace(...)`, both call forms of `check`, returning a
+  `CheckTrace` with `.allowed`, `.revision`, `.root`, `.to_dict()` (the CLI JSON) and
+  `.render()` (the `--explain` text without colour); stubs, docstrings, `mypy --strict`, and
+  a test that `check_with_trace(..).allowed == check(..)` over every fixture.
+- README: a short "Debugging permissions" section with one rendered `--explain` example.

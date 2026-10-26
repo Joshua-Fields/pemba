@@ -24,3 +24,5 @@ proptest.workspace = true
 [dev-dependencies]
 # Reads the `check_bulk` span's `cycle_passes` field in `tests/cycle_passes.rs`.
 tracing.workspace = true
+# Snapshots of rendered traces in `tests/trace.rs` (docs/07-testing.md §1).
+insta.workspace = true
