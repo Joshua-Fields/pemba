@@ -26,6 +26,12 @@ The Rust crates and the Python package share one version: `0.1.0-alpha.2` on cra
   `false` ones included, are drawn in the terminal's normal colour instead of dimmed. Only
   skipped nodes and memo references are dimmed. `(not needed)` is printed in colour too,
   so the coloured text is the plain text plus styling.
+- `--explain` colour: a line on the granting path is coloured as a whole, not just its
+  `✓`/`✗` mark: green where it granted, red where it denied (so the root of a denial is
+  red), still bold. The `denied:` header is red. `--color never` output is unchanged.
+- Test-only: the `cycle_passes` tests read `check_bulk` stats from one global, always-on
+  span recorder filtered to the calling thread, instead of a per-call scoped subscriber,
+  the same capture as the `lookup` tests (#42, #43).
 - The README is written for newcomers: no internal task or decision numbers, the
   specification linked once under "Design documents", and a diagram comparing a separate
   authorisation service (two databases, dual writes) with pemba (one transaction).
