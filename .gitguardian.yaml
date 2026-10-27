@@ -1,5 +1,7 @@
 # GitGuardian / ggshield configuration. Each entry ignores one specific, known-fake
-# secret value wherever it matches; no file or directory is excluded from scanning.
+# secret wherever it matches; no file or directory is excluded from scanning. Each fake
+# is listed both as the bare password and as the full connection URI, because the
+# PostgreSQL detectors may report either as the match.
 version: 2
 secret:
   ignored_matches:
@@ -8,8 +10,12 @@ secret:
     # lifetime and is reachable only from the runner.
     - name: CI Postgres service container password (fake)
       match: postgres
+    - name: CI Postgres service container URI (fake)
+      match: postgres://postgres:postgres@localhost:5432/postgres
     # Fake password in crates/pemba-store-postgres/tests/migrate.rs
     # (`bad_configuration_is_an_invalid_request`), which checks that a DSN's password
     # never appears in an error message. The line also carries a ggignore comment.
     - name: Test fixture DSN password (fake)
       match: hunter2secret
+    - name: Test fixture DSN URI (fake)
+      match: postgres://u:hunter2secret@127.0.0.1/db?sslmode=sometimes

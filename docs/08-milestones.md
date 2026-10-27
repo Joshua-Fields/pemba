@@ -306,19 +306,12 @@ AC (release gate — human signs off):
 - Final name chosen (ADR-012) and rename completed.
 - T3.9 (public-struct audit) done.
 
-### Stretch (only after the gate, in this order)
-1. `check_with_trace` (`04` §3.8) + `pemba check --explain` (T4.1).
-2. FastAPI helper (`06` §2.4).
-3. Batched arrow reads (`04` §4).
-4. Postgres store: now milestone M5 (OQ-002, OQ-003 and OQ-045 resolved).
-5. Node bindings (napi-rs), WASM build.
-
 ---
 
 ## M4 — Stretch
 
 ### T4.1 `check_with_trace` + `pemba check --explain`
-Refs: `04` §3.6, §3.8; `06` §1, §2.2, §3; `07` §2. Stretch item 1.
+Refs: `04` §3.6, §3.8; `06` §1, §2.2, §3; `07` §2.
 AC:
 - `Engine::check_with_trace(CheckRequest) -> Result<(CheckResponse, CheckTrace), Error>`
   in `pemba-core`, re-exported from `pemba`. Same evaluator as `check` with a trace sink;
@@ -475,3 +468,41 @@ AC:
   and SQLAlchemy `AsyncSession`, and the `pemba.aio` read helpers.
 - Benchmark the per-statement hop, which decides whether the sans-IO follow-up is
   needed.
+
+---
+
+## M6–M10 — Later milestones (outline)
+
+Outlines only. Detailed tasks and acceptance criteria get written when each milestone
+starts, against the spec as it stands then.
+
+### M6 — Playground
+- A browser page to edit a schema and relationships and run `check`, `lookup_*` and
+  `--explain` against them, for docs, bug reports and evaluating pemba before installing.
+- Runs the real engine on the memory store, so answers match the library exactly; how
+  it reaches the browser (WASM, out of scope per `CLAUDE.md` §6, or a small hosted
+  backend) is the first decision when M6 starts.
+- Shareable links that encode the schema, tuples and query; fixture YAML import/export.
+
+### M7 — 0.1.0 and launch
+- Pass the T3.7 gate, cut 0.1.0 on crates.io and PyPI (manual human publish step).
+- Docs site, examples and a launch post centred on transactional writes.
+- Triage process for issues and a public roadmap.
+
+### M8 — Authorised queries
+- Filter application queries by permission inside the database (SQL predicates or a
+  join against `lookup_resources`) instead of filtering rows in application code.
+- Must agree with `lookup_resources` under the reference evaluator; SQLite first.
+- Pagination and ordering that stay correct at a fixed revision.
+
+### M9 — SpiceDB import/export
+- Convert schemas and relationships between pemba and SpiceDB (`zed` backup /
+  `.zed` files), rejecting unsupported features with `E_UNSUPPORTED_FEATURE`.
+- A migration guide in both directions; round-trip tests through the difftest harness.
+- Original code only (ADR-011): formats from SpiceDB docs, not its source.
+
+### M10 — User-driven features
+- Chosen from issues and launch feedback, not planned ahead.
+- Candidates carried over from the old stretch list: FastAPI helper (`06` §2.4), batched
+  arrow reads (`04` §4), Node bindings (napi-rs) and a WASM build; anything on the
+  `CLAUDE.md` §6 out-of-scope list still needs an explicit decision first.

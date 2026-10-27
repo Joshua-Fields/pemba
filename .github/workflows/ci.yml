@@ -19,6 +19,38 @@ env:
 
 # The toolchain is pinned by rust-toolchain.toml; rustup on the runners installs it on first use.
 jobs:
+  changes:
+    # Docs-only PRs skip the heavy jobs (`if: needs.changes.outputs.code == 'true'`).
+    # `paths-ignore` would skip the whole workflow, and fmt, the package-file copies and
+    # rustdoc must run on every change. A skipped job counts as passed for required checks.
+    # Docs-only means every changed path is under docs/ or assets/, or is a .md file other
+    # than the root README.md (pemba-cli's tests run its `--explain` example). Pushes to
+    # main always run everything.
+    name: detect code changes
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # A PR checks out its merge commit, whose first parent is the base branch.
+          fetch-depth: 2
+      - id: filter
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT" != pull_request ]; then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git diff --name-only HEAD^1 HEAD | tee changed.txt
+          if grep -qvE '^(docs|assets)/|\.md$' changed.txt \
+             || grep -qx 'README.md' changed.txt; then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "code=false" >> "$GITHUB_OUTPUT"
+          fi
+
   fmt:
     name: rustfmt
     runs-on: ubuntu-latest
@@ -50,6 +82,8 @@ jobs:
 
   clippy:
     name: clippy
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -58,6 +92,8 @@ jobs:
 
   test:
     name: test (${{ matrix.os }})
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -82,6 +118,8 @@ jobs:
 
   python:
     name: python (${{ matrix.os }})
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -119,6 +157,8 @@ jobs:
     # The oldest combination docs/05-storage.md §4.3 claims: CPython 3.11 (the abi3 floor,
     # ADR-014) on SQLite 3.26.0 (MIN_SQLITE_VERSION), as Rocky Linux 8 ships them.
     name: python (Rocky Linux 8, Python 3.11, SQLite 3.26.0)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     container: rockylinux/rockylinux:8
     # A stalled dnf mirror once held this job for over an hour; fail fast instead.
@@ -128,9 +168,27 @@ jobs:
         shell: bash
         working-directory: crates/pemba-py
     steps:
+      # dnf spent 5–10 min here on slow mirrors. Its cache (metadata and RPMs, ~300 MB) is
+      # kept per ISO week: dnf still refreshes expired metadata and installs the current
+      # packages, but mostly from the cache. tar and gzip ship in the image.
+      - name: dnf cache key
+        id: dnf-week
+        working-directory: /
+        run: echo "week=$(date -u +%G-%V)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v6
+        with:
+          path: /var/cache/dnf
+          key: dnf-rockylinux8-${{ steps.dnf-week.outputs.week }}
+          restore-keys: dnf-rockylinux8-
+      # Only BaseOS and AppStream supply these packages; extras is disabled.
       - name: system packages
         working-directory: /
-        run: dnf install -y --setopt=install_weak_deps=False --setopt=timeout=60 --setopt=retries=5 python3.11 python3.11-pip gcc git
+        run: >-
+          dnf install -y
+          --disablerepo='*' --enablerepo=baseos,appstream
+          --setopt=fastestmirror=True --setopt=max_parallel_downloads=10 --setopt=keepcache=True
+          --setopt=install_weak_deps=False --setopt=timeout=60 --setopt=retries=5
+          python3.11 python3.11-pip gcc git
       - uses: actions/checkout@v5
       - name: Rust (version from rust-toolchain.toml)
         run: |
@@ -152,6 +210,8 @@ jobs:
   prop1:
     # Properties 1 to 5 and schema change at >= 1 000 cases each, on every PR (Linux only).
     name: property 1, 1000 cases
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     # ~1 min since T1.4c bounded check cost (OQ-021); the cap catches a regression to
     # exponential cost instead of letting it run for the default six hours.
@@ -171,6 +231,8 @@ jobs:
     # supported (15) and the newest (18). Service containers need Linux runners. The test
     # job above runs the same tests without PEMBA_PG_URL, where they report "not run".
     name: postgres ${{ matrix.pg }}
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -202,6 +264,8 @@ jobs:
     # Every publishable crate packages and builds from its .crate alone (T3.3). Never
     # uploads: publishing is a manual human step.
     name: cargo publish --dry-run
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -224,6 +288,8 @@ jobs:
     # (rust-toolchain.toml, found from fuzz/ too); only `cargo fuzz run` needs nightly.
     # `--locked`: fuzz/Cargo.lock must keep up with the workspace versions.
     name: fuzz targets build
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
