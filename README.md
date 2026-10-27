@@ -21,20 +21,9 @@ database transaction**: the row you insert and the relationship that grants acce
 commit or roll back together. There is no second system to keep in sync, so no outbox, no
 reconciliation job, and no window where a document exists that nobody can open.
 
-```mermaid
-flowchart LR
-    subgraph service ["Service-based authorisation: two databases"]
-        direction TB
-        app1["Application"] -->|"1. write the row"| appdb1[("App database")]
-        app1 -->|"2. write the relationship"| authz["Authz service"]
-        authz --> authzdb[("Authz database")]
-        appdb1 -.-|"dual write: if either fails,<br/>the two drift apart"| authzdb
-    end
-    subgraph embedded ["pemba: one database"]
-        direction TB
-        app2["Application + pemba"] -->|"one transaction:<br/>row and relationship"| appdb2[("App database<br/>(with pemba's tables)")]
-    end
-```
+<p align="center">
+  <img src="https://raw.githubusercontent.com/Joshua-Fields/pemba/main/assets/transactional-writes.svg" alt="Diagram. Left, service-based authorisation: the application writes the row to its own database and the relationship to a separate authorisation service with its own database, a dual write that lets the two drift apart if either fails. Right, pemba: the application writes the row and the relationship to its own database in one transaction." width="900">
+</p>
 
 **Status: alpha, 0.1.0-alpha.2. The API may change.** `check`, `lookup_resources`,
 `lookup_subjects`, the memory and SQLite stores, transactional writes and the Python
