@@ -159,3 +159,19 @@ differs, match SpiceDB and update this ADR). Everything else listed is rejected 
 pyo3 feature `abi3-py311`: 3.9 is end-of-life and 3.10 reaches it in October 2026; re-check
 the oldest supported CPython before each release) for Linux x86_64/aarch64
 (manylinux), macOS x86_64/arm64, Windows x86_64. Type stubs (`.pyi`) shipped.
+
+## ADR-015 — Postgres revisions assigned at commit; `PendingRevision` on every store
+
+**Context.** Postgres writers commit concurrently and in any order, so a revision drawn at
+write time breaks commit order unless every other writer is blocked or hidden while the
+writing transaction stays open (`docs/10-postgres.md` §1.1–1.2).
+**Decision.** (OQ-002) Each write call marks its rows with a batch id. A deferred
+constraint trigger draws the revision with `nextval()` under `pg_advisory_xact_lock` at
+commit and inserts batch → revision. Revisions stay `u64` in commit order; numbers may be
+skipped. (OQ-045) Foreign-mode writes (`Engine::write_in`, Python `write(conn=...)`) return
+`PendingRevision` on every store; it is resolved at return on SQLite and after commit on
+Postgres. There is no `assign_now`. Python's `int(pending)` works for one release with a
+`DeprecationWarning`, then is removed. (OQ-003) The engine stays sync (ADR-003).
+**Consequences.** Breaking change on the foreign-write path (T5.1). Reads below head on
+Postgres join the batch map. Full design, evidence and tasks: `docs/10-postgres.md`,
+milestone M5 in `docs/08-milestones.md`.

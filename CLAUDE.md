@@ -69,7 +69,7 @@ the spec files the current task needs (see "Which docs to read").
 | Tests, fixtures, proptest, differential, benches | `docs/07-testing.md` |
 | What to build next, acceptance criteria | `docs/08-milestones.md` |
 | Repo layout, CI, lints, dependencies | `docs/09-repo-and-tooling.md` |
-| Postgres store design (proposal) | `docs/10-postgres.md` |
+| Postgres store design (milestone M5) | `docs/10-postgres.md` |
 | Glossary of terms | `docs/00-overview.md` §6 |
 
 When two docs disagree, the more specific one wins
@@ -118,7 +118,7 @@ Run the full check above once, before opening or updating a PR, not after every 
 ## 6. Things that are explicitly out of scope until told otherwise
 
 Caveats / CEL, expiring relationships, `use typechecking`, `use self` / the `self` keyword,
-Watch / changefeeds, gRPC/HTTP server mode, Node bindings, WASM, Postgres store,
+Watch / changefeeds, gRPC/HTTP server mode, Node bindings, WASM,
 cluster/distributed dispatch, SpiceDB wire-API compatibility.
 The parser must **recognise** the SpiceDB syntax for caveats, `with expiration`, `use ...`
 and `self`, and reject it with `E_UNSUPPORTED_FEATURE` rather than a generic parse error
