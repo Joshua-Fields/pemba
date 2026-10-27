@@ -10,6 +10,26 @@ The Rust crates and the Python package share one version: `0.1.0-alpha.2` on cra
 
 ## [Unreleased]
 
+### Added
+
+- `pemba check --color <auto|always|never>`. `auto`, the default, is the previous
+  behaviour: colour only on a terminal, and not when `NO_COLOR` is set. `always` colours
+  even a pipe and overrides `NO_COLOR` (for `less -R`); `never` turns colour off.
+
+### Changed
+
+- `--explain` and `CheckTrace::render()`: when an exclusion denies because its subtracted
+  side removed a granted base, both sides are now on the granting path, so the tree shows
+  where the permission was granted and where it was removed. The base line is no longer
+  marked `(not needed)`.
+- `--explain` colour (`CheckTrace::render_ansi()`): evaluated nodes off the granting path,
+  `false` ones included, are drawn in the terminal's normal colour instead of dimmed. Only
+  skipped nodes and memo references are dimmed. `(not needed)` is printed in colour too,
+  so the coloured text is the plain text plus styling.
+- The README is written for newcomers: no internal task or decision numbers, the
+  specification linked once under "Design documents", and a diagram comparing a separate
+  authorisation service (two databases, dual writes) with pemba (one transaction).
+
 ## [0.1.0-alpha.2] - 2026-10-27
 
 ### Added
