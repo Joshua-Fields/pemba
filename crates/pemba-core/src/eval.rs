@@ -135,17 +135,23 @@ impl Memo {
     }
 
     /// The settled value usable outside any subtracted side.
-    // Inlined into `Evaluator::eval`, as it was before T4.1 split `eval_expr`: one lookup
-    // per node, and out of line it cost the memory-store checks 2-3%.
-    #[inline]
+    #[cfg(test)]
     pub(crate) fn get(&self, key: &NodeKey) -> Option<&bool> {
         self.plain.get(key).or_else(|| self.negated.get(key))
     }
 
-    /// The settled value usable under a subtracted side.
+    /// The settled value usable here (under a subtracted side when `negated`), and
+    /// whether it came from the values computed under one; the trace refers to the node
+    /// that settled that side (`docs/04-evaluation.md` §3.8).
+    // Inlined into `Evaluator::eval`: one lookup per node, and out of line (as after T4.1
+    // first split `eval_expr`) it cost the memory-store checks 2-3%.
     #[inline]
-    fn get_negated(&self, key: &NodeKey) -> Option<&bool> {
-        self.negated.get(key)
+    fn lookup(&self, key: &NodeKey, negated: bool) -> Option<(bool, bool)> {
+        let plain = if negated { None } else { self.plain.get(key) };
+        match plain {
+            Some(&v) => Some((v, false)),
+            None => self.negated.get(key).map(|&v| (v, true)),
+        }
     }
 
     fn side_mut(&mut self, negated: bool) -> &mut HashMap<NodeKey, bool> {
@@ -377,19 +383,14 @@ impl<'a, T: Tracer> Evaluator<'a, T> {
             return Err(Error::MaxDepthExceeded { path });
         }
         let negated = self.negated();
-        let memoised = if negated {
-            self.memo.get_negated(key)
-        } else {
-            self.memo.get(key)
-        };
-        if let Some(&value) = memoised {
+        if let Some((value, side)) = self.memo.lookup(key, negated) {
             self.stats.memo_hits += 1;
-            self.trace.memo_hit(key, value);
+            self.trace.memo_hit(key, value, side);
             return Ok(Outcome { value, low: None });
         }
         match self.cycle.hit(key)? {
             Some(Hit::Found(out)) => {
-                self.trace.cycle_hit(key, &out);
+                self.trace.cycle_hit(key, &out, negated);
                 return Ok(out);
             }
             Some(Hit::NonMonotonic { from }) => return Err(self.non_monotonic(from, key)),
@@ -409,7 +410,7 @@ impl<'a, T: Tracer> Evaluator<'a, T> {
                 invalid(format!("internal: node {key:?} is not in the schema"))
             })?;
         let p = self.cycle.begin(key);
-        self.trace.open_member(key, member);
+        self.trace.open_member(key, member, negated);
         let mut passes = 0;
         loop {
             passes += 1;

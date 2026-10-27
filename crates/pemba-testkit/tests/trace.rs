@@ -545,3 +545,37 @@ mod json_ids {
         }
     }
 }
+
+/// Found by the trace property on main (CI seed e5d53cb8…): with a subject-set subject,
+/// a member settled on the plain side is evaluated again under a subtracted side, which
+/// does not reuse plain memo values (`docs/04-evaluation.md` §3.3), and there it can end
+/// unsettled. A later plain memo hit must refer to the node that settled the plain value,
+/// not to that later one.
+#[test]
+fn a_memo_hit_refers_to_the_node_that_settled_its_side() {
+    let e = engine(
+        "definition ty0 {\n    relation rel0: ty0\n    \
+         permission perm0 = (rel0->perm1 + rel0->rel0 + rel0) + rel0\n    \
+         permission perm1 = rel0 + perm0\n    \
+         permission perm2 = (rel0->perm1 - perm0) + perm1\n}\n",
+        &[
+            "ty0:b#rel0@ty0:c",
+            "ty0:b#rel0@ty0:b",
+            "ty0:a#rel0@ty0:e",
+            "ty0:a#rel0@ty0:d",
+        ],
+    );
+    // `trace` checks every invariant, including a memo hit's value against its target's.
+    let t = trace(&e, "ty0:b#perm2@ty0:c#perm1");
+    assert!(t.allowed);
+    let nodes = t.nodes();
+    let hit = nodes
+        .iter()
+        .find(|n| n.node == "ty0:b#perm1" && matches!(n.source, TraceSource::MemoHit { .. }))
+        .unwrap();
+    let TraceSource::MemoHit { of: Some(of) } = hit.source else {
+        panic!("{hit:?}")
+    };
+    assert_eq!(nodes[of as usize].result, Some(true), "{}", t.render());
+    assert!(!nodes[of as usize].provisional);
+}
