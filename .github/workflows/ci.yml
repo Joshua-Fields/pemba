@@ -257,6 +257,10 @@ jobs:
       - uses: actions/checkout@v5
       - uses: Swatinem/rust-cache@v2
       - run: cargo test -p pemba-store-postgres --all-features
+      # The permanent revision-order test (docs/10-postgres.md §4.4, T5.6), about 20 s.
+      # --nocapture so each variant's 40001 rate, writer wait and visibility lag are in
+      # the log.
+      - run: cargo test -p pemba-store-postgres --all-features --test revision_order -- --ignored --nocapture
       # The plaintext-only build still compiles and passes.
       - run: cargo test -p pemba-store-postgres --no-default-features
 

@@ -1169,6 +1169,18 @@ server and drop their schema on success.
    - **Asserted bounds:** visibility lag p99 < 100 ms while a long transaction is open;
      writer wait p99 < 100 ms. These are generous bounds that catch a regression to
      (a) or (b).
+   - **As built (T5.6):** each run lasts 3 s with the long transaction at 0.3 s and
+     1.7 s. Readers observe through `Engine::read_relationships` at `Latest`, which
+     returns a head and the state there from one snapshot. One write in ten carries a
+     precondition reading where the next writer is about to insert. With a read in every
+     write, SERIALIZABLE gave 25–40% 40001s (pemba and the control alike, with occasional
+     give-ups in both), which tests the workload rather than pemba. The comparison scheme
+     runs at SERIALIZABLE, so its 40001 rate is reported next to pemba's, and it must
+     show violations. Typical local numbers (Postgres 18): writer wait p99 ≈ 3 ms,
+     visibility lag p99 ≈ 10 ms, SERIALIZABLE 40001s ≈ 1% (pemba) vs ≈ 0.4% (control),
+     see OQ-052; with `SET CONSTRAINTS` in the long transaction, writer wait ≈ 1 s, as
+     expected. The forced-inversion and commit-cost tests run in every Postgres job; the
+     harness runs there too, with `--ignored --nocapture`.
 5. **GC mid-read** (Postgres version of `a_reader_mid_gc_gets_the_full_answer_or_revision_expired`):
    pause between GC batches, read from a snapshot taken before GC, and expect the full
    answer or `RevisionExpired`, never a partial one.
