@@ -28,7 +28,10 @@ CPU-bound graph walks over local storage.
 the GIL (`py.allow_threads`) around every engine call so Python threads run concurrently.
 An async facade can be added later (e.g. `spawn_blocking`) without changing the core.
 **Consequences.** A future async Postgres store must be wrapped behind a blocking adapter or
-use a sync driver (`postgres` crate). Revisit before Postgres work (logged as open question).
+use a sync driver (`postgres` crate). Resolved (OQ-002/OQ-003, 2026-10-27): the engine stays
+sync, Rust uses the sync `postgres` crate, the first Postgres release joins the app's sync
+transaction through psycopg 3, psycopg2, SQLAlchemy and Django adapters, and async adapters
+come later (T5.13). Design: `docs/10-postgres.md` §2.
 
 ## ADR-004 — Schema DSL is a strict subset of SpiceDB's
 
@@ -52,7 +55,10 @@ increasing in **commit order**. Tuples carry `created_rev` / `deleted_rev` (MVCC
 Reads take a `Consistency` and resolve it to a single revision before evaluating.
 **Consequences.** Read-after-write is easy (`AtLeast(rev_from_write)`). Historical reads up
 to the GC horizon are possible (`Exact(rev)`). Commit-order guarantee is trivial on SQLite
-(single writer) and needs care on Postgres (open question).
+(single writer). On Postgres it is resolved (OQ-002, 2026-10-27): the revision is assigned at
+commit by a deferred constraint trigger under an advisory lock, rows carry batch ids mapped to
+revisions, and numbers may be skipped. A foreign-mode write returns a `PendingRevision` on
+every store (OQ-045). Design: `docs/10-postgres.md` §1.
 
 ## ADR-006 — Transactional writes through the host's connection
 

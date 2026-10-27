@@ -60,7 +60,7 @@ and PR/issue descriptions. No SpiceDB code was read (golden rule 2).
 | F6 | README guarantee | "In one process `Latest` already sees it" is **preserved** by the proposal. Option (b) would have broken it. | §1.3 |
 | F7 | Behaviour | SERIALIZABLE stays supported. Round 3: 0.10–0.25% of transactions hit a retryable `Conflict` (40001), at or below the comparison scheme without pemba's commit step. With retries using exponential backoff, 0 of 71,585 transactions failed all retries. The documented requirement is to **retry with backoff and jitter**: immediate retries lose transactions with or without pemba (§1.6.8). | §1.5.2, §1.6.8 |
 | F8 | Behaviour | A prepared (2PC) transaction holds the revision lock from `PREPARE TRANSACTION` until `COMMIT PREPARED`. | §1.6.6 |
-| F9 | ADR text | ADR-005's consequence line gets an amendment, ADR-006 needs a Postgres amendment (several drivers and param styles), and ADR-003's open question is closed. | §5 T5.0 |
+| F9 | ADR text | ADR-005's consequence line gets an amendment, ADR-006 needs a Postgres amendment (several drivers and param styles), and ADR-003's open question is closed. | `08` M5, T5.0 |
 | F10 | Dependencies | `postgres` (0.19.14) plus a TLS connector. | §2.1 |
 | F11 | Behaviour | `SET CONSTRAINTS ALL IMMEDIATE` in the app's transaction, or naming pemba's trigger, draws the revision at that statement. It then holds the store-wide lock until the transaction ends, so that transaction behaves like option (a). The trigger detects this and warns. | §1.6.7 |
 | F12 | Performance | Reads at a revision older than head (`at_exactly`, later pages, `iter_resources`) join the batch map. Spike: a 500-row lookup is +34% at p50; point reads show no measurable change. Reads at head are unchanged. | §1.6.2 |
@@ -798,7 +798,7 @@ Options considered:
 Consequences:
 - **Called from async Rust:** callers wrap engine calls in `spawn_blocking`. Whether the
   `postgres` crate panics when called directly inside a tokio runtime is unverified;
-  T5.2 adds a test, and the docs will say "use `spawn_blocking`".
+  T5.3 adds a test, and the docs will say "use `spawn_blocking`".
 - **Connection pool:** hand-rolled, like the SQLite reader pool (`05` §4.2). Default 8,
   covering native writes and snapshots alike; there is no writer mutex because Postgres
   serialises at commit. `r2d2_postgres` (last release 2024-12) adds a dependency for about
@@ -858,7 +858,7 @@ Common rules:
     compares `(pg_control_system()).system_identifier` and `current_database()` between
     the foreign connection and an engine connection. `pg_control_system()` is executable
     by `PUBLIC` per the Postgres source (`system_functions.sql` revokes nothing); the
-    docs say nothing about it, so T5.7 tests it as an unprivileged role. The check is
+    docs say nothing about it, so T5.8 tests it as an unprivileged role. The check is
     folded into the first statement of each write (step 2b), so it costs no extra round
     trip.
 - **Search path.** It is irrelevant, because every statement is schema-qualified (§3.3).
@@ -891,7 +891,7 @@ awaiting the worker. Reads: `pemba.aio` wraps `check`, `lookup_*` and `resolve` 
 **What it costs async users:**
 1. **A thread hop per SQL statement** on async foreign writes. A write is 3 + N
    statements, so expect a few hundred µs on top of the network round trips. The spike did
-   not measure this; T5.10 benchmarks it.
+   not measure this; T5.13 benchmarks it.
 2. **Every read uses a worker thread**, so concurrency is bounded by the default executor's
    size (`min(32, cpu + 4)`) and by `pool_size`.
 3. **Cancellation is coarse.** Cancelling the awaiting task does not stop a `check`
@@ -901,7 +901,7 @@ awaiting the worker. Reads: `pemba.aio` wraps `check`, `lookup_*` and `resolve` 
 4. **Calling it from the loop thread deadlocks.** Calling the sync `engine.write(conn=)`
    with an *async* connection is detected and raises `TypeError`.
 
-The fallback, if T5.10's benchmark shows the hop matters, is a sans-IO write state machine
+The fallback, if T5.13's benchmark shows the hop matters, is a sans-IO write state machine
 in Rust. Python would drive it directly with `await` and no thread. That is an internal
 change with no API impact, so it is deferred.
 
@@ -1121,84 +1121,10 @@ server and drop their schema on success.
 
 ---
 
-## 5. Task breakdown (M5, for `docs/08-milestones.md`)
+## 5. Task breakdown
 
-Each task ends green: the §5 checks of CLAUDE.md, plus the Postgres CI job once it exists.
-"First Postgres release" means the release that contains T5.0–T5.12.
-
-- **T5.0 — Accept the design (docs only).**
-  - The maintainer records the OQ-002, OQ-003 and OQ-045 resolutions.
-  - Add ADR-015 (Postgres revisions assigned at commit; `PendingRevision` on both stores).
-  - Amend ADR-003 (sync; async adapters later), ADR-005 (consequences; skipped numbers)
-    and ADR-006 (Postgres drivers and placeholders).
-  - Update `02` §4, `05` (§10, new §11), `06` (`PendingRevision`, `Engine.postgres`) and
-    README (§1.6.3 wording, F5, the `SET CONSTRAINTS` warning, F13's "one write call,
-    one revision", and SERIALIZABLE retry-with-backoff guidance).
-  - CHANGELOG "Breaking" entry with the §1.6.4 migration table.
-  - Remove Postgres from CLAUDE.md §6.
-- **T5.1 — `PendingRevision` on SQLite (the breaking change, shipped first).**
-  - Core `PendingRevision` and `Engine::resolve`.
-  - `write_in` and Python `write(conn=)` return it; `at_least=` accepts it.
-  - The deprecated `__int__` / `__index__`, plus `.pyi`, docs and examples.
-  - Done when the whole workspace and pytest are green with no Postgres code.
-- **T5.2 — Core: revision strategy in `pemba-core::write`.**
-  - `SqlDialect::revision_strategy()` is `AllocateNow` (SQLite) or `AssignAtCommit`.
-  - Dialect-driven placeholder style; `RETURNING ctid` through `WriteTxn::query`.
-  - SQLite behaviour unchanged; done when green.
-- **T5.3 — `pemba-store-postgres` skeleton and migrations.**
-  - Crate, config, pool, rustls TLS feature.
-  - Migration v1: tables, sequences, the batch-map trigger (one INSERT plus early-firing
-    detection), and batch 0 → revision 0.
-  - `migrate` / `open` / `NotMigrated` / `StorageVersionTooNew`, version and `UTF8`
-    checks, schema qualification.
-  - Postgres CI job (service container, 15 and 18).
-  - Tests: idempotent and concurrent `migrate`, non-default schema, hostile `search_path`,
-    and the `spawn_blocking` check.
-- **T5.4 — Reads.**
-  - `ReadStore`, head/horizon (head = highest committed), the REPEATABLE READ
-    `snapshot()`, and the `05` §6 queries in two forms: `deleted_batch IS NULL` at head,
-    and the map join below head (§1.6.2).
-  - `COLLATE "C"` ordering.
-  - The conformance read cases pass.
-- **T5.5 — Native writes.**
-  - `write`, `write_schema` and `delete_matching` through the commit trigger, the
-    post-commit lookup, and SQLSTATE mapping.
-  - The full conformance suite passes (the §4.1 additions included).
-  - Store equivalence memory ≡ SQLite ≡ Postgres.
-  - Early-firing detection: the `early` column, the WARNING, and the warning from
-    `resolve()` (`tracing` in Rust, `PembaWarning` in Python) (§1.6.7).
-- **T5.6 — Permanent revision-order concurrency test (§4.4)** at all three isolation
-  levels, plus the `SET CONSTRAINTS` variants, the commit-cost check and the negative
-  control.
-  - SERIALIZABLE with backoff: assert 0 transactions failing all retries (§1.6.8).
-- **T5.7 — GC.**
-  - Horizon first, then deletes through the map in ctid batches, and pruning of pending
-    rows.
-  - Map pruning: measure the rebase against keeping the map, then pick one (§1.6.5).
-  - The mid-GC reader test, and GC at skipped numbers.
-- **T5.8 — Rust foreign mode.**
-  - `PgTxn` over `postgres::Transaction`, `write_in` → `PendingRevision`, `resolve` with
-    `pg_xact_status`.
-  - Same-database check, tested as an unprivileged role.
-- **T5.9 — Python native engine and sync foreign mode.**
-  - `Engine.postgres(...)` with the GIL released, and `.pyi`.
-  - Adapters for psycopg 3, psycopg2, SQLAlchemy `Session` / `Connection`, and Django:
-    placeholders, error mapping, guard rails, `TypeError` for async connections.
-  - Verify Django's `SET CONSTRAINTS` use and try the `run_sync` route (§2.4).
-- **T5.10 — Wheels with Postgres support** (rustls, no OpenSSL) and a CI smoke test
-  against the service container.
-- **T5.11 — Property tests and difftest on Postgres in CI** (`proptest.yml`,
-  `difftest.yml` matrix).
-- **T5.12 — Benchmarks and documentation, then the first Postgres release.**
-  - Benchmarks: write throughput against SQLite, check latency, 1,000-tuple commit
-    cost, and the read cost below head through the map (F12), on the `07` §7 shapes.
-  - README: a Postgres section, privileges, PgBouncer, autovacuum, 2PC, the
-    `SET CONSTRAINTS` warning, and SERIALIZABLE retry guidance.
-- **T5.13 — Async foreign mode (after the first Postgres release).**
-  - `write_async` with the thread bridge (§2.4) for psycopg `AsyncConnection`, asyncpg
-    and SQLAlchemy `AsyncSession`, and the `pemba.aio` read helpers.
-  - Benchmark the per-statement hop, which decides whether the sans-IO follow-up is
-    needed.
+The task list (T5.0–T5.13) moved to `docs/08-milestones.md`, milestone M5. That file is
+the source of truth for M5's scope and acceptance criteria.
 
 ---
 
