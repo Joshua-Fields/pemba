@@ -1193,3 +1193,31 @@ it is resolved.
   `NotMigrated`, not a surprise migration.
 - Options considered: `true`, matching `SqliteConfig` (convenient for local development).
 - Resolve by: maintainer, before T5.9 (Python `Engine.postgres` mirrors the default).
+- Resolution: Resolved by the human, 2026-10-27: `false` on Postgres. Why it differs from
+  SQLite: a SQLite file belongs to one app and `true` makes a new file usable at once,
+  while a Postgres database is shared and long-lived, migrating it needs `CREATE` on the
+  schema (app roles usually lack it), and several instances starting at once would all
+  run DDL. Recorded in `10` §3.4; Python `Engine.postgres` (T5.9) takes the same default.
+
+## OQ-048 — Returning `Err` instead of panicking on a tokio runtime thread
+- Raised in: T5.3 review (decision (b): return `Err`; a direct `tokio` dependency approved)
+- Blocking: no (the current behaviour is documented and pinned by a test)
+- Current choice: unchanged. The `postgres` crate panics ("Cannot start a runtime from
+  within a runtime") when called on a thread that has *entered* a tokio runtime (an async
+  task or a `block_on` body). Tokio exposes that state only privately. The public signals
+  cannot separate it from `spawn_blocking`, the documented safe path: probed on tokio
+  1.54.1, `Handle::try_current()` is `Ok` and `task::try_id()` is `Some` inside both an
+  async task and `spawn_blocking`. So an `Err` keyed on them would also reject
+  `spawn_blocking`.
+- Options considered:
+  1. `Handle::try_current()` → `Err`: also refuses `spawn_blocking` and `Handle::enter`
+     callers, the documented path.
+  2. `catch_unwind` around each driver call at the store boundary, mapping the panic to
+     `Err` (the panic fires on entry, before any I/O). Works wherever unwinding is on;
+     the default panic hook still prints the message; a `panic = "abort"` build still
+     aborts.
+  3. When `Handle::try_current()` is `Ok`, run the driver call on a scoped OS thread:
+     never panics and never fails, but costs a thread spawn per call on the
+     `spawn_blocking` path too.
+  4. Keep the panic, documented and pinned by a test (current).
+- Resolve by: maintainer.

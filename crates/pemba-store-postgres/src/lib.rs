@@ -52,8 +52,9 @@ pub struct PostgresConfig {
     /// needed, not all at once.
     pub pool_size: usize,
     /// Whether opening the store migrates its tables to [`STORAGE_VERSION`]. Default
-    /// `false`: run [`PostgresStore::migrate`] as a deploy step, so app processes never
-    /// need DDL privileges.
+    /// `false`, unlike SQLite's `true` (OQ-047): a Postgres database is shared, migrating
+    /// needs `CREATE` on the schema, and app instances starting together would all run
+    /// DDL. Run [`PostgresStore::migrate`] as a deploy step instead.
     pub auto_migrate: bool,
 }
 

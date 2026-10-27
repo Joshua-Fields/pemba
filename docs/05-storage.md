@@ -320,7 +320,8 @@ should use WAL for concurrency.
 - Newer `storage_version` than the library knows → `Err(StorageVersionTooNew)`.
 - The Postgres store (M5) follows the same rules (`NotMigrated`, `StorageVersionTooNew`,
   an explicit `PostgresStore::migrate`) with its own layout and runner, except that
-  `PostgresConfig::auto_migrate` defaults to `false` (`10` §3.4).
+  `PostgresConfig::auto_migrate` defaults to `false`: the database is shared and app
+  roles usually cannot run DDL, so migrating is a deploy step (OQ-047, `10` §3.4).
 - Migrations are a static ordered list of SQL scripts in
   `pemba-sqlite-common/migrations/`. The shared runner executes them one statement at a
   time (a statement ends at a line ending in `;`), because a driver's `execute` takes one

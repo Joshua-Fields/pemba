@@ -1047,8 +1047,12 @@ Notes on the column choices:
   Flag for review: the runner differs from SQLite's.
 - **Opening a store.** `open()` with `auto_migrate = false` is the recommended production
   default, as for SQLite; unlike SQLite it is also the default value of
-  `PostgresConfig::auto_migrate` (T5.3), so app processes never need DDL privileges unless
-  asked. It returns `NotMigrated` or `StorageVersionTooNew` exactly as SQLite does, and
+  `PostgresConfig::auto_migrate` (OQ-047, decided). Why the defaults differ: a SQLite file
+  belongs to one app, and `true` makes a new file usable at once; a Postgres database is
+  shared and long-lived, migrating needs `CREATE` on the schema (which app roles usually
+  lack), and several instances starting together would all run DDL. So the deploy step
+  runs `PostgresStore::migrate` and app processes open with the default. Python's
+  `Engine.postgres` (T5.9) takes the same default. It returns `NotMigrated` or `StorageVersionTooNew` exactly as SQLite does, and
   also checks server version ≥ the minimum and encoding `UTF8`; either failing is
   `Error::Store` (`Backend`), as an unsuitable SQLite library is.
 - **Isolation.** Each migration transaction is `READ COMMITTED` whatever
