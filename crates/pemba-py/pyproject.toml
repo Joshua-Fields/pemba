@@ -24,6 +24,14 @@ Issues = "https://github.com/Joshua-Fields/pemba/issues"
 
 [project.optional-dependencies]
 test = ["pytest>=9.1", "mypy>=2.4"]
+# tests/test_postgres.py: the drivers foreign mode supports (docs/10-postgres.md §2.3).
+postgres-test = [
+    "psycopg[binary]>=3.2",
+    "psycopg2-binary>=2.9",
+    "sqlalchemy>=2.0",
+    "django>=5.0",
+    "greenlet>=3.0",
+]
 # bench/test_scenarios.py (docs/07-testing.md §7)
 bench = ["pytest>=9.1", "pytest-benchmark>=5.3"]
 

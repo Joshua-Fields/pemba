@@ -261,6 +261,22 @@ jobs:
       # --nocapture so each variant's 40001 rate, writer wait and visibility lag are in
       # the log.
       - run: cargo test -p pemba-store-postgres --all-features --test revision_order -- --ignored --nocapture
+      # Engine.postgres and foreign mode with every supported driver (docs/10-postgres.md
+      # §2.3, §4 item 6), against the same server. 3.12, not the 3.11 floor: Django 6
+      # needs it; the other Python jobs cover 3.11.
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Python on Postgres (maturin develop, pytest, mypy --strict)
+        working-directory: crates/pemba-py
+        run: |
+          python -m venv .venv
+          source .venv/bin/activate
+          pip install maturin==1.15.0 pytest==9.1.1 mypy==2.4.0 "psycopg[binary]==3.3.6" \
+            psycopg2-binary==2.9.13 sqlalchemy==2.1.6 django==6.1.2 greenlet==3.5.6
+          maturin develop
+          pytest -q tests/test_postgres.py tests/test_errors.py
+          mypy --strict tests
       # The plaintext-only build still compiles and passes.
       - run: cargo test -p pemba-store-postgres --no-default-features
 

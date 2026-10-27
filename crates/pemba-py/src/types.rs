@@ -31,10 +31,21 @@ pub(crate) fn pending_revision_type(py: Python<'_>) -> PyResult<&Bound<'_, PyTyp
     PENDING_REVISION.import(py, "pemba._revision", "PendingRevision")
 }
 
-/// `r` as a Python `pemba.PendingRevision`. Every store so far knows the number when the
-/// write returns, so the Python object only carries it.
+/// `r` as a Python `pemba.PendingRevision` that is already resolved (SQLite, or a
+/// Postgres write pemba committed itself).
 pub(crate) fn pending_revision(py: Python<'_>, r: model::Revision) -> PyResult<Bound<'_, PyAny>> {
     pending_revision_type(py)?.call1((r.0,))
+}
+
+/// A Python `pemba.PendingRevision` whose number the commit assigns: `resolver()` asks the
+/// store (Postgres), once.
+pub(crate) fn unresolved_pending_revision<'py>(
+    py: Python<'py>,
+    resolver: Bound<'py, PyAny>,
+) -> PyResult<Bound<'py, PyAny>> {
+    let kwargs = pyo3::types::PyDict::new(py);
+    kwargs.set_item("resolver", resolver)?;
+    pending_revision_type(py)?.call((py.None(),), Some(&kwargs))
 }
 
 fn parse<T: std::str::FromStr<Err = model::ParseError>>(s: &str) -> PyResult<T> {

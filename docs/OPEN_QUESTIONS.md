@@ -1369,3 +1369,24 @@ it is resolved.
   paged map join (keyset cursor plus `JOIN … LEFT JOIN` over the whole type) may be the
   cause rather than the join itself.
 - Resolve by: T5.12 (benchmarks, F12).
+
+## OQ-055 — Two departures from `10` §2.3 in the Python adapters
+- Raised in: T5.9
+- Blocking: no
+- (a) Placeholders. §2.3 parameterises the Postgres `SqlDialect` by placeholder style
+  (`Format` for psycopg and Django). Current choice: the store keeps its one `Dollar`
+  dialect (which `Engine::write_in` reads from the store), and pemba-py's adapter rewrites
+  each statement on its way to the driver: `$n` → `%s` with the parameters put in
+  placeholder order, and every literal `%` doubled. Same SQL reaches the server; no second
+  dialect object per call; and a schema whose name contains `%` (which
+  `check_schema_name` allows) works, where the "statement text holds no `%`" rule alone
+  would break it. Option considered: a `PostgresDialect::with_style(Format)` passed to
+  a new `write_in_with_dialect` (more API for the same result).
+- (b) `allow_autocommit` on SQLAlchemy and Django. §2.3's guard rail reads as "no open
+  transaction → `ValueError` unless `allow_autocommit=True`, then pemba wraps the write
+  in its own `BEGIN` … `COMMIT`". Current choice: only for a raw psycopg connection.
+  SQLAlchemy and Django manage their connection's transaction (a `Session` autobegins,
+  `atomic()` toggles autocommit); a `BEGIN`/`COMMIT` pemba sent underneath them would
+  desynchronise their state. So they must already be in a transaction, and the error
+  names `session.begin()` / `connection.begin()` / `transaction.atomic()`.
+- Resolve by: maintainer.

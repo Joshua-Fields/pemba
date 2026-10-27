@@ -22,12 +22,10 @@ pub(crate) fn class_name(code: &str) -> Option<&'static str> {
         "NO_SCHEMA" => "NoSchemaError",
         "INVALID_RELATIONSHIP" => "InvalidRelationshipError",
         "INVALID_REQUEST" | "BATCH_TOO_LARGE" => "InvalidRequestError",
-        // REVISION_PENDING and WRITE_ROLLED_BACK come from Postgres foreign mode; their own
-        // subclasses arrive with the Python Postgres engine (T5.9).
-        "REVISION_NOT_YET_AVAILABLE"
-        | "REVISION_EXPIRED"
-        | "REVISION_PENDING"
-        | "WRITE_ROLLED_BACK" => "ConsistencyError",
+        "REVISION_NOT_YET_AVAILABLE" | "REVISION_EXPIRED" => "ConsistencyError",
+        // Both `ConsistencyError` subclasses (`docs/10-postgres.md` §1.6.4).
+        "REVISION_PENDING" => "RevisionPending",
+        "WRITE_ROLLED_BACK" => "WriteRolledBack",
         "MAX_DEPTH_EXCEEDED"
         | "FANOUT_EXCEEDED"
         | "READ_LIMIT_EXCEEDED"

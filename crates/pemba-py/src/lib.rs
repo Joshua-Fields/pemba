@@ -10,10 +10,13 @@
 //! blocks; no `unsafe` is written by hand here.
 
 mod errors;
+mod pg;
 mod types;
 
 use std::collections::VecDeque;
+use std::ffi::CString;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
@@ -25,6 +28,7 @@ use pemba::{
     CheckItem, CheckRequest, EngineConfig, LookupResourcesRequest, LookupSubjectsRequest,
     MemoryStore, ReadRelationshipsRequest,
 };
+use pemba_store_postgres::{PostgresConfig, PostgresStore};
 use pemba_store_pysqlite::{PySqliteConfig, PySqliteStore, PyTxn};
 use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
@@ -34,13 +38,67 @@ use crate::errors::{IntoPy, parse_err};
 use crate::types::{
     CheckResult, CheckTrace, DeleteResult, Diagnostic, GcStats, LookupResult, OrphanReport,
     Precondition, Relationship, SubjectsResult, TraceNode, filter, pending_revision,
-    pending_revision_type, revision,
+    pending_revision_type, revision, unresolved_pending_revision,
 };
 
 /// The engine over whichever store it was opened with.
 enum Inner {
     Sqlite(SqliteEngine),
     Memory(pemba::Engine<MemoryStore>),
+    /// Boxed: the store's pool and config make it much larger than the other variants.
+    Postgres(Box<PgEngine>),
+}
+
+/// An engine over the Rust Postgres store (`docs/10-postgres.md` §2.2): its calls
+/// release the GIL, as a memory engine's do.
+struct PgEngine {
+    engine: pemba::Engine<PostgresStore>,
+    /// Whether this engine raised its `PembaWarning` for an early trigger firing
+    /// (`docs/10-postgres.md` §1.6.7): once per engine.
+    warned: AtomicBool,
+}
+
+impl PgEngine {
+    /// Raises `pemba.PembaWarning` the first time the store has seen a revision assigned
+    /// before `COMMIT`.
+    fn warn_if_early(&self, py: Python<'_>) -> PyResult<()> {
+        if self.engine.store().early_firing_seen() && !self.warned.swap(true, Ordering::AcqRel) {
+            let category = py.import("pemba._errors")?.getattr("PembaWarning")?;
+            let message = CString::new(
+                "pemba: a revision was assigned before COMMIT, by SET CONSTRAINTS ... IMMEDIATE \
+                 in the writing transaction (Django's check_constraints() does this); every \
+                 other pemba commit on this store waited for that transaction to end. Name \
+                 your own constraints instead of SET CONSTRAINTS ALL IMMEDIATE \
+                 (docs/10-postgres.md §1.6.7). Warned once per engine.",
+            )?;
+            PyErr::warn(py, &category, &message, 2)?;
+        }
+        Ok(())
+    }
+}
+
+/// Resolves a Postgres `PendingRevision` on the engine's own connection: the native half
+/// of the Python `PendingRevision`, which calls it once and caches the answer.
+#[pyclass(frozen, module = "pemba._pemba", name = "_PendingHandle")]
+struct PendingHandle {
+    inner: Arc<Inner>,
+    pending: pemba::model::PendingRevision,
+}
+
+#[pymethods]
+impl PendingHandle {
+    /// The revision; raises `RevisionPending` before the commit and `WriteRolledBack`
+    /// after a rollback.
+    fn __call__(&self, py: Python<'_>) -> PyResult<u64> {
+        let Inner::Postgres(p) = &*self.inner else {
+            return Err(PyTypeError::new_err(
+                "not a Postgres engine's pending revision",
+            ));
+        };
+        let rev = py.detach(|| p.engine.resolve(&self.pending)).py(py)?;
+        p.warn_if_early(py)?;
+        Ok(rev.0)
+    }
 }
 
 /// An engine over CPython's own `sqlite3` (OQ-032), and the lock that serialises its
@@ -70,6 +128,10 @@ macro_rules! run {
                 })
             }
             Inner::Memory($e) => $py.detach(|| $body),
+            Inner::Postgres(p) => {
+                let $e = &p.engine;
+                $py.detach(|| $body)
+            }
         }
     };
 }
@@ -160,13 +222,8 @@ impl Engine {
     /// §10), after the argument checks. The same-file check runs in
     /// [`pemba::Engine::write_in`] on every write: a cache keyed by `id(conn)` would trust a
     /// new connection that reuses a dropped one's id (OQ-034 (a)).
-    fn foreign_conn(&self, conn: &Bound<'_, PyAny>, allow_autocommit: bool) -> PyResult<Py<PyAny>> {
+    fn foreign_conn(conn: &Bound<'_, PyAny>, allow_autocommit: bool) -> PyResult<Py<PyAny>> {
         let py = conn.py();
-        if matches!(&*self.inner, Inner::Memory(_)) {
-            return Err(PyValueError::new_err(
-                "conn= needs an Engine.sqlite() engine on the same database file",
-            ));
-        }
         let class = py.import("sqlite3")?.getattr("Connection")?;
         if !conn.is_instance(&class)? {
             return Err(PyTypeError::new_err(format!(
@@ -182,6 +239,50 @@ impl Engine {
             ));
         }
         Ok(conn.clone().unbind())
+    }
+
+    /// A write inside the app's Postgres transaction (`docs/10-postgres.md` §2.3). Returns
+    /// an unresolved `PendingRevision`, or with `allow_autocommit` on a connection without
+    /// a transaction, one pemba committed and resolved itself.
+    fn postgres_write_in<'py>(
+        &self,
+        py: Python<'py>,
+        p: &PgEngine,
+        conn: &Bound<'py, PyAny>,
+        allow_autocommit: bool,
+        req: WriteRequest,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let f = pg::foreign(conn, allow_autocommit)?;
+        let mut txn = pg::PgPyTxn::new(py, &f.raw)?;
+        if f.own_transaction {
+            txn.simple(py, "BEGIN")?;
+        }
+        // Each statement takes the GIL back to call the driver.
+        let written = py.detach(|| p.engine.write_in(&mut txn, req));
+        let pending = match written {
+            Ok(pending) => pending,
+            Err(e) => {
+                if f.own_transaction {
+                    // The original error is the one to report.
+                    let _ = txn.simple(py, "ROLLBACK");
+                }
+                return Err(errors::to_py(py, &e));
+            }
+        };
+        if f.own_transaction {
+            txn.simple(py, "COMMIT")?;
+            let rev = py.detach(|| p.engine.resolve(&pending)).py(py)?;
+            p.warn_if_early(py)?;
+            return pending_revision(py, rev);
+        }
+        let handle = Py::new(
+            py,
+            PendingHandle {
+                inner: Arc::clone(&self.inner),
+                pending,
+            },
+        )?;
+        unresolved_pending_revision(py, handle.into_bound(py).into_any())
     }
 
     fn check_request(
@@ -253,6 +354,46 @@ impl Engine {
         })
     }
 
+    /// Opens the Postgres store in `schema` of the database `dsn` names (a `postgres://`
+    /// URL or libpq `key=value` pairs; `docs/10-postgres.md` §2.2). Calls release the GIL.
+    ///
+    /// `schema=None` takes the connection's `current_schema()`. With `auto_migrate=False`
+    /// (the default, OQ-047) the tables must already exist: migrate as a deploy step, or
+    /// pass `auto_migrate=True` where the role may run DDL.
+    #[staticmethod]
+    #[pyo3(signature = (dsn, *, schema=None, pool_size=8, auto_migrate=false, max_depth=50))]
+    fn postgres(
+        py: Python<'_>,
+        dsn: &str,
+        schema: Option<String>,
+        pool_size: usize,
+        auto_migrate: bool,
+        max_depth: u32,
+    ) -> PyResult<Self> {
+        let engine = py
+            .detach(|| {
+                let mut cfg = PostgresConfig::default()
+                    .with_pool_size(pool_size)
+                    .with_auto_migrate(auto_migrate);
+                if let Some(s) = schema {
+                    cfg = cfg.with_schema(s);
+                }
+                PostgresStore::open(dsn, cfg).and_then(|store| {
+                    pemba::Engine::builder()
+                        .store(store)
+                        .config(config(max_depth))
+                        .build()
+                })
+            })
+            .py(py)?;
+        Ok(Self {
+            inner: Arc::new(Inner::Postgres(Box::new(PgEngine {
+                engine,
+                warned: AtomicBool::new(false),
+            }))),
+        })
+    }
+
     /// An engine over a fresh in-memory store.
     #[staticmethod]
     #[pyo3(signature = (*, max_depth=50))]
@@ -321,14 +462,21 @@ impl Engine {
         conn: Option<&Bound<'py, PyAny>>,
         allow_autocommit: bool,
     ) -> PyResult<Bound<'py, PyAny>> {
-        let foreign = match conn {
-            Some(c) => Some(self.foreign_conn(c, allow_autocommit)?),
-            None if allow_autocommit => {
+        let foreign = match (conn, &*self.inner) {
+            (Some(_), Inner::Memory(_)) => {
+                return Err(PyValueError::new_err(
+                    "conn= needs an Engine.sqlite() engine on the same database file, or an \
+                     Engine.postgres() engine on the same database",
+                ));
+            }
+            (Some(c), Inner::Sqlite(_)) => Some(Self::foreign_conn(c, allow_autocommit)?),
+            (None, _) if allow_autocommit => {
                 return Err(PyValueError::new_err(
                     "allow_autocommit applies only to a write with conn=",
                 ));
             }
-            None => None,
+            // A Postgres `conn` is checked by `postgres_write_in`, once the request is built.
+            (Some(_), Inner::Postgres(_)) | (None, _) => None,
         };
         let mut req = WriteRequest::default();
         if let Some(t) = touch {
@@ -350,6 +498,10 @@ impl Engine {
             }
         }
         match (&foreign, &*self.inner) {
+            (_, Inner::Postgres(p)) if conn.is_some() => {
+                let conn = conn.ok_or_else(|| PyValueError::new_err("conn is required"))?;
+                self.postgres_write_in(py, p, conn, allow_autocommit, req)
+            }
             (Some(conn), Inner::Sqlite(s)) => {
                 let rev = py
                     .detach(|| {
@@ -686,6 +838,7 @@ fn _pemba(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<OrphanReport>()?;
     m.add_class::<GcStats>()?;
     m.add_class::<DeleteResult>()?;
+    m.add_class::<PendingHandle>()?;
     m.add("ERROR_CODES", pemba::Error::CODES.to_vec())?;
     let (a, b, c) = pemba_sqlite_common::MIN_SQLITE_VERSION;
     m.add("MIN_SQLITE_VERSION", format!("{a}.{b}.{c}"))?;

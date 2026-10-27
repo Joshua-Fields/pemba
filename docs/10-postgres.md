@@ -762,8 +762,11 @@ million writes at GC time. As built:
 
 A transaction can switch deferred constraints to immediate with
 `SET CONSTRAINTS ALL IMMEDIATE`, or by naming pemba's trigger. Apps and frameworks do this
-to surface constraint errors early. Django's `check_constraints()` is believed to issue
-`SET CONSTRAINTS ALL IMMEDIATE` followed by `... DEFERRED`; T5.9 verifies this.
+to surface constraint errors early. Django's `check_constraints()` issues
+`SET CONSTRAINTS ALL IMMEDIATE` followed by `... DEFERRED` (verified in T5.9 on Django
+6.1: `django/db/backends/postgresql/base.py`, and
+`test_django_check_constraints_fires_early_and_warns_once`), and Django's `TestCase`
+calls it after every test, so test suites of Django apps see the warning.
 
 **Behaviour:**
 - **Issued after a pemba write:** the queued trigger event fires at that statement (the
@@ -917,7 +920,12 @@ Common rules:
 - **Placeholders.** `SqlDialect` for Postgres is parameterised by placeholder style:
   `Dollar` for the Rust driver and asyncpg, `Format` (`%s`) for psycopg and Django.
   pemba's statement text must never contain a literal `%`. A unit test pins this, because
-  psycopg would read one as a placeholder.
+  psycopg would read one as a placeholder. **As built (T5.9, OQ-055):** the store keeps
+  one `Dollar` dialect, and the Python adapter rewrites each statement on the way to the
+  driver (`$n` → `%s`, parameters in placeholder order, any `%` doubled), so a schema
+  named with `%` works too (`test_a_percent_in_the_schema_name_is_not_a_placeholder`).
+- **As built (T5.9):** `allow_autocommit` applies to raw psycopg connections only;
+  SQLAlchemy and Django must already be in a transaction (OQ-055).
 - **Errors.** SQLSTATE `23505` maps to `UniqueViolation`. `40001`, `40P01` and `55P03` map
   to the retryable `Conflict`. `25P02` (the transaction is already aborted) and everything
   else map to `Foreign { message }`. This mirrors `05` §10.
@@ -944,10 +952,13 @@ Common rules:
 - use foreign mode through a *sync* connection held by a worker thread.
 
 Passing an async connection to `write(conn=)` raises `TypeError` with a pointer to this
-section. One candidate is unverified: `AsyncSession.run_sync`, which hands a function a
-greenlet-adapted sync `Session`. pemba's adapter would call the adapted connection from
-Rust inside that greenlet. T5.9 tries it; if it works, it becomes the documented interim
-route.
+section. `AsyncSession.run_sync` hands a function a greenlet-adapted sync `Session`;
+pemba's adapter calls the adapted connection from Rust inside that greenlet. **T5.9:
+it works** (`test_async_session_run_sync`, SQLAlchemy 2.1 with psycopg 3 async), so it
+is the documented interim route:
+`await session.run_sync(lambda s: engine.write(..., conn=s))` inside `session.begin()`.
+The adapter recognises SQLAlchemy's `AsyncAdapt_*` dialect connection as sync and sends
+statements through its `cursor()`; the session vouches for the transaction.
 
 The plan for T5.13:
 

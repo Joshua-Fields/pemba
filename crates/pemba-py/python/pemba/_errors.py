@@ -75,6 +75,25 @@ class ConsistencyError(PembaError):
     """The requested revision is not committed yet, or was garbage-collected."""
 
 
+class RevisionPending(ConsistencyError):
+    """``PendingRevision.revision()`` before the writing transaction committed (Postgres):
+    the revision is assigned at commit. Resolve after committing."""
+
+
+class WriteRolledBack(ConsistencyError):
+    """``PendingRevision.revision()`` for a write whose transaction rolled back, or that was
+    rolled back to a savepoint (Postgres): it has no revision."""
+
+
+class PembaWarning(UserWarning):
+    """Something works but costs more than it should; the message says what and why.
+
+    On Postgres: a revision was assigned before ``COMMIT`` by ``SET CONSTRAINTS ...
+    IMMEDIATE`` in the writing transaction (Django's ``check_constraints()`` runs it), so
+    every other pemba commit waited for that transaction. Raised once per engine.
+    """
+
+
 class EvaluationLimitError(PembaError):
     """Evaluation hit a limit (depth, fan-out, reads, lookup size) or an undefined cycle."""
 

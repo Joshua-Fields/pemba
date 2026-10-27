@@ -596,6 +596,13 @@ impl<S: WritableStore> Engine<S> {
         Ok(stats)
     }
 
+    /// The store this engine runs on, for store-specific state such as a Postgres store's
+    /// early-firing flag. Writing through it bypasses the engine's schema validation;
+    /// use the engine's own methods for that.
+    pub fn store(&self) -> &S {
+        &self.store
+    }
+
     /// The highest committed revision; `Revision(0)` for an empty store.
     ///
     /// # Errors

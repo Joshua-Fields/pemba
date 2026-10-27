@@ -452,7 +452,9 @@ MIN_SQLITE_VERSION: str   # "3.26.0": oldest sqlite3.sqlite_version Engine.sqlit
 class Revision(int): ...
 
 class PendingRevision:                 # what write(..., conn=) returns (ADR-015)
-    def revision(self) -> Revision: ...  # the number; call after commit
+    def revision(self) -> Revision: ...  # the number; call after commit. Postgres:
+                                         # RevisionPending before it, WriteRolledBack after
+                                         # a rollback; cached once known
     @property
     def resolved(self) -> bool: ...      # True once known (always, on SQLite)
     # int(p) / operator.index(p): deprecated, DeprecationWarning; removed next release.
@@ -463,6 +465,9 @@ class Engine:
     def sqlite(path: str | os.PathLike[str], *, reader_pool: int = 4,
                busy_timeout_ms: int = 5000, auto_migrate: bool = True,
                max_depth: int = 50) -> "Engine": ...
+    @staticmethod
+    def postgres(dsn: str, *, schema: str | None = None, pool_size: int = 8,
+                 auto_migrate: bool = False, max_depth: int = 50) -> "Engine": ...  # T5.9
     @staticmethod
     def memory(*, max_depth: int = 50) -> "Engine": ...
 
@@ -566,7 +571,7 @@ Rules:
   processes open with `auto_migrate=False` (`NotMigrated` if the step was skipped). An
   instance method could never run where it matters: with `auto_migrate=False` an
   unmigrated database fails in `Engine.sqlite` before any engine exists.
-- Memory-engine calls release the GIL. SQLite-engine calls run one at a time per engine
+- Memory- and Postgres-engine calls release the GIL (`10` §2.2). SQLite-engine calls run one at a time per engine
   and hold the GIL throughout, because every statement is a call into `sqlite3` (§2.5,
   OQ-033 (b)). Other Python threads still run while SQLite itself works or waits on a
   lock (`sqlite3` releases the GIL there).
@@ -576,6 +581,26 @@ Rules:
   rolls back, and the returned `PendingRevision` is readable only after commit. Pass it
   as `at_least=` or call `.revision()` after commit; `at_exactly=` takes only a revision. No open
   transaction → `ValueError` unless `allow_autocommit=True`. Memory engine → `ValueError`.
+- On a Postgres engine (T5.9, `10` §2.3), `c` is a psycopg 3 or psycopg2 connection, a
+  SQLAlchemy `Session` or `Connection` on one, or `django.db.connection`, recognised by
+  duck typing (pemba imports none of them). Its database must be the engine's (else
+  `FOREIGN_CONNECTION_MISMATCH`). The returned `PendingRevision` is unresolved: `.revision()`
+  raises `RevisionPending` before the commit and `WriteRolledBack` after a rollback (or a
+  rollback to a savepoint covering the write), and caches the answer.
+  - A raw psycopg connection outside autocommit is in a transaction from its first
+    statement, which the app commits. In autocommit with none open: `ValueError`, unless
+    `allow_autocommit=True`, when pemba wraps the write in its own `BEGIN` … `COMMIT` and
+    returns a resolved `PendingRevision`.
+  - SQLAlchemy and Django must already be in a transaction (`session.begin()`,
+    `connection.begin()`, `transaction.atomic()`), `allow_autocommit` or not: pemba never
+    opens or commits one on a connection they manage (OQ-055).
+  - A connection in a failed transaction, or with a statement in progress: `ValueError`.
+    An async connection or session: `TypeError`; from async code, use
+    `AsyncSession.run_sync(lambda s: engine.write(..., conn=s))`, which works (`10` §2.4).
+  - The first time an engine resolves a write whose revision was assigned before
+    `COMMIT` (`SET CONSTRAINTS ALL IMMEDIATE`; Django's `check_constraints()` runs it, and
+    Django's `TestCase` calls that after every test), it raises `pemba.PembaWarning`
+    (`10` §1.6.7).
 - `Engine` is thread-safe; share one instance per process. Not fork-safe: create it after
   forking (document for gunicorn `--preload` users).
 - Dataclass-like result types (`Relationship`, `Precondition`, `CheckResult`,
@@ -592,9 +617,9 @@ PembaError(Exception)               .code: str  (Rust Error::code()), .retryable
 ├── NoSchemaError                    NO_SCHEMA
 ├── InvalidRelationshipError         INVALID_RELATIONSHIP; .relationship: str, .reason: str (E_ code)
 ├── InvalidRequestError              INVALID_REQUEST, BATCH_TOO_LARGE
-├── ConsistencyError                 REVISION_NOT_YET_AVAILABLE, REVISION_EXPIRED,
-│                                    REVISION_PENDING, WRITE_ROLLED_BACK (T5.8; own
-│                                    subclasses RevisionPending / WriteRolledBack in T5.9)
+├── ConsistencyError                 REVISION_NOT_YET_AVAILABLE, REVISION_EXPIRED
+│   ├── RevisionPending              REVISION_PENDING (Postgres, before the commit; T5.9)
+│   └── WriteRolledBack              WRITE_ROLLED_BACK (Postgres, after a rollback; T5.9)
 ├── EvaluationLimitError             MAX_DEPTH_EXCEEDED, FANOUT_EXCEEDED, READ_LIMIT_EXCEEDED,
 │                                    LOOKUP_TOO_LARGE, NON_MONOTONIC_CYCLE
 ├── StaleRelationshipError           STALE_RELATIONSHIP; .relationship: str
@@ -606,6 +631,9 @@ PembaError(Exception)               .code: str  (Rust Error::code()), .retryable
     └── TransactionConflictError     TRANSACTION_CONFLICT: retry the whole transaction
 ```
 Every `Error::code()` maps to exactly one class (tested by iterating `Error::CODES`).
+`pemba.PembaWarning(UserWarning)` is a warning, not an error: raised once per engine for
+something that works but costs more than it should (on Postgres, an early trigger
+firing, `10` §1.6.7).
 `retryable` is `StoreError::is_retryable()` (true for `TRANSACTION_CONFLICT` and a
 persistent `SchemaChanged`), else false.
 Python argument mistakes raise built-in `ValueError` / `TypeError`, not `PembaError`.

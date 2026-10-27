@@ -268,6 +268,14 @@ impl PostgresStore {
         migrate::migrate(&mut first.client, &first.dialect)
     }
 
+    /// Whether a write this store resolved had its revision assigned before `COMMIT`, by
+    /// `SET CONSTRAINTS ... IMMEDIATE` in the writing transaction (`docs/10-postgres.md`
+    /// §1.6.7). Set the first time; the store also logs it once through `tracing`.
+    /// Bindings use it to raise their own warning (Python's `PembaWarning`).
+    pub fn early_firing_seen(&self) -> bool {
+        self.early_warned.load(Ordering::Acquire)
+    }
+
     /// The schema holding this store's tables, unquoted.
     pub fn schema(&self) -> &str {
         self.dialect.schema()

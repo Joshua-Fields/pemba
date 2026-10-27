@@ -20,6 +20,7 @@ pemba-store-memory = { path = "crates/pemba-store-memory", version = "0.1.0-alph
 pemba-store-sqlite = { path = "crates/pemba-store-sqlite", version = "0.1.0-alpha.2" }
 pemba-sqlite-common = { path = "crates/pemba-sqlite-common", version = "0.1.0-alpha.2" }
 pemba-store-pysqlite = { path = "crates/pemba-store-pysqlite", version = "0.1.0-alpha.2" }
+pemba-store-postgres = { path = "crates/pemba-store-postgres", version = "0.1.0-alpha.2" }
 pemba = { path = "crates/pemba", version = "0.1.0-alpha.2", default-features = false }
 pemba-fixtures = { path = "crates/pemba-fixtures", version = "0.1.0-alpha.2" }
 pemba-testkit = { path = "crates/pemba-testkit" }

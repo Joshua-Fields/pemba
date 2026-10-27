@@ -1,7 +1,7 @@
 """Type stubs for pemba (``docs/06-api.md`` §2.2)."""
 
 import os
-from collections.abc import Iterable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from typing import Any, Literal, final, overload
 
 __all__ = [
@@ -32,7 +32,10 @@ __all__ = [
     "TraceNode",
     "TransactionConflictError",
     "PembaError",
+    "PembaWarning",
+    "RevisionPending",
     "WriteConflictError",
+    "WriteRolledBack",
 ]
 
 MIN_SQLITE_VERSION: str
@@ -43,11 +46,14 @@ class Revision(int): ...
 @final
 class PendingRevision:
     """The revision a write(..., conn=) commits at (ADR-015). Resolve it after commit, or pass it as at_least=."""
+    def __init__(
+        self, revision: int | None = None, *, resolver: Callable[[], int] | None = None
+    ) -> None: ...
     def revision(self) -> Revision:
-        """The committed revision."""
+        """The committed revision. On Postgres raises RevisionPending before the commit and WriteRolledBack after a rollback."""
     @property
     def resolved(self) -> bool:
-        """Whether the number is known (always True on SQLite)."""
+        """Whether the number is known: always on SQLite; on Postgres once revision() succeeded."""
     def __int__(self) -> int:
         """Deprecated (DeprecationWarning): use revision()."""
     def __index__(self) -> int:
@@ -307,6 +313,16 @@ class Engine:
     ) -> Engine:
         """Opens (and by default migrates) a SQLite database file, through CPython's own sqlite3."""
     @staticmethod
+    def postgres(
+        dsn: str,
+        *,
+        schema: str | None = None,
+        pool_size: int = 8,
+        auto_migrate: bool = False,
+        max_depth: int = 50,
+    ) -> Engine:
+        """Opens the Postgres store in schema (default: the connection's current_schema()); calls release the GIL."""
+    @staticmethod
     def memory(*, max_depth: int = 50) -> Engine:
         """An engine over a fresh in-memory store."""
     def write_schema(self, source: str) -> int:
@@ -338,7 +354,7 @@ class Engine:
         conn: Any,
         allow_autocommit: bool = False,
     ) -> PendingRevision:
-        """Runs the batch inside conn's open sqlite3 transaction; the returned PendingRevision is readable only after the caller commits."""
+        """Runs the batch inside conn's open transaction: a sqlite3.Connection (Engine.sqlite), or a psycopg 3 / psycopg2 connection, SQLAlchemy Session / Connection or django.db.connection (Engine.postgres). The returned PendingRevision is readable only after the caller commits."""
     def delete_relationships(
         self,
         *,
@@ -488,6 +504,9 @@ class InvalidRelationshipError(PembaError):
 
 class InvalidRequestError(PembaError): ...
 class ConsistencyError(PembaError): ...
+class RevisionPending(ConsistencyError): ...
+class WriteRolledBack(ConsistencyError): ...
+class PembaWarning(UserWarning): ...
 class EvaluationLimitError(PembaError): ...
 
 class StaleRelationshipError(PembaError):
