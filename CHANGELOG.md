@@ -10,7 +10,7 @@ The Rust crates and the Python package share one version: `0.1.0-alpha.2` on cra
 
 ## [Unreleased]
 
-## [0.1.0-alpha.2] - 2026-10-26
+## [0.1.0-alpha.2] - 2026-10-27
 
 ### Added
 
@@ -52,6 +52,10 @@ The Rust crates and the Python package share one version: `0.1.0-alpha.2` on cra
 
 ### Fixed
 
+- `check_with_trace`, before release: with a subject-set subject, a memo hit could refer
+  to a later, unsettled evaluation of the same member under an exclusion's subtracted side
+  instead of the node that settled its value, so a `✓` hit pointed at a `✗` node. Found by
+  the trace property test; answers were never affected.
 - The Python package's README (`crates/pemba-py/README.md`) is in sync with the
   repository README again.
 
