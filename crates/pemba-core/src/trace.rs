@@ -350,7 +350,8 @@ mod tests {
     use super::*;
 
     proptest! {
-        #![proptest_config(ProptestConfig::with_cases(2000))]
+        // At least 2 000, or `PROPTEST_CASES` if higher (the weekly soak, proptest.yml).
+        #![proptest_config(ProptestConfig::with_cases(ProptestConfig::default().cases.max(2000)))]
 
         /// Any string at all, with a quote, a backslash, a control character and non-ASCII
         /// always in it (none of which the id grammar admits today, `docs/02` §1.2), comes

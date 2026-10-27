@@ -35,6 +35,17 @@ jobs:
       # `prop5_*_full` (memory ≡ SQLite, ~25 s), `prop2_*_full` (lookup_resources, both
       # stores, ~8 s), `prop3_*_full` (lookup_subjects, both stores, ~8 s) and
       # `schema_change_*_full` run at least 1 000 cases each; `prop4_*_full` includes GC.
+      # Property 7 (`trace::*_full`, check_with_trace on both stores) is in the
+      # properties binary too.
       - run: cargo test -p pemba-testkit --test properties -- --ignored
+        env:
+          PROPTEST_CASES: ${{ inputs.cases || '10000' }}
+      # The other trace properties: ids through the trace JSON (`tests/trace.rs`) and the
+      # JSON string escaper (pemba-core). Each runs at least its own floor, or
+      # PROPTEST_CASES if higher.
+      - name: trace JSON properties, raised case count
+        run: |
+          cargo test -p pemba-testkit --test trace
+          cargo test -p pemba-core --lib trace::
         env:
           PROPTEST_CASES: ${{ inputs.cases || '10000' }}

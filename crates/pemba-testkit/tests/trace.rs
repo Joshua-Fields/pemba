@@ -487,7 +487,8 @@ mod json_ids {
     }
 
     proptest! {
-        #![proptest_config(ProptestConfig::with_cases(500))]
+        // At least 500, or `PROPTEST_CASES` if higher (the weekly soak, proptest.yml).
+        #![proptest_config(ProptestConfig::with_cases(ProptestConfig::default().cases.max(500)))]
 
         #[test]
         fn ids_round_trip_through_the_trace_json(d in id(), g in id(), u in id()) {
