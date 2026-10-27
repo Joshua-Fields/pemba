@@ -69,6 +69,7 @@ the spec files the current task needs (see "Which docs to read").
 | Tests, fixtures, proptest, differential, benches | `docs/07-testing.md` |
 | What to build next, acceptance criteria | `docs/08-milestones.md` |
 | Repo layout, CI, lints, dependencies | `docs/09-repo-and-tooling.md` |
+| Postgres store design (proposal) | `docs/10-postgres.md` |
 | Glossary of terms | `docs/00-overview.md` §6 |
 
 When two docs disagree, the more specific one wins

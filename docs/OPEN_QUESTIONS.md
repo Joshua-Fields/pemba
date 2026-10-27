@@ -26,7 +26,11 @@ it is resolved.
 - Current choice: deferred; revisions must be strictly increasing in commit order, which is
   trivial on SQLite (single writer). Postgres store is out of scope until told otherwise
 - Resolve by: design work before the Postgres store
-- Resolution: (fill in)
+- Resolution: proposed in `docs/10-postgres.md` §1 (pending acceptance, T5.0): assign the
+  revision at COMMIT with a deferred constraint trigger under a store-wide advisory lock;
+  revisions stay `u64` and commit-ordered. Rejected: a lock held from write to commit, a
+  watermark, and xid8 snapshots. Spike evidence on branch `spike-pg-revisions`. Needs D1
+  (OQ-045).
 
 ## OQ-003 — Async store story before Postgres
 - Raised in: T0.1 (`docs/01-decisions.md` ADR-003)
@@ -34,7 +38,9 @@ it is resolved.
 - Current choice: synchronous `Engine` and store traits; no async runtime in library crates.
   A future async Postgres store would sit behind a blocking adapter or use a sync driver
 - Resolve by: design work before the Postgres store
-- Resolution: (fill in)
+- Resolution: proposed in `docs/10-postgres.md` §2 (pending acceptance, T5.0): stay sync
+  (`postgres` crate); Python joins async transactions through a thread bridge
+  (`write_async`); no async Rust.
 
 ## OQ-004 — `.all()` over zero related objects
 - Raised in: T0.1 (`docs/01-decisions.md` ADR-013)
@@ -1146,4 +1152,20 @@ it is resolved.
   `parse()` + `CheckRequest` as the way. (c) Build only `check_str` (the common case in
   examples and tests).
 - Resolve by: human decision during T3.9 (the 0.1.0 public-surface audit, `08`)
+- Resolution: (fill in)
+
+## OQ-045 — What a foreign-mode write returns on Postgres (D1)
+- Raised in: Postgres design (`docs/10-postgres.md` §0, §1.6.4)
+- Blocking: yes, for T5.0 (public API)
+- Current choice: none. On Postgres a write inside the caller's transaction cannot know
+  its commit-ordered revision before that transaction commits, unless it blocks every
+  other writer until then (`10` §1.2).
+- Options: (a) return `PendingRevision` (resolves after commit; `at_least=` accepts it);
+  `assign_now=True` opts into an immediate `Revision` at the cost of holding the store-wide
+  lock until commit. Rust: a separate `write_in` returning `PendingRevision` in
+  `pemba-store-postgres`, SQLite unchanged (proposed). (b) the same, with a store-generic
+  `WriteReceipt` enum for both stores (a breaking change to SQLite `write_in` too).
+  (c) always assign at write time (option (a) of `10` §1.3): no API change, but one long
+  transaction stalls every relationship write.
+- Resolve by: human decision
 - Resolution: (fill in)
