@@ -459,6 +459,7 @@ impl<S: WritableStore> Engine<S> {
         self.store.check_same_database(txn)?;
         let rev = self.validated(&req, |req, version| {
             crate::write::write(txn, self.store.dialect(), req, Some(version))
+                .and_then(crate::write::Applied::into_revision)
         })?;
         tracing::debug!(
             revision = rev.0,

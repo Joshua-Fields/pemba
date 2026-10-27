@@ -429,6 +429,7 @@ fn foreign_write_does_not_touch_the_cache() {
     let tx = app.transaction().unwrap();
     let rev =
         pemba_core::write::write(&mut crate::SqliteTxn::new(&tx), store.dialect(), &req, None)
+            .and_then(pemba_core::write::Applied::into_revision)
             .unwrap();
     assert_eq!(rev, Revision(1));
     let out_of_range = |r: Result<bool, StoreError>| {

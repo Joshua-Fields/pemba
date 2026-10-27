@@ -86,9 +86,16 @@ pub trait WriteTxn {
 pub enum SqlValue { Null, Integer(i64), Text(String) }
 
 pub trait SqlDialect: Send + Sync {
-    fn placeholder(&self, n: usize) -> String;   // "?" for SQLite, "$n" for Postgres
-    fn table(&self, name: &str) -> String;       // applies TABLE_PREFIX and optional schema
+    fn placeholder_style(&self) -> PlaceholderStyle; // Question (SQLite), Dollar, Format (%s)
+    fn placeholder(&self, n: usize) -> String;       // default: from placeholder_style
+    fn revision_strategy(&self) -> RevisionStrategy; // AllocateNow (SQLite) | AssignAtCommit
+    fn table(&self, name: &str) -> String;           // applies TABLE_PREFIX and optional schema
 }
+// AllocateNow: §5 below. AssignAtCommit (Postgres, ADR-015): rows carry created_batch /
+// deleted_batch, the write queues a pemba_pending row, and write::write returns
+// Applied::Pending { batch, xid } (docs/10-postgres.md §1.6.1). Statement text never holds a
+// literal `%` (Format style). delete_matching and write_schema refuse AssignAtCommit until
+// T5.5.
 
 /// Typed mutations every store supports (OQ-014). Each call is one atomic transaction.
 pub trait WritableStore: ReadStore {
