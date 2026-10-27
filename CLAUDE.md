@@ -107,6 +107,11 @@ cargo doc --workspace --no-deps                       # no broken intra-doc link
 cd crates/pemba-py && maturin develop && pytest -q && mypy --strict tests
 ```
 
+While iterating, run only what you touched: `cargo test -q -p <crate>` and
+`cargo clippy -p <crate> --all-targets`, plus the tests of crates that depend on it
+when the change is to a public API (pemba-core → pemba, pemba-testkit, pemba-py).
+Run the full check above once, before opening or updating a PR, not after every edit.
+
 ---
 
 ## 6. Things that are explicitly out of scope until told otherwise
