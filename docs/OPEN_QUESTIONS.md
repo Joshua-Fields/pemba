@@ -1236,3 +1236,51 @@ it is resolved.
   async callers is T5.13's async foreign mode. No direct `tokio` dependency. The crate
   docs of `pemba-store-postgres` say "from async code, call through `spawn_blocking`",
   with an example.
+
+## OQ-049 — A schema write racing a version-checked write on Postgres
+- Raised in: T5.5 (`docs/10-postgres.md` §1.6.1, `docs/05-storage.md` §7)
+- Blocking: no (the conservative option is implemented and tested)
+- Problem: `05` §7 relies on "running the orphan check in the schema write's transaction
+  means no write can slip in between", which SQLite's single writer guarantees. Under
+  READ COMMITTED it does not: write W checks `schema_version` (v1) and inserts tuples;
+  schema write S counts live tuples without seeing W's uncommitted rows, finds no orphans
+  and commits v2; W commits tuples v2 forbids. `10` §1.6.1 locks only schema writes
+  against each other.
+- Current choice: the schema lock (`SqlDialect::schema_lock`) is taken exclusively by
+  schema writes before the counts and **shared by every write that passes a
+  `schema_version`**, before reading it, both held to commit. Tested by
+  `schema_writes_and_checked_writes_serialise`. Cost: one more lock call per checked write;
+  a schema write waits for checked writes in flight, and a long foreign transaction that
+  wrote relationships delays schema writes until it ends.
+- Open for T5.8: in a REPEATABLE READ (or SERIALIZABLE) app transaction, the version is
+  read from the transaction's snapshot, which may predate a schema write that committed
+  while the shared lock was awaited. SERIALIZABLE's SSI should refuse that pair (40001); RR
+  would not. A fix that keeps the shared lock: the schema write also updates a
+  `pemba_meta` row, and checked writes read it `FOR SHARE`, which fails RR with 40001 (the
+  retryable `Conflict`) when that row changed after the snapshot.
+- Options considered: (a) as above; (b) no lock, accepting stale tuples, which `04`
+  §3.3's `StaleRelationship` would fail closed on at read time (data at head contradicting
+  the schema breaks `05` §7's guarantee); (c) SERIALIZABLE for every native write
+  (40001 retries on ordinary writes).
+- Resolve by: maintainer, before T5.8.
+
+## OQ-050 — Which `10` §4.1 cases T5.5 covers
+- Raised in: T5.5 (AC: "the full conformance suite passes (the `10` §4.1 additions
+  included)")
+- Blocking: no
+- Problem: several §4.1 additions need the app's own transaction (`Engine::write_in` and
+  `resolve` on Postgres are T5.8) or Postgres GC (T5.7).
+- Current choice: the whole `store_conformance` suite runs on Postgres, on the store and
+  through snapshots (head form vs map join on every case). The §4.1 cases needing an app
+  transaction run in `pemba-store-postgres`'s own tests, driving the shared algorithm on a
+  raw `postgres::Transaction` and resolving through the lookup native writes use:
+  rollback, savepoint rollback, two writes in one transaction, create then delete,
+  `SET CONSTRAINTS ALL IMMEDIATE` before/after/then `DEFERRED`, the early flag, the
+  WARNING, the once-per-store `tracing` warning, a skipped revision (head, reads at the
+  gap, the next write), and the 1,000-tuple batch. They are not in the generic suite,
+  which drives `&dyn WritableStore` only. Deferred: `PendingRevision` pending / committed /
+  rolled back on Postgres and `AtLeast(gap)` (T5.8), `gc(keep_from = gap)` (T5.7). GC on
+  Postgres in T5.5 is the minimum the suite needs: horizon first, then deletes through
+  the batch map; pending-row and map pruning and compaction stay in T5.7.
+- Resolve by: maintainer; T5.8 can move the app-transaction cases into a generic SQL-store
+  suite once `write_in` works on both stores.

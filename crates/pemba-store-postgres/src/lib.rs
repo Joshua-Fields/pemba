@@ -1,10 +1,21 @@
 //! Postgres relationship store for pemba.
 //!
 //! Implements `docs/10-postgres.md` §2.1 (a synchronous client and a hand-rolled pool), §3
-//! (tables, migrations, schema qualification) and §1.6.2 (reads: [`ReadStore`] with a
-//! `REPEATABLE READ` snapshot). Writes (T5.5) follow.
+//! (tables, migrations, schema qualification), §1.6.2 (reads: [`ReadStore`] with a
+//! `REPEATABLE READ` snapshot) and §1.6.1 (native writes: [`WritableStore`], each call
+//! its own READ COMMITTED transaction, the revision assigned by a trigger at commit).
+//! Joining the app's own transaction (`Engine::write_in`) follows in T5.8.
 //!
 //! [`ReadStore`]: pemba_core::store::ReadStore
+//! [`WritableStore`]: pemba_core::store::WritableStore
+//!
+//! # Retrying
+//!
+//! A write that fails with SQLSTATE `40001` (serialization failure) or `40P01`
+//! (deadlock) returns the retryable [`StoreError::Conflict`] (code
+//! `TRANSACTION_CONFLICT`): roll back and run the whole transaction again, with
+//! exponential backoff and jitter (`docs/06-api.md` §1). Every other database error is
+//! [`StoreError::Backend`] and is not retryable.
 //!
 //! # Schemas and `search_path`
 //!
@@ -55,18 +66,12 @@ mod sql;
 #[cfg(test)]
 mod tests;
 mod tls;
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "native writes use it from T5.5; until then only tests do"
-    )
-)]
 mod txn;
+mod write;
 
 use std::fmt;
 use std::str::FromStr;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use pemba_core::Error;
 use pemba_core::model::Revision;
@@ -140,6 +145,8 @@ pub struct PostgresStore {
     pool: pool::Pool,
     dialect: PostgresDialect,
     cache: Cache,
+    /// Whether the early-firing warning (`docs/10-postgres.md` §1.6.7) was given.
+    early_warned: AtomicBool,
 }
 
 /// Head and GC horizon as last observed (`docs/05-storage.md` §2 "Revision checks"),
@@ -158,10 +165,6 @@ impl Cache {
     }
 
     /// After this store's own commit at `head`.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "native writes call it from T5.5")
-    )]
     fn observe_head(&self, head: Revision) {
         self.head.fetch_max(head.0, Ordering::AcqRel);
     }
@@ -220,6 +223,7 @@ impl PostgresStore {
             pool: pool::Pool::new(pg_config, connector, config.pool_size, client),
             dialect,
             cache: Cache::default(),
+            early_warned: AtomicBool::new(false),
         };
         // Seed the cache so reads on the store work before anyone asks for head.
         store.head_revision()?;
@@ -314,7 +318,9 @@ impl First {
 }
 
 /// Classifies a driver error: unique violations and serialisation failures get their own
-/// variants because the write algorithm and callers act on them.
+/// variants because the write algorithm and callers act on them. SQLSTATE 40001 and 40P01
+/// become the retryable [`StoreError::Conflict`], so callers can tell "retry with backoff"
+/// from "fail" by [`StoreError::is_retryable`] or the code `TRANSACTION_CONFLICT`.
 pub(crate) fn store_err(e: &postgres::Error) -> StoreError {
     let Some(db) = e.as_db_error() else {
         return StoreError::Backend {

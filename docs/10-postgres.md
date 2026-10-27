@@ -486,7 +486,17 @@ the same connection, now in autocommit. `Engine::write` keeps returning `Revisio
 `write_schema` and `delete_matching` follow the same pattern with `kind = 'schema'` and
 `'delete_filter'`; `pemba_schema` stores `created_batch` and resolves it like the rows do.
 Concurrent schema writes are serialised by an extra `pg_advisory_xact_lock` taken before
-step 2b (a different key), so `version = max + 1` is safe.
+step 2b (a different key: `PEMBA_LOCK_CLASS` and the oid of `pemba_schema`), so
+`version = max + 1` is safe. **Writes that check the schema version take the same lock
+shared** (`pg_advisory_xact_lock_shared`) before reading it (T5.5, OQ-049): otherwise,
+under READ COMMITTED, a write could pass its version check, a schema write could count
+live tuples without seeing that write's rows and commit, and the write would then commit
+tuples the new schema forbids. A schema write therefore waits for checked writes in
+flight, and checked writes wait for it. Unchecked writes (`schema_version = None`) and
+`delete_matching` take no schema lock.
+
+After commit, the lookup also reads `early` (§1.6.7), and a found revision raises the
+store's cached head, so reads on the store right after see the write.
 
 #### 1.6.2 Reads
 
@@ -761,7 +771,10 @@ So the trigger can tell. Proposal (T5.5):
   the store-wide revision lock is held until this transaction ends`. The WARNING reaches
   the client (psycopg's notice handler) and the server log.
 - **`resolve()`** sees `early` and emits a `tracing` warning (Rust) or a `PembaWarning`
-  (Python), once per engine. Apps that never read notices still find out.
+  (Python), once per engine. Apps that never read notices still find out. (T5.5: the
+  post-commit lookup that native writes and T5.8's `resolve` share emits the `tracing`
+  warning once per store, which is once per engine since an engine owns its store.
+  `PembaWarning` comes with the Python Postgres engine in T5.9; SQLite never fires early.)
 - **Known false positive:** a client that sends several statements in one simple query
   ending in `COMMIT` shows the whole string. Match `COMMIT` / `END` as the final
   statement.

@@ -57,23 +57,6 @@ const CASES: &[(&str, Case)] = &[
     ),
 ];
 
-/// The cases that drive the store only through [`WritableStore::write`] and the
-/// [`ReadStore`](pemba_core::store::ReadStore) reads: what a store must pass before its
-/// schema writes, `delete_matching` and GC exist (Postgres T5.4).
-pub const READ_CASES: &[&str] = &[
-    "empty_store",
-    "visibility_at_revisions",
-    "read_subject_sets",
-    "read_related_objects",
-    "read_tuples",
-    "read_order_bytewise",
-    "read_reverse_filters",
-    "read_relationships_filters",
-    "pagination_ordering",
-    "count_by_relation",
-    "reads_above_head_fail",
-];
-
 /// Runs every conformance case, each against a fresh store from `factory`, and reports
 /// all failing cases at once.
 ///
@@ -82,24 +65,7 @@ pub const READ_CASES: &[&str] = &[
 /// If any case fails; the message lists the failing case names, and each case's own
 /// panic message is printed above it.
 pub fn run<S: WritableStore + 'static>(factory: impl Fn() -> S) {
-    run_matching(factory, |_| true);
-}
-
-/// Runs the [`READ_CASES`] only, like [`run`].
-///
-/// # Panics
-///
-/// As [`run`].
-pub fn run_reads<S: WritableStore + 'static>(factory: impl Fn() -> S) {
-    run_matching(factory, |name| READ_CASES.contains(&name));
-}
-
-fn run_matching<S: WritableStore + 'static>(
-    factory: impl Fn() -> S,
-    wanted: impl Fn(&str) -> bool,
-) {
-    let selected: Vec<_> = CASES.iter().filter(|(name, _)| wanted(name)).collect();
-    let failed: Vec<&str> = selected
+    let failed: Vec<&str> = CASES
         .iter()
         .filter(|(_, case)| {
             let store = factory();
@@ -111,7 +77,7 @@ fn run_matching<S: WritableStore + 'static>(
         failed.is_empty(),
         "{} of {} store conformance cases failed: {}",
         failed.len(),
-        selected.len(),
+        CASES.len(),
         failed.join(", ")
     );
 }
@@ -1174,16 +1140,4 @@ fn concurrent_writer_and_readers(s: &dyn WritableStore) {
     });
 
     check_rev(head(s));
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn every_read_case_is_a_case() {
-        for name in READ_CASES {
-            assert!(CASES.iter().any(|(n, _)| n == name), "{name}");
-        }
-    }
 }

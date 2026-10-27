@@ -1,6 +1,7 @@
-//! Property 5 (`docs/07-testing.md` §2): two stores give identical results for identical
-//! op sequences. Shared by the memory ≡ SQLite property in this crate's tests and by every
-//! other store's tests (`pemba-store-pysqlite`).
+//! Property 5 (`docs/07-testing.md` §2): stores give identical results for identical op
+//! sequences. Shared by the memory ≡ SQLite property in this crate's tests and by every
+//! other store's tests (`pemba-store-pysqlite`, and memory ≡ SQLite ≡ Postgres in
+//! `pemba-store-postgres`).
 
 // Test-support code: a failed expectation must panic so the test fails.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
@@ -88,23 +89,20 @@ pub fn reads(s: &dyn WritableStore, rev: Revision) -> Vec<String> {
     out
 }
 
-/// Property 5 (`docs/07-testing.md` §2): runs `ops` on both stores, comparing every
-/// outcome, then compares every read at every revision from one below the horizon to one
-/// above head.
+/// Property 5 (`docs/07-testing.md` §2): runs `ops` on every store, comparing each
+/// outcome with the first store's, then compares every read at every revision from one
+/// below the horizon to one above head.
 ///
 /// # Errors
 ///
-/// A [`TestCaseError`] naming the first difference.
+/// A [`TestCaseError`] naming the first difference and the index of the store that
+/// differs from store 0.
 ///
 /// # Panics
 ///
-/// If a store cannot report its head revision, horizon or schema.
-pub fn equivalent(
-    a: &dyn WritableStore,
-    b: &dyn WritableStore,
-    ops: &[StoreOp],
-) -> Result<(), TestCaseError> {
-    let stores: [&dyn WritableStore; 2] = [a, b];
+/// If `stores` is empty, or a store cannot report its head revision, horizon or schema.
+pub fn equivalent(stores: &[&dyn WritableStore], ops: &[StoreOp]) -> Result<(), TestCaseError> {
+    assert!(!stores.is_empty(), "no stores to compare");
     for (step, op) in ops.iter().enumerate() {
         let results: Vec<String> = stores
             .iter()
@@ -121,7 +119,9 @@ pub fn equivalent(
                 }
             })
             .collect();
-        prop_assert_eq!(&results[0], &results[1], "step {}: {:?}", step, op);
+        for (i, r) in results.iter().enumerate().skip(1) {
+            prop_assert_eq!(&results[0], r, "store {}, step {}: {:?}", i, step, op);
+        }
     }
     let ends: Vec<_> = stores
         .iter()
@@ -133,14 +133,17 @@ pub fn equivalent(
             )
         })
         .collect();
-    prop_assert_eq!(&ends[0], &ends[1]);
+    for (i, end) in ends.iter().enumerate().skip(1) {
+        prop_assert_eq!(&ends[0], end, "store {}", i);
+    }
     let (head, horizon, _) = ends[0].clone();
     // One revision either side of the readable range must fail the same way.
     let low = Revision(horizon.0.saturating_sub(1));
     for rev in (low.0..=head.0 + 1).map(Revision) {
-        let a = reads(stores[0], rev);
-        let b = reads(stores[1], rev);
-        prop_assert_eq!(a, b, "reads at {}", rev);
+        let first = reads(stores[0], rev);
+        for (i, s) in stores.iter().enumerate().skip(1) {
+            prop_assert_eq!(&first, &reads(*s, rev), "store {}, reads at {}", i, rev);
+        }
     }
     Ok(())
 }

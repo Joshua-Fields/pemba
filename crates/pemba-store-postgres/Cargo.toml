@@ -30,5 +30,9 @@ tokio-postgres-rustls = { version = "0.14.0", optional = true }
 
 [dev-dependencies]
 pemba-testkit.workspace = true
+# Store equivalence, memory ≡ SQLite ≡ Postgres (docs/10-postgres.md §4 item 2).
+pemba-store-memory.workspace = true
+pemba-store-sqlite.workspace = true
+proptest.workspace = true
 # Only for the test that pins how the blocking client behaves inside a runtime.
 tokio = { version = "1.54.1", default-features = false, features = ["rt-multi-thread", "macros"] }

@@ -59,6 +59,22 @@ impl SqlDialect for PostgresDialect {
     fn row_id(&self) -> &'static str {
         "ctid"
     }
+
+    /// `docs/10-postgres.md` §1.6.1: an advisory lock keyed, like the revision lock, by
+    /// [`PEMBA_LOCK_CLASS`](crate::PEMBA_LOCK_CLASS) and a table's oid, here
+    /// `pemba_schema`'s, so it differs from the revision lock and between stores (OQ-049).
+    fn schema_lock(&self, exclusive: bool) -> Option<String> {
+        let function = if exclusive {
+            "pg_advisory_xact_lock"
+        } else {
+            "pg_advisory_xact_lock_shared"
+        };
+        Some(format!(
+            "SELECT pg_catalog.{function}({}, '{}'::pg_catalog.regclass::pg_catalog.oid::pg_catalog.int4)",
+            crate::PEMBA_LOCK_CLASS,
+            literal_body(&self.table("pemba_schema")),
+        ))
+    }
 }
 
 /// Refuses schema names the store cannot use safely.
@@ -117,6 +133,16 @@ mod tests {
         assert_eq!(d.placeholder(3), "$3");
         assert_eq!(d.revision_strategy(), RevisionStrategy::AssignAtCommit);
         assert_eq!(d.row_id(), "ctid");
+        assert_eq!(
+            d.schema_lock(false).unwrap(),
+            "SELECT pg_catalog.pg_advisory_xact_lock_shared(1885695330, \
+             '\"My \"\"odd\"\" schema\".pemba_schema'::pg_catalog.regclass::pg_catalog.oid::pg_catalog.int4)"
+        );
+        assert!(
+            d.schema_lock(true)
+                .unwrap()
+                .starts_with("SELECT pg_catalog.pg_advisory_xact_lock(")
+        );
     }
 
     #[test]

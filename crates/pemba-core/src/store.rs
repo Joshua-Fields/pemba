@@ -612,6 +612,16 @@ pub trait SqlDialect: Send + Sync {
     /// (`DELETE ... WHERE <row_id> IN (SELECT <row_id> ... LIMIT n)`): `rowid` for SQLite,
     /// `ctid` for Postgres.
     fn row_id(&self) -> &'static str;
+    /// A statement that takes, until the transaction ends, the lock ordering schema writes
+    /// (`exclusive`) against writes that check the schema version (shared), or `None` where
+    /// the database's own write lock already serialises every write (SQLite).
+    ///
+    /// Without it, under READ COMMITTED a schema write's orphan check and a concurrent
+    /// write's version check could each pass before the other commits (OQ-049).
+    fn schema_lock(&self, exclusive: bool) -> Option<String> {
+        let _ = exclusive;
+        None
+    }
 }
 
 /// A store whose writes are SQL, so the shared write algorithm can drive it.

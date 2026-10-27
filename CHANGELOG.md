@@ -19,6 +19,11 @@ The Rust crates and the Python package share one version: `0.1.0-alpha.2` on cra
   (Python); in Rust, `tx.commit()?` then `engine.resolve(&pending)?`.
   `int(pending)` and `operator.index(pending)` keep working for one release with a
   `DeprecationWarning`; comparisons and arithmetic do not. Rust has no transition aid.
+- For store implementers only: `pemba_core::write::delete_matching` returns `Deleted` and
+  `pemba_core::write::write_schema` returns `SchemaWritten`, which carry an `Applied`
+  (a revision, or a batch a commit trigger maps to one). Migration for stores that
+  allocate revisions inside the write: `.into_result()` and `.into_stored(source, hash)`.
+  `SqlDialect` gains `schema_lock`, defaulting to none.
 
 ### Added
 

@@ -46,7 +46,7 @@ impl Drop for TempStore {
 fn equivalent(ops: &[StoreOp]) -> Result<(), TestCaseError> {
     let memory = MemoryStore::new();
     let py = TempStore::new();
-    pemba_testkit::store_equivalence::equivalent(&memory, py.store.as_ref().unwrap(), ops)
+    pemba_testkit::store_equivalence::equivalent(&[&memory, py.store.as_ref().unwrap()], ops)
 }
 
 fn config(cases: u32) -> ProptestConfig {

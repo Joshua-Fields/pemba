@@ -521,6 +521,10 @@ and without `ANALYZE` statistics.
   `p` was deleted from `x`) or wildcard (wildcards are grouped apart from objects, OQ-015
   (c)). Removing a permission is allowed exactly when no live tuple uses it as a subject
   relation. Running the check in the write transaction means no write can slip in between.
+  On SQLite the write lock guarantees that. On Postgres (READ COMMITTED) a **schema lock**
+  does (`SqlDialect::schema_lock`, OQ-049): the schema write takes it exclusively before
+  reading the counts, and every write that checks the version (§5 step 2b) takes it shared
+  before reading the version, each held to commit.
 - Insert a `pemba_revisions` row (`kind='schema'`) and the `pemba_schema` row with that
   `created_rev`.
 - **Writes check the version** (§5 step 2b): every engine write passes the version it
