@@ -350,7 +350,12 @@ parent.
 `source: memo_hit { ref }`, no children, and `ref` names the one node where that member is
 shown in full. A member is shown in full exactly once; every later occurrence is a
 reference, so the trace is linear in the nodes evaluated, never exponential in the paths
-to them. `ref` is `None` only when the full node was never recorded (cap).
+to them. `ref` is `None` only when the full node was never recorded (cap). For a
+subject-set subject the memo keeps values computed under a subtracted side apart from the
+others (§3.3, `Memo`), so one member can be settled once on each side, and evaluated again
+on one side after settling on the other; a memo hit refers to the node that settled the
+side it was answered from, never to a later evaluation on the other side (found by the
+trace property in CI; `a_memo_hit_refers_to_the_node_that_settled_its_side`).
 
 **Cycles (§3.6).** The trace shows only the final pass of each region; passes that were
 re-run are discarded, so no intermediate pass's value is shown as an answer. The head of a
