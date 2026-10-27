@@ -1263,6 +1263,27 @@ it is resolved.
   the schema breaks `05` §7's guarantee); (c) SERIALIZABLE for every native write
   (40001 retries on ordinary writes).
 - Resolve by: maintainer, before T5.8.
+- Resolution: Resolved by the human, 2026-10-27: keep (a), the shared lock, and close the
+  REPEATABLE READ gap with the `pemba_meta` row. Done in T5.8: migration v1 (unreleased)
+  gains `('schema_version', '0')`; schema writes update it before counting and take
+  their version from it; checked writes read it `FOR SHARE`. Tested by
+  `a_schema_write_after_the_snapshot_is_a_retryable_conflict` (RR → `TRANSACTION_CONFLICT`,
+  RC → succeeds). A database migrated by a pre-T5.8 development build lacks the row, and
+  its checked writes fail closed with `Corrupt`; no release shipped v1 without it.
+
+## OQ-051 — The same-database check costs a round trip per `write_in`
+- Raised in: T5.8 (`docs/10-postgres.md` §2.3: "folded into the first statement of each
+  write (step 2b), so it costs no extra round trip")
+- Blocking: no
+- Current choice: `SqlStore::check_same_database` runs its own query
+  (`pg_control_system()`'s `system_identifier` and `current_database()`) on the caller's
+  transaction before the write; the store's side is read once at `open`. Folding it into
+  step 2b would put Postgres-only SQL into the shared algorithm or need a new
+  `SqlDialect` hook, for one round trip on a path that already makes several (each
+  statement is also prepared first, `txn.rs`).
+- Options considered: fold it into the version read via a dialect hook; cache per
+  connection (a `PgTxn` cannot identify its connection across calls).
+- Resolve by: T5.12's benchmarks, if foreign-mode write latency matters.
 
 ## OQ-050 — Which `10` §4.1 cases T5.5 covers
 - Raised in: T5.5 (AC: "the full conformance suite passes (the `10` §4.1 additions
@@ -1284,3 +1305,9 @@ it is resolved.
   the batch map; pending-row and map pruning and compaction stay in T5.7.
 - Resolve by: maintainer; T5.8 can move the app-transaction cases into a generic SQL-store
   suite once `write_in` works on both stores.
+- T5.8: `PendingRevision` pending / committed / rolled back (and savepoint) and
+  `AtLeast(gap)` / `Exact(gap)` through the engine are now in
+  `pemba-store-postgres/tests/foreign.rs`. The generic SQL-store suite is not done: the
+  stores' transaction types differ (`SqliteTxn`, `PgTxn`), so a shared suite needs a
+  per-store "begin / commit / rollback" adapter; left open. `gc(keep_from = gap)` stays
+  T5.7.

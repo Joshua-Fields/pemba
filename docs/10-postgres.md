@@ -495,6 +495,14 @@ tuples the new schema forbids. A schema write therefore waits for checked writes
 flight, and checked writes wait for it. Unchecked writes (`schema_version = None`) and
 `delete_matching` take no schema lock.
 
+The version a checked write compares is the `pemba_meta` row `schema_version`, read
+`FOR SHARE` and held to commit (T5.8, OQ-049); every schema write updates that row,
+before counting live tuples, and takes its new version from it. Under READ COMMITTED
+this changes nothing. Under REPEATABLE READ or SERIALIZABLE, a caller's transaction whose
+snapshot predates a schema write would otherwise compare a stale version; instead,
+locking a row updated since the snapshot fails with SQLSTATE 40001, the retryable
+`Conflict`. `FOR SHARE` needs `UPDATE` on `pemba_meta`, which writing roles hold anyway.
+
 After commit, the lookup also reads `early` (§1.6.7), and a found revision raises the
 store's cached head, so reads on the store right after see the write.
 
@@ -952,7 +960,9 @@ change with no API impact, so it is deferred.
 CREATE TABLE <s>.pemba_meta (
     key   text COLLATE "C" PRIMARY KEY,
     value text NOT NULL
-);  -- ('storage_version','1'), ('gc_horizon','0'), ('created_at', ISO-8601)
+);  -- ('storage_version','1'), ('gc_horizon','0'), ('schema_version','0') (T5.8,
+    --  OQ-049: mirrors MAX(pemba_schema.version); schema writes update it, checked
+    --  writes read it FOR SHARE), ('created_at', ISO-8601)
 
 CREATE SEQUENCE <s>.pemba_batch_seq;   -- batch ids, no ordering meaning
 CREATE SEQUENCE <s>.pemba_rev_seq;     -- revisions; drawn only by the commit trigger

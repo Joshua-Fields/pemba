@@ -14,7 +14,7 @@ use crate::eval::{
 };
 use crate::lookup::{self, Candidates, LookupResourcesRequest, LookupResourcesResponse};
 use crate::model::{
-    Consistency, ObjectId, ObjectRef, PendingRevision, Precondition, Relationship,
+    Consistency, ObjectId, ObjectRef, Pending, PendingRevision, Precondition, Relationship,
     RelationshipFilter, Revision, SubjectRef, TypeName, WriteRequest,
 };
 use crate::store::{
@@ -457,15 +457,15 @@ impl<S: WritableStore> Engine<S> {
         )
         .entered();
         self.store.check_same_database(txn)?;
-        let rev = self.validated(&req, |req, version| {
+        let applied = self.validated(&req, |req, version| {
             crate::write::write(txn, self.store.dialect(), req, Some(version))
-                .and_then(crate::write::Applied::into_revision)
         })?;
-        tracing::debug!(
-            revision = rev.0,
-            "batch written, pending the caller's commit"
-        );
-        Ok(PendingRevision::resolved_at(rev))
+        let pending = match applied {
+            crate::write::Applied::At(rev) => PendingRevision::resolved_at(rev),
+            crate::write::Applied::Pending { batch, xid } => PendingRevision::at_commit(batch, xid),
+        };
+        tracing::debug!(%pending, "batch written, pending the caller's commit");
+        Ok(pending)
     }
 
     /// The revision a [`write_in`](Self::write_in) committed at. Call it after the caller's
@@ -473,30 +473,35 @@ impl<S: WritableStore> Engine<S> {
     ///
     /// On SQLite the number is known when `write_in` returns, so this does no I/O and
     /// succeeds even before the commit; resolve only after a successful commit anyway, so
-    /// the code also works on stores that assign the number at commit (ADR-015).
+    /// the code also works on stores that assign the number at commit (ADR-015). On
+    /// Postgres it asks the store on the store's own connection, never inside the caller's
+    /// transaction, and caches the answer in `pending` and its clones.
     ///
     /// # Errors
     ///
-    /// None yet: every store so far allocates the number inside the write. Stores that
-    /// assign it at commit will report a write that has not committed, or was rolled back.
-    #[allow(
-        clippy::unnecessary_wraps,
-        clippy::unused_self,
-        reason = "signature fixed by docs/10-postgres.md §1.6.4; Postgres needs both"
-    )]
+    /// On Postgres: [`Error::RevisionPending`] while the caller's transaction is still
+    /// open; [`Error::WriteRolledBack`] if it rolled back, or the write was rolled back to
+    /// a savepoint; [`Error::Store`] if the store fails. None on SQLite.
     pub fn resolve(&self, pending: &PendingRevision) -> Result<Revision, Error> {
-        Ok(pending.known())
+        match pending.pending() {
+            Pending::Known(r) => Ok(r),
+            Pending::Batch { batch, xid } => {
+                let rev = self.store.resolve_batch(batch, xid)?;
+                pending.remember(rev);
+                Ok(rev)
+            }
+        }
     }
 
     /// Checks batch size, schema presence, ops and precondition filters against the newest
     /// schema known, then runs `apply` with that schema's version, which commits only if the
     /// store is still at it. If another process changed the schema meanwhile, reloads it and
     /// validates again, up to [`SCHEMA_RETRIES`] times.
-    fn validated(
+    fn validated<T>(
         &self,
         req: &WriteRequest,
-        mut apply: impl FnMut(&WriteRequest, u64) -> Result<Revision, Error>,
-    ) -> Result<Revision, Error> {
+        mut apply: impl FnMut(&WriteRequest, u64) -> Result<T, Error>,
+    ) -> Result<T, Error> {
         if req.ops.len() > self.config.max_write_batch {
             return Err(Error::BatchTooLarge {
                 max: self.config.max_write_batch,

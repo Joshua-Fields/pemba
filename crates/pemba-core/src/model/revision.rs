@@ -1,7 +1,9 @@
 //! Revisions and read consistency (`docs/02-data-model.md` §2, §4).
 
 use std::fmt;
+use std::hash::{Hash, Hasher};
 use std::str::FromStr;
+use std::sync::{Arc, OnceLock};
 
 use super::error::{Component, Fail, ParseError, ParseErrorReason};
 
@@ -20,16 +22,60 @@ pub struct Revision(pub u64);
 /// [`Engine::resolve`](crate::Engine::resolve) **after** the commit. On SQLite it is
 /// already resolved when returned: the number is allocated inside the write, and it
 /// becomes readable once the caller commits. If the caller rolls back, the number is void
-/// and SQLite may give it to a later write, which this value cannot detect.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+/// and SQLite may give it to a later write, which this value cannot detect. On Postgres
+/// the number is assigned at commit: `resolve` asks the store, fails with
+/// `RevisionPending` before the commit and `WriteRolledBack` after a rollback, and caches
+/// the answer, so clones resolved later need no I/O.
+#[derive(Clone, Debug)]
 #[non_exhaustive]
 pub struct PendingRevision {
     state: PendingState,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug)]
 enum PendingState {
     Resolved(Revision),
+    /// The rows carry `batch`, which the commit trigger maps to a revision; `xid` is the
+    /// writing transaction, for telling "still open" from "rolled back". `cache` is
+    /// shared by clones.
+    AtCommit {
+        batch: u64,
+        xid: u64,
+        cache: Arc<OnceLock<Revision>>,
+    },
+}
+
+impl PendingState {
+    /// What identifies the write; the cache is not part of it.
+    fn key(&self) -> (Option<Revision>, u64, u64) {
+        match self {
+            Self::Resolved(r) => (Some(*r), 0, 0),
+            Self::AtCommit { batch, xid, .. } => (None, *batch, *xid),
+        }
+    }
+}
+
+impl PartialEq for PendingRevision {
+    fn eq(&self, other: &Self) -> bool {
+        self.state.key() == other.state.key()
+    }
+}
+
+impl Eq for PendingRevision {}
+
+impl Hash for PendingRevision {
+    fn hash<H: Hasher>(&self, h: &mut H) {
+        self.state.key().hash(h);
+    }
+}
+
+/// What resolving a [`PendingRevision`] needs from the store.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+pub(crate) enum Pending {
+    /// Known.
+    Known(Revision),
+    /// Ask the store about `batch`, written by transaction `xid`.
+    Batch { batch: u64, xid: u64 },
 }
 
 impl PendingRevision {
@@ -41,27 +87,60 @@ impl PendingRevision {
         }
     }
 
-    /// The number, for `Engine::resolve`. A state that must ask the store breaks this
-    /// match on purpose, so `resolve` has to handle it.
-    pub(crate) const fn known(&self) -> Revision {
-        match self.state {
-            PendingState::Resolved(r) => r,
+    /// A write whose revision the commit assigns to `batch` (Postgres).
+    #[must_use]
+    pub(crate) fn at_commit(batch: u64, xid: u64) -> Self {
+        Self {
+            state: PendingState::AtCommit {
+                batch,
+                xid,
+                cache: Arc::default(),
+            },
         }
     }
 
-    /// The revision, if it is already known without asking the store.
+    /// What `Engine::resolve` has to do.
+    pub(crate) fn pending(&self) -> Pending {
+        match &self.state {
+            PendingState::Resolved(r) => Pending::Known(*r),
+            PendingState::AtCommit {
+                batch, xid, cache, ..
+            } => cache.get().map_or(
+                Pending::Batch {
+                    batch: *batch,
+                    xid: *xid,
+                },
+                |r| Pending::Known(*r),
+            ),
+        }
+    }
+
+    /// Remembers the store's answer for this value and its clones.
+    pub(crate) fn remember(&self, revision: Revision) {
+        if let PendingState::AtCommit { cache, .. } = &self.state {
+            let _ = cache.set(revision);
+        }
+    }
+
+    /// The revision, if it is already known without asking the store: always on SQLite;
+    /// on Postgres once a [`resolve`](crate::Engine::resolve) of it (or a clone) succeeded.
     #[must_use]
-    pub const fn resolved(&self) -> Option<Revision> {
-        match self.state {
-            PendingState::Resolved(r) => Some(r),
+    pub fn resolved(&self) -> Option<Revision> {
+        match self.pending() {
+            Pending::Known(r) => Some(r),
+            Pending::Batch { .. } => None,
         }
     }
 }
 
 impl fmt::Display for PendingRevision {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self.state {
-            PendingState::Resolved(r) => write!(f, "pending {r} (resolved)"),
+        match (&self.state, self.resolved()) {
+            (_, Some(r)) => write!(f, "pending {r} (resolved)"),
+            (PendingState::AtCommit { batch, .. }, None) => {
+                write!(f, "pending batch {batch} (unresolved)")
+            }
+            (PendingState::Resolved(_), None) => f.write_str("pending (unresolved)"),
         }
     }
 }

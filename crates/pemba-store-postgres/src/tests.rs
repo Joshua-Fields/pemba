@@ -30,7 +30,7 @@ use pemba_core::write::Applied;
 use pemba_testkit::store_conformance;
 use postgres::{Client, NoTls, Transaction};
 
-use crate::txn::PostgresTxn;
+use crate::txn::PgTxn;
 use crate::{PostgresConfig, PostgresStore, store_err};
 
 fn pg_url() -> Option<String> {
@@ -277,7 +277,7 @@ fn docs(s: &dyn ReadStore, rev: Revision) -> Vec<String> {
 
 /// The shared write algorithm inside the app's transaction `tx`; returns the batch.
 fn app_write(s: &TestStore, tx: &mut Transaction<'_>, req: &WriteRequest) -> u64 {
-    match pemba_core::write::write(&mut PostgresTxn(tx), &s.store.dialect, req, None).unwrap() {
+    match pemba_core::write::write(&mut PgTxn::new(tx), &s.store.dialect, req, None).unwrap() {
         Applied::Pending { batch, .. } => batch,
         other => panic!("Postgres writes assign at commit, got {other:?}"),
     }
@@ -614,7 +614,7 @@ fn schema_writes_and_checked_writes_serialise() {
     let mut app = s.app_client();
     let mut tx = app.transaction().unwrap();
     pemba_core::write::write_schema(
-        &mut PostgresTxn(&mut tx),
+        &mut PgTxn::new(&mut tx),
         &s.store.dialect,
         "x",
         "h",
@@ -641,7 +641,7 @@ fn schema_writes_and_checked_writes_serialise() {
 
     let mut tx = app.transaction().unwrap();
     pemba_core::write::write(
-        &mut PostgresTxn(&mut tx),
+        &mut PgTxn::new(&mut tx),
         &s.store.dialect,
         &touch(&["doc:1#viewer@user:b"]),
         Some(1),

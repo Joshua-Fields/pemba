@@ -497,6 +497,24 @@ pub trait WritableStore: ReadStore {
     /// [`Error::Store`] if the backend fails.
     fn gc_batch(&self, max_rows: usize) -> Result<u64, Error>;
 
+    /// The revision the commit gave `batch`, which transaction `xid` wrote inside a
+    /// caller's transaction ([`RevisionStrategy::AssignAtCommit`],
+    /// `docs/10-postgres.md` §1.6.4). Runs on the store's own connection, never inside the
+    /// caller's transaction.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::RevisionPending`] while `xid` is still open; [`Error::WriteRolledBack`] if
+    /// it rolled back or the batch was rolled back to a savepoint; [`Error::Store`] if the
+    /// backend fails. The default, for stores that number writes inside them and so never
+    /// hand out a batch, fails closed with [`Error::Store`].
+    fn resolve_batch(&self, batch: u64, xid: u64) -> Result<Revision, Error> {
+        let _ = xid;
+        Err(Error::Store(StoreError::Backend {
+            message: format!("this store does not assign revisions at commit (batch {batch})"),
+        }))
+    }
+
     /// Garbage-collects history below `keep_from`: [`raise_gc_horizon`](Self::raise_gc_horizon),
     /// then [`gc_batch`](Self::gc_batch) of [`GC_BATCH_ROWS`] until a batch removes none
     /// (so the last batch is always empty).

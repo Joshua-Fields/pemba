@@ -7,17 +7,19 @@
 //! 40001 and 40P01 are the retryable [`StoreError::Conflict`].
 
 use std::sync::atomic::Ordering;
+use std::time::Duration;
 
 use pemba_core::Error;
 use pemba_core::model::{RelationshipFilter, Revision, WriteRequest};
 use pemba_core::store::{
-    DeleteResult, SchemaCheck, SqlDialect, StoreError, StoredSchema, WritableStore, WriteTxn,
+    DeleteResult, SchemaCheck, SqlDialect, SqlStore, SqlValue, StoreError, StoredSchema,
+    WritableStore, WriteTxn,
 };
 use pemba_core::write::{self as shared, Applied};
 use postgres::{Client, IsolationLevel};
 
-use crate::txn::PostgresTxn;
-use crate::{PostgresStore, store_err};
+use crate::txn::PgTxn;
+use crate::{IDENTITY_SQL, PostgresStore, store_err};
 
 fn db(e: &postgres::Error) -> Error {
     Error::Store(store_err(e))
@@ -38,7 +40,7 @@ fn transact<T>(
         .isolation_level(IsolationLevel::ReadCommitted)
         .start()
         .map_err(|e| db(&e))?;
-    let out = f(&mut PostgresTxn(&mut tx))?;
+    let out = f(&mut PgTxn::new(&mut tx))?;
     tx.commit().map_err(|e| db(&e))?;
     Ok(out)
 }
@@ -171,5 +173,81 @@ impl WritableStore for PostgresStore {
     /// horizon. Pruning `pemba_pending` and the batch map is T5.7.
     fn gc_batch(&self, max_rows: usize) -> Result<u64, Error> {
         self.unversioned(|txn| shared::gc_batch(txn, &self.dialect, max_rows))
+    }
+
+    /// `docs/10-postgres.md` §1.6.4: the batch map first; if the batch is not there,
+    /// `pg_xact_status(xid)` says whether the writing transaction is still open, rolled
+    /// back, or committed an instant ago (then the lookup is retried briefly). Runs on a
+    /// pooled connection in autocommit, never inside the app's transaction.
+    fn resolve_batch(&self, batch: u64, xid: u64) -> Result<Revision, Error> {
+        let mut lease = self.pool.lease()?;
+        let client = lease.client()?;
+        if let Some(rev) = self.revision_of(client, batch)? {
+            return Ok(rev);
+        }
+        let status: Option<String> = client
+            .query_one(
+                "SELECT pg_catalog.pg_xact_status($1::pg_catalog.text::pg_catalog.xid8)::pg_catalog.text",
+                &[&xid.to_string()],
+            )
+            .and_then(|row| row.try_get(0))
+            .map_err(|e| db(&e))?;
+        match status.as_deref() {
+            Some("in progress") => Err(Error::RevisionPending),
+            Some("committed") => {
+                // The commit log can say "committed" just before the commit is visible to
+                // new snapshots.
+                for attempt in 0..COMMITTED_RETRIES {
+                    std::thread::sleep(Duration::from_millis(1 << attempt));
+                    if let Some(rev) = self.revision_of(client, batch)? {
+                        return Ok(rev);
+                    }
+                }
+                // Committed without the batch: the write was rolled back to a savepoint.
+                Err(Error::WriteRolledBack)
+            }
+            // "aborted", or NULL: too old to know, so certainly not pending, and a
+            // committed batch would still be in the map.
+            _ => Err(Error::WriteRolledBack),
+        }
+    }
+}
+
+/// Lookups after `pg_xact_status` said "committed": 1 + 2 + … + 64 ms, about 127 ms.
+const COMMITTED_RETRIES: u32 = 7;
+
+impl SqlStore for PostgresStore {
+    /// A READ COMMITTED transaction on a pooled connection, committed if `f` succeeds.
+    fn with_write_txn<T>(
+        &self,
+        f: &mut dyn FnMut(&mut dyn WriteTxn) -> Result<T, Error>,
+    ) -> Result<T, Error> {
+        let mut lease = self.pool.lease()?;
+        transact(lease.client()?, |txn| f(txn))
+    }
+
+    fn dialect(&self) -> &dyn SqlDialect {
+        &self.dialect
+    }
+
+    /// Compares the cluster's `system_identifier` and the database name seen by `txn`
+    /// with the store's (`docs/10-postgres.md` §2.3). The schema need not match the
+    /// connection's `search_path`: every statement names it.
+    fn check_same_database(&self, txn: &mut dyn WriteTxn) -> Result<(), Error> {
+        let rows = txn.query(IDENTITY_SQL, &[])?;
+        let same = match rows.as_slice() {
+            [row] => match row.as_slice() {
+                [SqlValue::Integer(system), SqlValue::Text(database)] => {
+                    *system == self.identity.system && *database == self.identity.database
+                }
+                _ => false,
+            },
+            _ => false,
+        };
+        if same {
+            Ok(())
+        } else {
+            Err(Error::ForeignConnectionMismatch)
+        }
     }
 }

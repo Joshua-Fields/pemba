@@ -15,5 +15,6 @@ mod write;
 pub use error::{Component, IdentErrorKind, ParseError, ParseErrorReason};
 pub use names::{ObjectId, RelName, TypeName};
 pub use refs::{ObjectRef, Relationship, SubjectRef};
+pub(crate) use revision::Pending;
 pub use revision::{Consistency, PendingRevision, Revision};
 pub use write::{Precondition, RelationshipFilter, WriteOp, WriteRequest};

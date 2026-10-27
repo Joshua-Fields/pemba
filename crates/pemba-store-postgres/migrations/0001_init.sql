@@ -11,8 +11,12 @@ CREATE TABLE {s}.pemba_meta (
     value text NOT NULL
 );
 
+-- schema_version mirrors MAX(pemba_schema.version). Every schema write updates it, and
+-- writes that check the version read it FOR SHARE, so a REPEATABLE READ transaction
+-- cannot check a version older than a committed schema write (OQ-049).
 INSERT INTO {s}.pemba_meta (key, value) VALUES
     ('gc_horizon', '0'),
+    ('schema_version', '0'),
     ('created_at', pg_catalog.to_char(pg_catalog.now() AT TIME ZONE 'UTC',
                                       'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'));
 

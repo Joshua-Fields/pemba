@@ -98,7 +98,7 @@ where
             // Before reading the version, so no schema write can commit between this
             // check and the batch's own commit (OQ-049).
             lock_schema(txn, dialect, false)?;
-            let found = self::schema_version(txn, dialect)?;
+            let found = checked_schema_version(txn, dialect)?;
             if found != expected {
                 return Err(Error::Store(StoreError::SchemaChanged { expected, found }));
             }
@@ -122,6 +122,46 @@ where
         dialect.table(SCHEMA)
     );
     one_integer(txn, &sql, "schema version")
+}
+
+/// The schema version a write checks against (`docs/05-storage.md` §5 step 2b).
+///
+/// With [`RevisionStrategy::AssignAtCommit`] it is the `pemba_meta` row
+/// `schema_version`, read `FOR SHARE` and held to commit (OQ-049): a schema write must
+/// update that row, so it waits for this write; and a REPEATABLE READ or SERIALIZABLE
+/// transaction whose snapshot predates a schema write fails here with a serialization
+/// failure (the retryable `Conflict`) instead of checking a stale version.
+fn checked_schema_version<T, D>(txn: &mut T, dialect: &D) -> Result<u64, Error>
+where
+    T: WriteTxn + ?Sized,
+    D: SqlDialect + ?Sized,
+{
+    match dialect.revision_strategy() {
+        RevisionStrategy::AllocateNow => schema_version(txn, dialect),
+        RevisionStrategy::AssignAtCommit => {
+            let rows = txn.query(
+                &format!(
+                    "SELECT value FROM {} WHERE key = 'schema_version' FOR SHARE",
+                    dialect.table(META)
+                ),
+                &[],
+            )?;
+            meta_version(&rows)
+        }
+    }
+}
+
+/// The version stored in a `pemba_meta` `schema_version` row.
+fn meta_version(rows: &[Vec<SqlValue>]) -> Result<u64, Error> {
+    match rows {
+        [row] => match row.as_slice() {
+            [SqlValue::Text(v)] => v
+                .parse()
+                .map_err(|_| corrupt(&format!("schema_version {v:?} is not a number"))),
+            _ => Err(corrupt("schema_version is not text")),
+        },
+        _ => Err(corrupt("pemba_meta has no schema_version row")),
+    }
 }
 
 /// Live tuple counts at head, grouped as [`RelationCount`] (`docs/05-storage.md` §7).
@@ -314,6 +354,22 @@ where
     D: SqlDialect + ?Sized,
 {
     lock_schema(txn, dialect, true)?;
+    // Before the counts: the update waits for every write holding the row `FOR SHARE`,
+    // so the counts see their tuples (OQ-049).
+    let next = match dialect.revision_strategy() {
+        RevisionStrategy::AllocateNow => None,
+        RevisionStrategy::AssignAtCommit => {
+            let rows = txn.query(
+                &format!(
+                    "UPDATE {} SET value = CAST(CAST(value AS BIGINT) + 1 AS TEXT) \
+                     WHERE key = 'schema_version' RETURNING value",
+                    dialect.table(META)
+                ),
+                &[],
+            )?;
+            Some(meta_version(&rows)?)
+        }
+    };
     check(&count_live(txn, dialect)?)?;
     let (mark, value) = mark(txn, dialect, "schema")?;
     let table = dialect.table(SCHEMA);
@@ -327,8 +383,8 @@ where
         SqlValue::Text(hash.to_owned()),
         value.clone(),
     ];
-    let version = match dialect.revision_strategy() {
-        RevisionStrategy::AllocateNow => {
+    let version = match next {
+        None => {
             txn.execute(
                 &format!(
                     "INSERT INTO {table} (source, hash, created_rev) VALUES ({p1}, {p2}, {p3})"
@@ -337,23 +393,20 @@ where
             )?;
             non_negative(txn.last_insert_id()?, "schema version")?
         }
-        // No autoincrement: the version is max + 1, safe under the exclusive schema lock.
-        RevisionStrategy::AssignAtCommit => {
-            let rows = txn.query(
+        // No autoincrement: the version comes from the `pemba_meta` row, bumped above
+        // under the exclusive schema lock.
+        Some(version) => {
+            let mut params = params.to_vec();
+            params.push(integer_value(version, "schema version")?);
+            txn.execute(
                 &format!(
-                    "INSERT INTO {table} (version, source, hash, created_batch) \
-                     SELECT COALESCE(MAX(version), 0) + 1, {p1}, {p2}, {p3} FROM {table} \
-                     RETURNING version"
+                    "INSERT INTO {table} (source, hash, created_batch, version) \
+                     VALUES ({p1}, {p2}, {p3}, {})",
+                    dialect.placeholder(4)
                 ),
                 &params,
             )?;
-            match rows.as_slice() {
-                [row] => match row.as_slice() {
-                    [SqlValue::Integer(n)] => non_negative(*n, "schema version")?,
-                    _ => return Err(corrupt("schema insert returned a non-integer version")),
-                },
-                _ => return Err(corrupt("schema insert did not return one row")),
-            }
+            version
         }
     };
     Ok(SchemaWritten {
@@ -950,8 +1003,13 @@ mod tests {
                 one(BATCH)
             } else if sql.contains("'gc_horizon'") {
                 Ok(vec![vec![SqlValue::Text("0".into())]])
-            } else if sql.contains("RETURNING version") {
-                one(SCHEMA_VERSION)
+            } else if sql.contains("'schema_version'") {
+                let v = if sql.starts_with("UPDATE") {
+                    SCHEMA_VERSION
+                } else {
+                    0
+                };
+                Ok(vec![vec![SqlValue::Text(v.to_string())]])
             } else if sql.contains("RETURNING") {
                 one(XID)
             } else if sql.contains("MAX(version)") {
@@ -1160,10 +1218,21 @@ mod tests {
             .filter(|s| s.starts_with("LOCK"))
             .collect();
         assert_eq!(locks, ["LOCK exclusive=false", "LOCK exclusive=true"]);
+        // A checked write reads the version row FOR SHARE; a schema write bumps that row
+        // before counting (OQ-049).
         let first_lock = sql.iter().position(|s| s.starts_with("LOCK")).unwrap();
-        assert!(sql[first_lock + 1].contains("MAX(version)"));
+        assert!(
+            sql[first_lock + 1].ends_with("WHERE key = 'schema_version' FOR SHARE"),
+            "{}",
+            sql[first_lock + 1]
+        );
         let second_lock = sql.iter().rposition(|s| s.starts_with("LOCK")).unwrap();
-        assert!(sql[second_lock + 1].contains("COUNT(*)"));
+        assert!(
+            sql[second_lock + 1].starts_with("UPDATE pemba_meta SET value"),
+            "{}",
+            sql[second_lock + 1]
+        );
+        assert!(sql[second_lock + 2].contains("COUNT(*)"));
 
         let mut txn = Recorder::default();
         let d = Dialect(PlaceholderStyle::Dollar, RevisionStrategy::AssignAtCommit);
