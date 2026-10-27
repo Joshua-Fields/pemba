@@ -1221,3 +1221,11 @@ it is resolved.
      `spawn_blocking` path too.
   4. Keep the panic, documented and pinned by a test (current).
 - Resolve by: maintainer.
+- Resolution: Resolved by the human, 2026-10-27: option 4. Keep the panic, documented and
+  pinned by `the_store_works_through_spawn_blocking`; this is how `postgres` and
+  `reqwest::blocking` behave. Reasons: inside a tokio task the panic is caught by the
+  runtime and fails that one request (fail closed per request, never a wrong answer);
+  Python is unaffected, since its calls never run on a tokio thread; and the real fix for
+  async callers is T5.13's async foreign mode. No direct `tokio` dependency. The crate
+  docs of `pemba-store-postgres` say "from async code, call through `spawn_blocking`",
+  with an example.

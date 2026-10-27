@@ -331,7 +331,7 @@ fn bad_configuration_is_an_invalid_request() {
     let err = PostgresStore::open(&url, PostgresConfig::default().with_schema("a$b")).unwrap_err();
     assert!(matches!(err, Error::InvalidRequest { .. }), "{err:?}");
     let err = PostgresStore::open(
-        "postgres://u:hunter2secret@127.0.0.1/db?sslmode=sometimes",
+        "postgres://u:hunter2secret@127.0.0.1/db?sslmode=sometimes", // ggignore: fake password; the test checks it never reaches an error message
         PostgresConfig::default(),
     )
     .unwrap_err();

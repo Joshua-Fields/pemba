@@ -14,9 +14,34 @@
 //!
 //! # Async callers
 //!
-//! The store is blocking: the `postgres` crate drives its own internal runtime, and it
-//! panics if called on a thread that is already running a tokio runtime. From async code,
-//! call the store (and the engine over it) inside `tokio::task::spawn_blocking`.
+//! **From async code, call through `spawn_blocking`.** The store is blocking: the
+//! `postgres` crate drives its own internal runtime, and it panics if called on a thread
+//! that is running async code (inside a tokio task or a `block_on` body). That is the
+//! same rule as `postgres` and `reqwest::blocking`. Inside a tokio task the panic fails
+//! that one request, not the process, but it is a bug in the caller. Run every call on
+//! the store, and on an engine over it, in `tokio::task::spawn_blocking`:
+//!
+//! ```no_run
+//! use std::sync::Arc;
+//!
+//! use pemba_store_postgres::{PostgresConfig, PostgresStore};
+//!
+//! # async fn example() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+//! let store = tokio::task::spawn_blocking(|| {
+//!     PostgresStore::open("postgres://app@db/app", PostgresConfig::default())
+//! })
+//! .await??;
+//! let store = Arc::new(store);
+//!
+//! // Each later call: clone the Arc into the closure.
+//! let s = Arc::clone(&store);
+//! tokio::task::spawn_blocking(move || s.check_storage_version()).await??;
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! An async API that joins the app's async transactions is planned (T5.13); Python is not
+//! affected, since its calls never run on a tokio thread.
 
 #![forbid(unsafe_code)]
 
@@ -92,6 +117,9 @@ impl PostgresConfig {
 }
 
 /// A relationship store in a Postgres schema.
+///
+/// Blocking: from async code, call it through `tokio::task::spawn_blocking` (see the
+/// [crate docs](crate#async-callers)); a direct call on a runtime thread panics.
 pub struct PostgresStore {
     pool: pool::Pool,
     dialect: PostgresDialect,

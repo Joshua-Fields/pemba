@@ -805,7 +805,10 @@ Consequences:
   T5.3: called directly on a thread running a tokio runtime, the `postgres` crate panics
   (it blocks on its own runtime). `pemba-store-postgres/tests/migrate.rs` pins both that
   `spawn_blocking` works and that the direct call panics, so a driver change that stops
-  panicking fails the test and prompts a docs update.
+  panicking fails the test and prompts a docs update. Kept as the behaviour (OQ-048,
+  decided): it matches `postgres` and `reqwest::blocking`, fails one request inside a
+  tokio task, leaves Python unaffected, and T5.13 is the real fix for async callers. The
+  crate docs say "from async code, call through `spawn_blocking`", with an example.
 - **Connection pool:** hand-rolled, like the SQLite reader pool (`05` §4.2). Default 8,
   covering native writes and snapshots alike; there is no writer mutex because Postgres
   serialises at commit. `r2d2_postgres` (last release 2024-12) adds a dependency for about
