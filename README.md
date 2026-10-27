@@ -21,10 +21,14 @@ database transaction**: the row you insert and the relationship that grants acce
 commit or roll back together. There is no second system to keep in sync, so no outbox, no
 reconciliation job, and no window where a document exists that nobody can open.
 
-**Status: alpha, published as 0.1.0-alpha.2. The API may change.** `check`, `lookup_resources`,
+<p align="center">
+  <img src="https://raw.githubusercontent.com/Joshua-Fields/pemba/main/assets/transactional-writes.svg" alt="Diagram. Left, service-based authorisation: the application writes the row to its own database and the relationship to a separate authorisation service with its own database, a dual write that lets the two drift apart if either fails. Right, pemba: the application writes the row and the relationship to its own database in one transaction." width="900">
+</p>
+
+**Status: alpha, 0.1.0-alpha.2. The API may change.** `check`, `lookup_resources`,
 `lookup_subjects`, the memory and SQLite stores, transactional writes and the Python
-bindings are implemented and tested, including against SpiceDB. The 0.1 release gate
-(`docs/08-milestones.md` T3.7) is not signed off. Expect breaking changes.
+bindings are implemented and tested, including against SpiceDB. Until 0.1.0, expect
+breaking changes.
 
 ## Install
 
@@ -94,9 +98,8 @@ conn.execute("COMMIT")
 ```
 
 Paste it into a file and run it: it needs nothing else in the directory, and CI runs it
-verbatim in an empty one (`crates/pemba-py/tests/test_readme_example.py`). The API is in
-`docs/06-api.md` §2; every method has a docstring, and the package ships type stubs that
-pass `mypy --strict`.
+verbatim in an empty one. Every method has a docstring, and the package ships type stubs
+that pass `mypy --strict`.
 
 ## Rust quick start
 
@@ -146,8 +149,7 @@ is a doctest on the `pemba` crate. For persistence, use
 
 ## Transactional writes
 
-The headline feature (`docs/05-storage.md` §10, ADR-006). pemba's tables live in your
-database, prefixed `pemba_`, and a write can run inside a transaction you opened:
+This is the headline feature. pemba's tables live in your database, prefixed `pemba_`, and a write can run inside a transaction you opened:
 
 - **Python:** pass `conn=` (a `sqlite3.Connection` on the same file, with a transaction
   open) to `engine.write`, as in the quick start. pemba neither commits nor rolls back.
@@ -171,8 +173,8 @@ bundles none. In the same process, open the database with `sqlite3` or anything 
 it (SQLAlchemy, Django, `aiosqlite`). Do **not** open it with anything that brings its own
 SQLite, such as `apsw` or `pysqlite3-binary`. On Linux and macOS, two SQLite libraries in
 one process release each other's file locks, and a committed transaction can be silently
-lost. See [`docs/06-api.md`](https://github.com/Joshua-Fields/pemba/blob/main/docs/06-api.md) §2.5 and
-[How To Corrupt An SQLite Database File](https://www.sqlite.org/howtocorrupt.html) §2.2–2.3.
+lost. See sections 2.2 and 2.3 of
+[How To Corrupt An SQLite Database File](https://www.sqlite.org/howtocorrupt.html).
 
 ## Schema guide
 
@@ -206,7 +208,7 @@ definition document {
 }
 ```
 
-**Supported** (`docs/03-schema-language.md`):
+**Supported:**
 
 - Allowed subject types: objects (`user`), subject sets (`group#member`) and wildcards
   (`user:*`).
@@ -284,7 +286,7 @@ $ pemba check 'document:d#view@user:mallory' --db app.db --explain
 denied: document:d#view@user:mallory (revision 2)
 
 ✗ document:d#view = (viewer + edit) - banned
-├── ✓ base: viewer + edit  (not needed)
+├── ✓ base: viewer + edit
 │   ├── ✓ document:d#viewer
 │   │   └── ✓ group:staff#member  via document:d#viewer@group:staff#member  ← group:staff#member@user:mallory
 │   └── · document:d#edit  (skipped)
@@ -295,8 +297,11 @@ denied: document:d#view@user:mallory (revision 2)
 Mallory can view through `group:staff`, but she is also in `group:blocked`, which is
 banned, and the ban wins. `←` shows the stored relationship that matched, `via` the
 subject set that was followed, `·` a branch never evaluated because a sibling had already
-decided. On a terminal the path that decided the answer is bold and the rest dimmed
-(`NO_COLOR` turns colour off).
+decided. When an exclusion denies, both sides are on the path that decided the answer:
+where the permission was granted (`base:`) and where it was removed (`subtracted:`). On a
+terminal that path is bold, other evaluated steps are in the normal colour, and only
+skipped steps and reused results are dimmed. `--color never` (or `NO_COLOR`) turns colour
+off; `--color always` keeps it when piping into a pager such as `less -R`.
 
 `pemba check` exits 0 if allowed, 1 if denied and 2 on any error, so scripts can rely on
 it; `--at-exactly REV` checks an older revision and `--json` prints the same tree as JSON.
@@ -333,7 +338,7 @@ Also:
   Every scenario, the in-memory store and a SpiceDB comparison (whose figures include an
   HTTP round trip) are in
   [`benches/RESULTS.md`](https://github.com/Joshua-Fields/pemba/blob/main/benches/RESULTS.md).
-  No performance targets are set yet (`docs/OPEN_QUESTIONS.md` OQ-008).
+  No performance targets are set yet.
 - **Out of scope for now:** caveats/CEL conditions, expiring relationships, Watch /
   change feeds, a server mode, and bindings other than Python.
 
@@ -353,15 +358,15 @@ fine-grained sharing without running another service. Use
 pemba's schema language is a strict subset of SpiceDB's, so if you outgrow pemba your
 schema and relationships move over as they are. The exceptions are listed in
 `KNOWN_DIFFERENCES.md`: SpiceDB refuses some schemas where a wildcard relation is reached
-through a subject set (KD-2), and answers differ for cyclic data and for wildcards against
-subject sets (KD-1, KD-3).
+through a subject set, and answers differ for cyclic data and for wildcards against subject
+sets.
 
 ## Testing
 
 - Property tests against a naive reference evaluator: `check`, `lookup_resources` and
   `lookup_subjects` agree with it, `check` at an exact revision survives interleaved writes,
   deletes and GC, and the memory and SQLite stores return identical results. Each runs
-  1,000+ generated cases ([`docs/07-testing.md`](https://github.com/Joshua-Fields/pemba/blob/main/docs/07-testing.md) §2).
+  1,000+ generated cases.
 - Differential testing against SpiceDB (a pinned release) on every fixture and at least 500
   generated cases. Every difference is listed with a repro in
   [`KNOWN_DIFFERENCES.md`](https://github.com/Joshua-Fields/pemba/blob/main/crates/pemba-difftest/KNOWN_DIFFERENCES.md).
@@ -378,12 +383,15 @@ subject sets (KD-1, KD-3).
   delegation, tool grant and the person's own access, and revoking the agent commits in
   the application's transaction. CI runs it.
 
-## Documentation
+## Design documents
 
-The specification lives in [`docs/`](https://github.com/Joshua-Fields/pemba/tree/main/docs/); start with
-[`docs/00-overview.md`](https://github.com/Joshua-Fields/pemba/blob/main/docs/00-overview.md). Design decisions are in
-[`docs/01-decisions.md`](https://github.com/Joshua-Fields/pemba/blob/main/docs/01-decisions.md), and open questions with the choice in
-force for each are in [`docs/OPEN_QUESTIONS.md`](https://github.com/Joshua-Fields/pemba/blob/main/docs/OPEN_QUESTIONS.md).
+The full specification is in [`docs/`](https://github.com/Joshua-Fields/pemba/tree/main/docs/):
+the data model, the schema language, how checks and lookups are evaluated, storage and
+transactions, the Rust and Python API (including the `--explain` and JSON trace formats),
+testing, and the roadmap. Start with
+[the overview](https://github.com/Joshua-Fields/pemba/blob/main/docs/00-overview.md). Design
+decisions and the open questions, each with the choice currently in force, are recorded
+alongside it.
 
 ## Credits
 

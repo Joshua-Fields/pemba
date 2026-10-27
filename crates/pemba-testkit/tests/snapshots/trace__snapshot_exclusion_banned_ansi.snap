@@ -1,0 +1,23 @@
+---
+source: crates/pemba-testkit/tests/trace.rs
+expression: text
+---
+denied: document:d#view@user:eve (revision 2)
+
+<b><red>✗</><b> document:d#view = (viewer + edit) - banned</>
+├── <b><green>✓</><b> base: viewer + edit</>
+│   ├── ✗ document:d#viewer  (not needed)
+│   │   └── ✗ group:staff#member  via document:d#viewer@group:staff#member  (no matching relationship)
+│   └── <b><green>✓</><b> document:d#edit = editor</>
+│       └── <b><green>✓</><b> document:d#editor  ← document:d#editor@user:eve</>
+└── <b><green>✓</><b> subtracted: document:d#banned  ← document:d#banned@user:eve</>
+
+denied: document:d#view@user:mallory (revision 2)
+
+<b><red>✗</><b> document:d#view = (viewer + edit) - banned</>
+├── <b><green>✓</><b> base: viewer + edit</>
+│   ├── <b><green>✓</><b> document:d#viewer</>
+│   │   └── <b><green>✓</><b> group:staff#member  via document:d#viewer@group:staff#member  ← group:staff#member@user:mallory</>
+│   └── <dim>· document:d#edit  (skipped)</>
+└── <b><green>✓</><b> subtracted: document:d#banned</>
+    └── <b><green>✓</><b> group:blocked#member  via document:d#banned@group:blocked#member  ← group:blocked#member@user:mallory</>

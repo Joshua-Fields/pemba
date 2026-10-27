@@ -10,7 +10,7 @@ use std::io::{self, IsTerminal, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use clap::{ArgGroup, Parser, Subcommand};
+use clap::{ArgGroup, Parser, Subcommand, ValueEnum};
 use pemba::model::{Consistency, Relationship, Revision, WriteOp, WriteRequest};
 use pemba::store::WritableStore;
 use pemba::{CheckRequest, Engine, EngineConfig, MemoryStore, SqliteConfig, SqliteStore};
@@ -67,7 +67,21 @@ enum Command {
         /// Evaluate at exactly this revision instead of the latest.
         #[arg(long, value_name = "REV")]
         at_exactly: Option<u64>,
+        /// When to colour `--explain`.
+        #[arg(long, value_enum, value_name = "WHEN", default_value_t = ColorChoice::Auto)]
+        color: ColorChoice,
     },
+}
+
+/// `check --color`.
+#[derive(Clone, Copy, PartialEq, Eq, ValueEnum)]
+enum ColorChoice {
+    /// On a terminal, unless `NO_COLOR` is set.
+    Auto,
+    /// Always, even when piped or with `NO_COLOR` set.
+    Always,
+    /// Never.
+    Never,
 }
 
 #[derive(Subcommand)]
@@ -119,10 +133,11 @@ fn main() -> ExitCode {
             explain,
             json,
             at_exactly,
+            color,
         } => {
             let output = match (explain, json) {
                 (_, true) => Output::Json,
-                (true, false) => Output::Explain,
+                (true, false) => Output::Explain(color),
                 (false, false) => Output::Answer,
             };
             let consistency =
@@ -348,8 +363,8 @@ fn test(paths: &[PathBuf]) -> CmdResult {
 enum Output {
     /// `allowed (revision N)`.
     Answer,
-    /// The rendered trace (`docs/06-api.md` §3).
-    Explain,
+    /// The rendered trace (`docs/06-api.md` §3), coloured as chosen.
+    Explain(ColorChoice),
     /// The trace as JSON (`docs/06-api.md` §3.1).
     Json,
 }
@@ -423,12 +438,10 @@ fn run_check<S: WritableStore>(engine: &Engine<S>, req: CheckRequest, output: Ou
         r.allowed
     } else {
         let (r, trace) = engine.check_with_trace(req).map_err(|e| engine_error(&e))?;
-        let text = if output == Output::Json {
-            trace.to_json() + "\n"
-        } else if color(&out) {
-            trace.render_ansi()
-        } else {
-            trace.render()
+        let text = match output {
+            Output::Explain(choice) if color(choice, &out) => trace.render_ansi(),
+            Output::Explain(_) => trace.render(),
+            _ => trace.to_json() + "\n",
         };
         out.write_all(text.as_bytes()).map_err(|e| io_error(&e))?;
         r.allowed
@@ -440,8 +453,14 @@ fn run_check<S: WritableStore>(engine: &Engine<S>, req: CheckRequest, output: Ou
     })
 }
 
-/// Colour only on a terminal, and never when `NO_COLOR` is set to anything but the empty
-/// string (<https://no-color.org>).
-fn color(out: &impl IsTerminal) -> bool {
-    out.is_terminal() && std::env::var_os("NO_COLOR").is_none_or(|v| v.is_empty())
+/// `auto`: colour only on a terminal, and never when `NO_COLOR` is set to anything but the
+/// empty string (<https://no-color.org>). An explicit `always` overrides both.
+fn color(choice: ColorChoice, out: &impl IsTerminal) -> bool {
+    match choice {
+        ColorChoice::Always => true,
+        ColorChoice::Never => false,
+        ColorChoice::Auto => {
+            out.is_terminal() && std::env::var_os("NO_COLOR").is_none_or(|v| v.is_empty())
+        }
+    }
 }

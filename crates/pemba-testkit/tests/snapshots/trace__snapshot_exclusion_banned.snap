@@ -14,8 +14,8 @@ allowed: document:d#view@user:anne (revision 2)
 denied: document:d#view@user:eve (revision 2)
 
 ✗ document:d#view = (viewer + edit) - banned
-├── ✓ base: viewer + edit  (not needed)
-│   ├── ✗ document:d#viewer
+├── ✓ base: viewer + edit
+│   ├── ✗ document:d#viewer  (not needed)
 │   │   └── ✗ group:staff#member  via document:d#viewer@group:staff#member  (no matching relationship)
 │   └── ✓ document:d#edit = editor
 │       └── ✓ document:d#editor  ← document:d#editor@user:eve
@@ -24,7 +24,7 @@ denied: document:d#view@user:eve (revision 2)
 denied: document:d#view@user:mallory (revision 2)
 
 ✗ document:d#view = (viewer + edit) - banned
-├── ✓ base: viewer + edit  (not needed)
+├── ✓ base: viewer + edit
 │   ├── ✓ document:d#viewer
 │   │   └── ✓ group:staff#member  via document:d#viewer@group:staff#member  ← group:staff#member@user:mallory
 │   └── · document:d#edit  (skipped)
@@ -44,7 +44,7 @@ denied: document:d#view@user:zed (revision 2)
 denied: document:locked#view@user:anne (revision 2)
 
 ✗ document:locked#view = (viewer + edit) - banned
-├── ✓ base: viewer + edit  (not needed)
+├── ✓ base: viewer + edit
 │   ├── ✓ document:locked#viewer  ← document:locked#viewer@user:anne
 │   └── · document:locked#edit  (skipped)
 └── ✓ subtracted: document:locked#banned  ← document:locked#banned@user:*

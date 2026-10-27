@@ -3,11 +3,16 @@
 //!
 //! One line per node, drawn as a tree. The *granting path* is the set of nodes that decided
 //! the answer: from the root down, the children that decided each node (the `true` child
-//! of an OR, every child of a `true` AND, and so on). Evaluated nodes off it are marked
-//! `(not needed)` once, at the top of their branch. With colour the path is bold and
-//! everything off it dimmed. A subject set is drawn as the member it names, and a relation
-//! shows the stored tuple that matched instead of its point queries, so the tree reads as
-//! a chain of members.
+//! of an OR, every child of a `true` AND, and so on). An exclusion denied by its subtracted
+//! side is decided by both sides: the path runs through the base's grant and through what
+//! removed it. Evaluated nodes off the path are marked `(not needed)` once, at the top of
+//! their branch. A subject set is drawn as the member it names, and a relation shows the
+//! stored tuple that matched instead of its point queries, so the tree reads as a chain of
+//! members.
+//!
+//! Colour only styles the same text (`docs/04-evaluation.md` §3.8): the path bold, its
+//! glyphs green or red; evaluated nodes off it in the terminal's normal colour; dim only
+//! for lines that show no evaluation of their own, skipped nodes and memo references.
 
 use std::fmt::Write as _;
 
@@ -83,7 +88,7 @@ impl Renderer {
             let _ = write!(text, "  ← {t}");
         }
         let mut notes = suffixes(n, shown);
-        if path == Path::Leaves && !self.color {
+        if path == Path::Leaves {
             notes.push("not needed".to_owned());
         }
         if !notes.is_empty() {
@@ -106,8 +111,11 @@ impl Renderer {
                 let c = if n.result == Some(true) { GREEN } else { RED };
                 let _ = writeln!(out, "{BOLD}{c}{glyph}{RESET}{BOLD} {text}{RESET}");
             }
-            Path::Leaves | Path::Off => {
+            Path::Leaves | Path::Off if is_reference(n) || is_reference(shown) => {
                 let _ = writeln!(out, "{DIM}{glyph} {text}{RESET}");
+            }
+            Path::Leaves | Path::Off => {
+                let _ = writeln!(out, "{glyph} {text}");
             }
         }
     }
@@ -154,6 +162,12 @@ fn shown(n: &TraceNode) -> (&TraceNode, Option<&str>) {
             },
         ),
     }
+}
+
+/// A line that shows no evaluation of its own: skipped, or a memo hit referring to the
+/// node shown in full elsewhere.
+fn is_reference(n: &TraceNode) -> bool {
+    matches!(n.source, TraceSource::Skipped | TraceSource::MemoHit { .. })
 }
 
 /// A relation's point queries are folded into its line (the match) or left out (a miss).
@@ -270,8 +284,9 @@ fn decisive(n: &TraceNode) -> Vec<u32> {
         (TraceKind::Relation | TraceKind::Union | TraceKind::ArrowAny, Some(true)) => first(true),
         (TraceKind::Intersection | TraceKind::ArrowAll, Some(false)) => first(false),
         (TraceKind::Exclusion, Some(false)) => match evaluated.as_slice() {
-            [base] => vec![base.id],
-            [_, sub] => vec![sub.id],
+            // Removed by the subtracted side: the grant and what removed it.
+            [base, sub] if base.result == Some(true) => vec![base.id, sub.id],
+            [base] | [base, _] => vec![base.id],
             _ => all(),
         },
         _ => all(),

@@ -221,8 +221,9 @@ impl CheckTrace {
         render::render(self, false)
     }
 
-    /// [`render`](Self::render) with ANSI colour: the granting path bold, nodes off it
-    /// and skipped nodes dimmed.
+    /// [`render`](Self::render) with ANSI colour, the same text once the escapes are
+    /// removed: the granting path bold, evaluated nodes off it in the normal colour, skipped
+    /// nodes and memo references dimmed.
     pub fn render_ansi(&self) -> String {
         render::render(self, true)
     }

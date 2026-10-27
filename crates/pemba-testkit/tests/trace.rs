@@ -71,7 +71,34 @@ fn trace(engine: &Engine<MemoryStore>, query: &str) -> CheckTrace {
         v.join("\n"),
         trace.render()
     );
+    assert_eq!(strip_ansi(&trace.render_ansi()), trace.render(), "{query}");
     trace
+}
+
+/// `s` without its ANSI escapes (`ESC [ ... m`, all the renderer writes).
+fn strip_ansi(s: &str) -> String {
+    let mut out = String::new();
+    let mut rest = s;
+    while let Some(i) = rest.find('\x1b') {
+        out.push_str(&rest[..i]);
+        let m = rest[i..].find('m').unwrap();
+        rest = &rest[i + m + 1..];
+    }
+    out.push_str(rest);
+    out
+}
+
+/// `s` with its ANSI escapes as readable tags, for snapshots.
+fn tag_ansi(s: &str) -> String {
+    [
+        ("\x1b[1m", "<b>"),
+        ("\x1b[2m", "<dim>"),
+        ("\x1b[31m", "<red>"),
+        ("\x1b[32m", "<green>"),
+        ("\x1b[0m", "</>"),
+    ]
+    .iter()
+    .fold(s.to_owned(), |s, (code, tag)| s.replace(code, tag))
 }
 
 /// Every query's rendered trace, one after another.
@@ -131,6 +158,52 @@ fn snapshot_exclusion_banned() {
             "document:locked#view@user:anne",
         ]
     ));
+}
+
+/// With colour, an exclusion denied by its subtracted side shows both paths bold (the grant
+/// and what removed it), evaluated nodes off the path in the normal colour, and dims only
+/// skipped nodes and memo references (`docs/04-evaluation.md` §3.8).
+#[test]
+fn snapshot_exclusion_banned_ansi() {
+    let e = fixture("exclusion_banned.yaml");
+    let text = ["document:d#view@user:eve", "document:d#view@user:mallory"]
+        .iter()
+        .map(|q| tag_ansi(&trace(&e, q).render_ansi()))
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(!text.contains('\x1b'), "an escape the tags miss:\n{text}");
+    insta::assert_snapshot!(text);
+}
+
+/// Dim is kept for lines that show no evaluation of their own: skipped nodes and memo
+/// references off the granting path. Evaluated nodes off it, cycle hits included, are in
+/// the normal colour.
+#[test]
+fn colour_dims_only_skipped_nodes_and_memo_references() {
+    let cases = [
+        ("google_docs.yaml", "document:arch#view@user:frank"),
+        ("google_docs.yaml", "document:secret#view@user:frank"),
+        ("exclusion_banned.yaml", "document:d#view@user:mallory"),
+        ("nested_groups_cycle.yaml", "group:x#member@user:bob"),
+    ];
+    let (mut dimmed, mut memo_dimmed) = (0, 0);
+    for (name, query) in cases {
+        let text = trace(&fixture(name), query).render_ansi();
+        for line in text.lines().skip(2) {
+            let bold = line.contains("\x1b[1m");
+            let dim = line.contains("\x1b[2m");
+            let memo = line.contains("  (see ");
+            let reference = memo || line.contains("  (skipped");
+            assert!(!(bold && dim), "{query}: {line}");
+            assert_eq!(dim, reference && !bold, "{query}: {line}");
+            dimmed += usize::from(dim);
+            memo_dimmed += usize::from(dim && memo);
+        }
+    }
+    assert!(
+        memo_dimmed > 0 && dimmed > memo_dimmed,
+        "cases cover both kinds"
+    );
 }
 
 #[test]

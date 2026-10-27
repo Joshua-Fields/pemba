@@ -437,6 +437,18 @@ each node that lost children has `truncated: true`. Tracing does not count again
 **Formats.** `CheckTrace::to_json()` is the public JSON format (`06` §3.1);
 `CheckTrace::render()` is the text `pemba check --explain` prints (`06` §3).
 
+**The granting path in the rendering.** The text marks the *granting path*: from the root
+down, the children that decided each node's value. A `true` union or `.any` arrow is decided
+by its first `true` child; a `false` intersection or `.all` arrow by its first `false` one;
+an exclusion that is `false` because its base is `false` by the base alone; an exclusion
+that is `false` because the subtracted side removed a granted base by **both** sides, so the
+reader sees where the permission was granted and where it was removed; every other node
+by all its evaluated children. The top of each evaluated branch off the path is marked
+`(not needed)`. `render_ansi()` is the same text with ANSI styling and nothing else
+(removing the escapes gives `render()`): the path bold, with green `✓` and red `✗`;
+evaluated nodes off it in the terminal's normal colour, `false` or not; dim only for lines
+that show no evaluation of their own, skipped nodes and memo hits off the path.
+
 ---
 
 ## 4. Store access patterns used by `check`
