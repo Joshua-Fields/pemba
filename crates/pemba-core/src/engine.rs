@@ -14,8 +14,8 @@ use crate::eval::{
 };
 use crate::lookup::{self, Candidates, LookupResourcesRequest, LookupResourcesResponse};
 use crate::model::{
-    Consistency, ObjectId, ObjectRef, Precondition, Relationship, RelationshipFilter, Revision,
-    SubjectRef, TypeName, WriteRequest,
+    Consistency, ObjectId, ObjectRef, PendingRevision, Precondition, Relationship,
+    RelationshipFilter, Revision, SubjectRef, TypeName, WriteRequest,
 };
 use crate::store::{
     DeleteResult, GcStats, ReadStore, RelationCount, SqlStore, StoreError, StoredSchema,
@@ -419,13 +419,14 @@ impl<S: WritableStore> Engine<S> {
     }
 
     /// Applies a batch inside a transaction the caller owns, e.g. one that also writes the
-    /// application's own rows, and returns the revision it will have once committed
-    /// (ADR-006, `docs/05-storage.md` §10).
+    /// application's own rows, and returns the [`PendingRevision`] it commits at
+    /// (ADR-006, ADR-015, `docs/05-storage.md` §10). Pass it to [`resolve`](Self::resolve)
+    /// after committing.
     ///
     /// The engine neither commits nor rolls back `txn`. Until the caller commits, the
     /// revision is invisible: reads at it fail with [`Error::RevisionNotYetAvailable`].
-    /// If the caller rolls back, the revision is **void** and a later write may be given
-    /// the same number. On error the batch's own statements are undone (to a savepoint),
+    /// If the caller rolls back, the revision is **void** and, on SQLite, a later write may
+    /// be given the same number. On error the batch's own statements are undone (to a savepoint),
     /// but the caller should still roll back, since it decided on a write that did not
     /// happen. Nothing in the engine changes because of this call.
     ///
@@ -441,7 +442,11 @@ impl<S: WritableStore> Engine<S> {
         clippy::needless_pass_by_value,
         reason = "signature fixed by docs/06-api.md §1"
     )]
-    pub fn write_in<T: WriteTxn>(&self, txn: &mut T, req: WriteRequest) -> Result<Revision, Error>
+    pub fn write_in<T: WriteTxn>(
+        &self,
+        txn: &mut T,
+        req: WriteRequest,
+    ) -> Result<PendingRevision, Error>
     where
         S: SqlStore,
     {
@@ -459,7 +464,49 @@ impl<S: WritableStore> Engine<S> {
             revision = rev.0,
             "batch written, pending the caller's commit"
         );
-        Ok(rev)
+        Ok(PendingRevision::resolved_at(rev))
+    }
+
+    /// [`write_in`](Self::write_in) followed by [`resolve`](Self::resolve): the 0.1.0-alpha
+    /// signature, kept for one release so existing callers compile.
+    ///
+    /// # Errors
+    ///
+    /// As [`write_in`](Self::write_in) and [`resolve`](Self::resolve).
+    #[deprecated(
+        since = "0.1.0-alpha.3",
+        note = "use `write_in`, commit, then `resolve` the returned `PendingRevision` (ADR-015)"
+    )]
+    pub fn write_in_revision<T: WriteTxn>(
+        &self,
+        txn: &mut T,
+        req: WriteRequest,
+    ) -> Result<Revision, Error>
+    where
+        S: SqlStore,
+    {
+        let pending = self.write_in(txn, req)?;
+        self.resolve(&pending)
+    }
+
+    /// The revision a [`write_in`](Self::write_in) committed at. Call it after the caller's
+    /// transaction commits.
+    ///
+    /// On SQLite the number is known when `write_in` returns, so this does no I/O and
+    /// succeeds even before the commit; resolve only after a successful commit anyway, so
+    /// the code also works on stores that assign the number at commit (ADR-015).
+    ///
+    /// # Errors
+    ///
+    /// None yet: every store so far allocates the number inside the write. Stores that
+    /// assign it at commit will report a write that has not committed, or was rolled back.
+    #[allow(
+        clippy::unnecessary_wraps,
+        clippy::unused_self,
+        reason = "signature fixed by docs/10-postgres.md §1.6.4; Postgres needs both"
+    )]
+    pub fn resolve(&self, pending: &PendingRevision) -> Result<Revision, Error> {
+        Ok(pending.known())
     }
 
     /// Checks batch size, schema presence, ops and precondition filters against the newest

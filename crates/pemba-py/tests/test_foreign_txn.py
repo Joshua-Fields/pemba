@@ -3,7 +3,9 @@
 
 from __future__ import annotations
 
+import operator
 import sqlite3
+import warnings
 from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
@@ -65,7 +67,8 @@ def test_commit_makes_the_write_visible(
     conn.execute("BEGIN IMMEDIATE")
     conn.execute("INSERT INTO documents (id, title) VALUES ('readme', 'Readme')")
     rev = engine.write(touch=[ANNE], conn=conn)
-    assert isinstance(rev, pemba.Revision) and rev > before
+    assert isinstance(rev, pemba.PendingRevision) and rev.resolved
+    assert isinstance(rev.revision(), pemba.Revision) and rev.revision() > before
 
     # Uncommitted: the engine's own connections cannot see it yet.
     assert engine.head_revision() == before
@@ -76,7 +79,7 @@ def test_commit_makes_the_write_visible(
     assert not exc.value.retryable
 
     conn.execute("COMMIT")
-    assert engine.head_revision() == rev
+    assert engine.head_revision() == rev.revision()
     assert engine.check("document:readme#view@user:anne", at_least=rev) is True
     assert app_rows(db) == ["readme"]
 
@@ -98,7 +101,7 @@ def test_rollback_discards_the_write(
     with pytest.raises(pemba.ConsistencyError):
         engine.check("document:readme#view@user:anne", at_least=void)
     # The rolled-back revision is void: the next write may be given the same number.
-    assert engine.write(touch=["document:other#viewer@user:bob"]) == void
+    assert engine.write(touch=["document:other#viewer@user:bob"]) == void.revision()
 
 
 def test_several_writes_in_one_transaction(
@@ -108,12 +111,12 @@ def test_several_writes_in_one_transaction(
     conn.execute("BEGIN")
     first = engine.write(touch=[ANNE], conn=conn)
     second = engine.write(delete=[ANNE], touch=["document:readme#owner@user:anne"], conn=conn)
-    assert second > first
+    assert second.revision() > first.revision()
     conn.execute("COMMIT")
-    assert engine.head_revision() == second
+    assert engine.head_revision() == second.revision()
     assert engine.check("document:readme#viewer@user:anne") is False
     assert engine.check("document:readme#view@user:anne") is True
-    assert engine.check("document:readme#viewer@user:anne", at_exactly=first) is True
+    assert engine.check("document:readme#viewer@user:anne", at_exactly=first.revision()) is True
 
 
 def test_another_database_file_is_rejected(
@@ -193,7 +196,7 @@ def test_allow_autocommit_commits_on_its_own(
     conn = connect()
     rev = engine.write(touch=[ANNE], conn=conn, allow_autocommit=True)
     assert not conn.in_transaction
-    assert engine.head_revision() == rev
+    assert engine.head_revision() == rev.revision()
     assert engine.check("document:readme#view@user:anne", at_least=rev) is True
 
 
@@ -201,7 +204,7 @@ def test_argument_mistakes(engine: pemba.Engine, connect: Callable[..., sqlite3.
     with pytest.raises(TypeError, match="sqlite3.Connection"):
         engine.write(touch=[ANNE], conn=object())
     with pytest.raises(ValueError, match="conn"):
-        engine.write(touch=[ANNE], allow_autocommit=True)
+        engine.write(touch=[ANNE], allow_autocommit=True)  # type: ignore[call-overload]
     memory = pemba.Engine.memory()
     memory.write_schema(SCHEMA)
     before = memory.head_revision()
@@ -246,7 +249,7 @@ def test_write_errors_leave_the_app_transaction_usable(
     rev = engine.write(touch=["document:readme#owner@user:anne"], conn=conn)
     conn.execute("COMMIT")
     assert app_rows(db) == ["readme"]
-    assert engine.head_revision() == rev
+    assert engine.head_revision() == rev.revision()
     assert len(engine.read_relationships(resource_type="document")) == 2
 
 
@@ -306,3 +309,25 @@ def test_precondition_race_in_a_deferred_transaction_is_a_retryable_conflict(
         "document:readme#viewer@user:bob"
     ]
     assert engine.check("document:readme#view@user:anne") is False
+
+
+def test_pending_revision_as_int_is_deprecated(
+    engine: pemba.Engine, connect: Callable[..., sqlite3.Connection]
+) -> None:
+    conn = connect()
+    conn.execute("BEGIN")
+    pending = engine.write(touch=[ANNE], conn=conn)
+    conn.execute("COMMIT")
+    rev = pending.revision()
+    with pytest.warns(DeprecationWarning, match="revision"):
+        assert int(pending) == rev
+    with pytest.warns(DeprecationWarning):
+        assert operator.index(pending) == rev
+    # The supported routes do not warn.
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        assert engine.check("document:readme#view@user:anne", at_least=pending) is True
+        assert repr(pending) == f"PendingRevision({int(rev)})"
+    # at_exactly names a point in history: it takes a revision, not a pending write.
+    with pytest.raises(TypeError, match="at_exactly"):
+        engine.check("document:readme#view@user:anne", at_exactly=pending)  # type: ignore[call-overload]

@@ -93,8 +93,9 @@ conn = sqlite3.connect("app.db", isolation_level=None)
 conn.execute("CREATE TABLE IF NOT EXISTS documents (id TEXT PRIMARY KEY, title TEXT NOT NULL)")
 conn.execute("BEGIN IMMEDIATE")
 conn.execute("INSERT INTO documents(id, title) VALUES (?, ?)", ("readme", "Readme"))
-rev = engine.write(touch=["document:readme#owner@user:anne"], conn=conn)
+pending = engine.write(touch=["document:readme#owner@user:anne"], conn=conn)
 conn.execute("COMMIT")
+engine.check("document:readme#view@user:anne", at_least=pending)  # True
 ```
 
 Paste it into a file and run it: it needs nothing else in the directory, and CI runs it
@@ -153,9 +154,10 @@ This is the headline feature. pemba's tables live in your database, prefixed `pe
 
 - **Python:** pass `conn=` (a `sqlite3.Connection` on the same file, with a transaction
   open) to `engine.write`, as in the quick start. pemba neither commits nor rolls back.
-  The returned revision becomes readable when you commit and never exists if you roll
-  back. Without an open transaction, the write raises `ValueError` unless you pass
-  `allow_autocommit=True`.
+  The write returns a `PendingRevision`: it becomes readable when you commit and never
+  exists if you roll back. Pass it as `at_least=`, or call `pending.revision()` after the
+  commit for the number. Without an open transaction, the write raises `ValueError`
+  unless you pass `allow_autocommit=True`.
 - **Rust:** `engine.write_in(&mut SqliteTxn::new(&tx), request)` on your own
   `rusqlite::Transaction` (use the `rusqlite` version `pemba-store-sqlite` depends on):
 
@@ -163,9 +165,13 @@ This is the headline feature. pemba's tables live in your database, prefixed `pe
   let mut conn = rusqlite::Connection::open("app.db")?;
   let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
   tx.execute("INSERT INTO documents (id, title) VALUES (?1, ?2)", ("readme", "Readme"))?;
-  let rev = engine.write_in(&mut SqliteTxn::new(&tx), request)?;
+  let pending = engine.write_in(&mut SqliteTxn::new(&tx), request)?;
   tx.commit()?;
+  let rev = engine.resolve(&pending)?; // the revision, for Consistency::AtLeast(rev)
   ```
+
+  Resolve after the commit: on SQLite the number is known at once, but a store that
+  assigns it at commit (Postgres, planned) can only answer then.
 
 **Python and SQLite.** `Engine.sqlite()` stores relationships through **CPython's own
 `sqlite3` module**. It shares your interpreter's SQLite library (3.26.0 or newer) and

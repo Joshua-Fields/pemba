@@ -37,14 +37,14 @@ def test_readme_example_runs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
 
     engine = scope["engine"]
     conn = scope["conn"]
-    rev = scope["rev"]
+    pending = scope["pending"]
     assert isinstance(engine, pemba.Engine)
     assert isinstance(conn, sqlite3.Connection)
-    assert isinstance(rev, pemba.Revision)
+    assert isinstance(pending, pemba.PendingRevision)
     try:
         assert not conn.in_transaction
-        assert engine.head_revision() == rev
-        assert engine.check("document:readme#owner@user:anne", at_least=rev) is True
+        assert engine.head_revision() == pending.revision()
+        assert engine.check("document:readme#owner@user:anne", at_least=pending) is True
         assert conn.execute("SELECT title FROM documents WHERE id = 'readme'").fetchone() == ("Readme",)
     finally:
         conn.close()

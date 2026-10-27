@@ -100,8 +100,9 @@ conn.execute("CREATE TABLE agent_sessions (agent TEXT, principal TEXT, revoked_a
 conn.execute("INSERT INTO agent_sessions VALUES ('triage', 'anne', NULL)")
 conn.execute("BEGIN IMMEDIATE")
 conn.execute("UPDATE agent_sessions SET revoked_at = datetime('now') WHERE agent = 'triage'")
-rev = engine.write(delete=["agent:triage#principal@user:anne"], conn=conn)
+pending = engine.write(delete=["agent:triage#principal@user:anne"], conn=conn)
 conn.execute("COMMIT")
+rev = pending.revision()
 conn.close()
 print("after revoke, read roadmap for anne:",
       authorize("agent:triage", "user:anne", "tool:read_document", "document:roadmap", "view"),

@@ -2,7 +2,7 @@
 //!
 //! Each stores plain Rust data; getters that return a revision wrap it in the Python
 //! `pemba.Revision` (an `int` subclass, defined in Python because PyO3 cannot subclass
-//! `int`).
+//! `int`). `pemba.PendingRevision` is defined in Python next to it.
 
 use pemba::SchemaError;
 use pemba::model::{
@@ -22,6 +22,19 @@ pub(crate) fn revision(py: Python<'_>, r: model::Revision) -> PyResult<Bound<'_,
     REVISION
         .import(py, "pemba._revision", "Revision")?
         .call1((r.0,))
+}
+
+static PENDING_REVISION: PyOnceLock<Py<PyType>> = PyOnceLock::new();
+
+/// The Python `pemba.PendingRevision` class.
+pub(crate) fn pending_revision_type(py: Python<'_>) -> PyResult<&Bound<'_, PyType>> {
+    PENDING_REVISION.import(py, "pemba._revision", "PendingRevision")
+}
+
+/// `r` as a Python `pemba.PendingRevision`. Every store so far knows the number when the
+/// write returns, so the Python object only carries it.
+pub(crate) fn pending_revision(py: Python<'_>, r: model::Revision) -> PyResult<Bound<'_, PyAny>> {
+    pending_revision_type(py)?.call1((r.0,))
 }
 
 fn parse<T: std::str::FromStr<Err = model::ParseError>>(s: &str) -> PyResult<T> {
