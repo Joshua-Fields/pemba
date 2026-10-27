@@ -304,8 +304,8 @@ let engine = Engine::builder().store(store).config(cfg).build()?;
 engine.write_schema(SCHEMA)?;
 ```
 
-Postgres (`pemba-store-postgres`, M5; T5.3 ships open / migrate only, reads and writes
-follow in T5.4–T5.5):
+Postgres (`pemba-store-postgres`, M5): open / migrate (T5.3) and `ReadStore` with a
+`REPEATABLE READ` `snapshot()` (T5.4); `WritableStore` and `Engine` use follow in T5.5:
 
 ```rust
 let config = PostgresConfig::default()    // #[non_exhaustive]; pub fields + with_* setters

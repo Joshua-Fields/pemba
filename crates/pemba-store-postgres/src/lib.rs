@@ -1,8 +1,10 @@
 //! Postgres relationship store for pemba.
 //!
-//! Implements `docs/10-postgres.md` §2.1 (a synchronous client and a hand-rolled pool) and
-//! §3 (tables, migrations, schema qualification). This is the skeleton of milestone M5
-//! (T5.3): it opens, checks and migrates a store; reads (T5.4) and writes (T5.5) follow.
+//! Implements `docs/10-postgres.md` §2.1 (a synchronous client and a hand-rolled pool), §3
+//! (tables, migrations, schema qualification) and §1.6.2 (reads: [`ReadStore`] with a
+//! `REPEATABLE READ` snapshot). Writes (T5.5) follow.
+//!
+//! [`ReadStore`]: pemba_core::store::ReadStore
 //!
 //! # Schemas and `search_path`
 //!
@@ -48,13 +50,27 @@
 mod dialect;
 mod migrate;
 mod pool;
+mod read;
+mod sql;
+#[cfg(test)]
+mod tests;
 mod tls;
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "native writes use it from T5.5; until then only tests do"
+    )
+)]
+mod txn;
 
 use std::fmt;
 use std::str::FromStr;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use pemba_core::Error;
-use pemba_core::store::StoreError;
+use pemba_core::model::Revision;
+use pemba_core::store::{ReadStore, StoreError};
 use postgres::error::SqlState;
 
 pub use dialect::{PostgresDialect, check_schema_name};
@@ -123,6 +139,39 @@ impl PostgresConfig {
 pub struct PostgresStore {
     pool: pool::Pool,
     dialect: PostgresDialect,
+    cache: Cache,
+}
+
+/// Head and GC horizon as last observed (`docs/05-storage.md` §2 "Revision checks"),
+/// for range checks on reads made on the store rather than a snapshot. Refreshed by
+/// `head_revision()` / `gc_horizon()` and by each snapshot; both only move up.
+#[derive(Debug, Default)]
+struct Cache {
+    head: AtomicU64,
+    horizon: AtomicU64,
+}
+
+impl Cache {
+    fn observe(&self, head: Revision, horizon: Revision) {
+        self.head.fetch_max(head.0, Ordering::AcqRel);
+        self.horizon.fetch_max(horizon.0, Ordering::AcqRel);
+    }
+
+    /// After this store's own commit at `head`.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "native writes call it from T5.5")
+    )]
+    fn observe_head(&self, head: Revision) {
+        self.head.fetch_max(head.0, Ordering::AcqRel);
+    }
+
+    fn get(&self) -> (Revision, Revision) {
+        (
+            Revision(self.head.load(Ordering::Acquire)),
+            Revision(self.horizon.load(Ordering::Acquire)),
+        )
+    }
 }
 
 impl fmt::Debug for PostgresStore {
@@ -167,10 +216,14 @@ impl PostgresStore {
         } else {
             migrate::check(&mut client, &dialect)?;
         }
-        Ok(Self {
+        let store = Self {
             pool: pool::Pool::new(pg_config, connector, config.pool_size, client),
             dialect,
-        })
+            cache: Cache::default(),
+        };
+        // Seed the cache so reads on the store work before anyone asks for head.
+        store.head_revision()?;
+        Ok(store)
     }
 
     /// Creates or upgrades the store's tables to [`STORAGE_VERSION`] in one transaction,
@@ -196,8 +249,7 @@ impl PostgresStore {
         &self.dialect
     }
 
-    /// Checks out a connection, checks that the store is still at [`STORAGE_VERSION`] and
-    /// returns it. Exercises the pool until reads (T5.4) do.
+    /// Checks out a connection and checks that the store is still at [`STORAGE_VERSION`].
     ///
     /// # Errors
     ///

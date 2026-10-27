@@ -512,6 +512,13 @@ step 2b (a different key), so `version = max + 1` is safe.
 
   The cost is in §1.5.2 (F12). The store chooses the form by comparing `R` with the
   snapshot's head; the evaluator never sees the difference.
+- **Reads on the store itself** (not through a snapshot; T5.4): each is one autocommit
+  statement on a pooled connection, range-checked against the head and horizon last
+  observed (as SQLite, `05` §2). That cached head can lag the real one, so these reads
+  always use the map join, which is right at any `R` up to the real head; only a
+  snapshot, whose head is exact, uses `deleted_batch IS NULL`. The engine reads only
+  through snapshots. A snapshot's connection is returned after `ROLLBACK`, or closed if
+  the rollback fails.
 - **Consistency modes are unchanged:**
   - `Latest` is the newest revision committed when the snapshot was taken.
   - `AtLeast(r)` fails with `RevisionNotYetAvailable` if head < r.
@@ -995,8 +1002,10 @@ Notes on the column choices:
   - `pemba_rel_live`: partial and unique, `WHERE deleted_batch IS NULL`; also the
     `ON CONFLICT` target.
   - `pemba_rel_fwd`: covering, ending `created_batch, deleted_batch`.
-  - `pemba_rel_rev`: ending `created_batch, deleted_batch`. `deleted_batch` is added so
-    that head reads stay index-only.
+  - `pemba_rel_rev`: ending `created_batch, deleted_batch`, plus `INCLUDE (resource_id)`.
+    A reverse read returns `resource_id`, so both additions are needed for head reads to
+    be index-only scans (OQ-046, T5.4: 5 buffers and 0 heap fetches for 100 matches,
+    against 108 buffers without the `INCLUDE`).
   - `pemba_rel_deleted`: on `(deleted_batch) WHERE deleted_batch IS NOT NULL`, for GC.
 - **The map** is indexed by its primary key `batch_id` (for the joins) and by
   `UNIQUE (rev)` (for head and range checks).

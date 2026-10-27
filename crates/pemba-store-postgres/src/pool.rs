@@ -108,9 +108,10 @@ impl Pool {
     }
 
     fn give_back(&self, client: Client) {
-        // A `postgres::Transaction` rolls back when dropped, and it borrows the client, so
-        // a client coming back is never inside one of ours. A closed one is discarded and
-        // its slot freed for a fresh connection.
+        // A `postgres::Transaction` rolls back when dropped, and it borrows the client; a
+        // snapshot ends its raw transaction itself or discards the client. So a client
+        // coming back is never inside one of ours. A closed one is discarded and its slot
+        // freed for a fresh connection.
         if client.is_closed() {
             self.forget_one();
             return;
@@ -140,6 +141,14 @@ impl Lease<'_> {
     pub(crate) fn client(&mut self) -> Result<&mut Client, StoreError> {
         // Only `drop` takes the client out.
         self.client.as_mut().ok_or(StoreError::Poisoned)
+    }
+
+    /// Closes the connection instead of returning it, for one whose state cannot be
+    /// trusted (e.g. a transaction that would not roll back); its slot is freed.
+    pub(crate) fn discard(mut self) {
+        if self.client.take().is_some() {
+            self.pool.forget_one();
+        }
     }
 }
 
