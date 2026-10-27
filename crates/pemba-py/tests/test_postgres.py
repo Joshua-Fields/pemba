@@ -430,6 +430,12 @@ def test_tls_verifies_the_server_certificate() -> None:
     not trust (the image's self-signed one), e.g. ``postgres -c ssl=on -c
     ssl_cert_file=/etc/ssl/certs/ssl-cert-snakeoil.pem -c
     ssl_key_file=/etc/ssl/private/ssl-cert-snakeoil.key``.
+
+    CI's servers trust every connection, so the DSN has no password to leak, and this test
+    does not check for one. That a password never reaches an error message is tested in
+    Rust: ``bad_configuration_is_an_invalid_request`` (``pemba-store-postgres``,
+    ``tests/migrate.rs``) for a malformed DSN; the TLS error here is built from the
+    driver's, IO and TLS causes only, which never quote the DSN (``store_err``).
     """
     tls_url = os.environ.get("PEMBA_PG_TLS_URL")
     if not tls_url:
@@ -438,9 +444,6 @@ def test_tls_verifies_the_server_certificate() -> None:
     with pytest.raises(pemba.StorageError) as exc:
         pemba.Engine.postgres(tls_url + sep + "sslmode=require", auto_migrate=True)
     assert "TLS handshake" in str(exc.value) and "certificate" in str(exc.value), exc.value
-    # The password never reaches the message.
-    password = urlsplit(tls_url).password
-    assert not password or password not in str(exc.value)
     # Without TLS the same server is reachable: the failure above was the certificate.
     pemba.Engine.postgres(tls_url + sep + "sslmode=disable", auto_migrate=True)
 

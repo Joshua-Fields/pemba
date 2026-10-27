@@ -179,7 +179,7 @@ jobs:
       postgres:
         image: postgres:${{ matrix.pg }}
         env:
-          POSTGRES_PASSWORD: postgres
+          POSTGRES_HOST_AUTH_METHOD: trust
         ports:
           - 5432:5432
         options: >-
@@ -188,8 +188,8 @@ jobs:
           --health-timeout 5s
           --health-retries 30
     env:
-      PEMBA_PG_URL: postgres://postgres:postgres@localhost:5432/postgres
-      PEMBA_PG_TLS_URL: postgres://postgres:postgres@localhost:5433/postgres
+      PEMBA_PG_URL: postgres://postgres@localhost:5432/postgres
+      PEMBA_PG_TLS_URL: postgres://postgres@localhost:5433/postgres
       PEMBA_PG_REQUIRED: "1"
     defaults:
       run:
@@ -201,7 +201,7 @@ jobs:
       # the image's own self-signed (snakeoil) certificate.
       - name: a Postgres with an untrusted TLS certificate
         run: |
-          docker run -d --name pg-tls -e POSTGRES_PASSWORD=postgres -p 5433:5432 \
+          docker run -d --name pg-tls -e POSTGRES_HOST_AUTH_METHOD=trust -p 5433:5432 \
             postgres:${{ matrix.pg }} -c ssl=on \
             -c ssl_cert_file=/etc/ssl/certs/ssl-cert-snakeoil.pem \
             -c ssl_key_file=/etc/ssl/private/ssl-cert-snakeoil.key
