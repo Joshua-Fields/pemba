@@ -18,21 +18,60 @@ use crate::model::{
     Precondition, Relationship, RelationshipFilter, Revision, WriteOp, WriteRequest,
 };
 use crate::store::{
-    DeleteResult, RelationCount, SchemaCheck, SqlDialect, SqlValue, StoreError, StoredSchema,
-    WriteTxn,
+    DeleteResult, RelationCount, RevisionStrategy, SchemaCheck, SqlDialect, SqlValue, StoreError,
+    StoredSchema, WriteTxn,
 };
 
 const RELATIONSHIPS: &str = "pemba_relationships";
 const REVISIONS: &str = "pemba_revisions";
 const SCHEMA: &str = "pemba_schema";
 const META: &str = "pemba_meta";
+const PENDING: &str = "pemba_pending";
+const BATCH_SEQ: &str = "pemba_batch_seq";
 const SAVEPOINT: &str = "pemba_write";
 
-/// Applies `req` at a new revision inside `txn` and returns that revision: steps 2–6 of
-/// `docs/05-storage.md` §5. Validating ops against the schema (step 1) is the caller's job.
+/// What a [`write()`] left in the caller's transaction, by the dialect's
+/// [`RevisionStrategy`].
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum Applied {
+    /// [`RevisionStrategy::AllocateNow`]: the rows carry this revision.
+    At(Revision),
+    /// [`RevisionStrategy::AssignAtCommit`]: the rows carry a batch id, which the commit
+    /// trigger maps to a revision (`docs/10-postgres.md` §1.6.1, step 7).
+    Pending {
+        /// The batch id: from a sequence, with no ordering meaning.
+        batch: u64,
+        /// The writing transaction's id (`pg_current_xact_id()`), so a write still in
+        /// progress can be told from one rolled back.
+        xid: u64,
+    },
+}
+
+impl Applied {
+    /// The revision, for callers that drive only [`RevisionStrategy::AllocateNow`] stores.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Store`] for [`Applied::Pending`]: its revision is known only after commit.
+    pub fn into_revision(self) -> Result<Revision, Error> {
+        match self {
+            Self::At(r) => Ok(r),
+            Self::Pending { .. } => Err(Error::Store(StoreError::Backend {
+                message: "this store assigns revisions at commit; the write's revision is not \
+                          known before then"
+                    .to_owned(),
+            })),
+        }
+    }
+}
+
+/// Applies `req` inside `txn`: steps 2–6 of `docs/05-storage.md` §5, or with
+/// [`RevisionStrategy::AssignAtCommit`] steps 4–7 of `docs/10-postgres.md` §1.6.1.
+/// Validating ops against the schema (step 1) is the caller's job.
 ///
 /// The revision is only real once the surrounding transaction commits; if it rolls back,
-/// the revision is void and a later write may be given the same number.
+/// the revision is void (and with `AllocateNow` a later write may be given the same number).
 ///
 /// # Errors
 ///
@@ -48,7 +87,7 @@ pub fn write<T, D>(
     dialect: &D,
     req: &WriteRequest,
     schema_version: Option<u64>,
-) -> Result<Revision, Error>
+) -> Result<Applied, Error>
 where
     T: WriteTxn + ?Sized,
     D: SqlDialect + ?Sized,
@@ -149,6 +188,7 @@ where
     T: WriteTxn + ?Sized,
     D: SqlDialect + ?Sized,
 {
+    allocate_now_only(dialect, "delete_relationships")?;
     let rev = allocate_revision(txn, dialect, "delete_filter")?;
     let table = dialect.table(RELATIONSHIPS);
     let row_id = dialect.row_id();
@@ -197,6 +237,7 @@ where
     T: WriteTxn + ?Sized,
     D: SqlDialect + ?Sized,
 {
+    allocate_now_only(dialect, "write_schema")?;
     check(&count_live(txn, dialect)?)?;
     let created_rev = allocate_revision(txn, dialect, "schema")?;
     txn.execute(
@@ -379,8 +420,8 @@ where
     }
 }
 
-/// Steps 3–6.
-fn apply<T, D>(txn: &mut T, dialect: &D, req: &WriteRequest) -> Result<Revision, Error>
+/// Steps 3–6, or step 3 and `docs/10-postgres.md` §1.6.1 steps 4–7.
+fn apply<T, D>(txn: &mut T, dialect: &D, req: &WriteRequest) -> Result<Applied, Error>
 where
     T: WriteTxn + ?Sized,
     D: SqlDialect + ?Sized,
@@ -397,21 +438,34 @@ where
         }
     }
 
-    let rev = allocate_revision(txn, dialect, "write")?;
-    let rev_value = revision_value(rev)?;
+    // AllocateNow marks rows with the revision; AssignAtCommit with a batch id that the
+    // commit trigger maps to one.
+    let (applied, mark) = match dialect.revision_strategy() {
+        RevisionStrategy::AllocateNow => {
+            let rev = allocate_revision(txn, dialect, "write")?;
+            (Mark::Revision(rev), revision_value(rev)?)
+        }
+        RevisionStrategy::AssignAtCommit => {
+            let batch = next_batch(txn, dialect)?;
+            (Mark::Batch(batch), integer_value(batch, "batch id")?)
+        }
+    };
+    let Marks { created, deleted } = Marks::of(dialect);
     let table = dialect.table(RELATIONSHIPS);
-    let columns = "resource_type, resource_id, relation, subject_type, subject_id, \
-                   subject_relation, created_rev";
+    let columns = format!(
+        "resource_type, resource_id, relation, subject_type, subject_id, subject_relation, \
+         {created}"
+    );
     let values = placeholders(dialect, 1..=7);
     let insert = format!("INSERT INTO {table} ({columns}) VALUES ({values})");
     let touch = format!(
         "{insert} ON CONFLICT (resource_type, resource_id, relation, subject_type, subject_id, \
-         subject_relation) WHERE deleted_rev IS NULL DO NOTHING"
+         subject_relation) WHERE {deleted} IS NULL DO NOTHING"
     );
     let delete = format!(
-        "UPDATE {table} SET deleted_rev = {} WHERE resource_type = {} AND resource_id = {} \
+        "UPDATE {table} SET {deleted} = {} WHERE resource_type = {} AND resource_id = {} \
          AND relation = {} AND subject_type = {} AND subject_id = {} AND subject_relation = {} \
-         AND deleted_rev IS NULL",
+         AND {deleted} IS NULL",
         dialect.placeholder(1),
         dialect.placeholder(2),
         dialect.placeholder(3),
@@ -425,7 +479,7 @@ where
         match op {
             WriteOp::Create(r) => {
                 let mut params = tuple_params(r);
-                params.push(rev_value.clone());
+                params.push(mark.clone());
                 txn.execute(&insert, &params).map_err(|e| match e {
                     StoreError::UniqueViolation { .. } => Error::AlreadyExists(r.to_string()),
                     e => Error::Store(e),
@@ -433,17 +487,101 @@ where
             }
             WriteOp::Touch(r) => {
                 let mut params = tuple_params(r);
-                params.push(rev_value.clone());
+                params.push(mark.clone());
                 txn.execute(&touch, &params)?;
             }
             WriteOp::Delete(r) => {
-                let mut params = vec![rev_value.clone()];
+                let mut params = vec![mark.clone()];
                 params.extend(tuple_params(r));
                 txn.execute(&delete, &params)?;
             }
         }
     }
-    Ok(rev)
+    match applied {
+        Mark::Revision(rev) => Ok(Applied::At(rev)),
+        Mark::Batch(batch) => {
+            let xid = queue_pending(txn, dialect, mark, "write")?;
+            Ok(Applied::Pending { batch, xid })
+        }
+    }
+}
+
+/// What a write's rows are marked with.
+enum Mark {
+    Revision(Revision),
+    Batch(u64),
+}
+
+/// The columns that say when a row was created and deleted: revisions, or batch ids.
+struct Marks {
+    created: &'static str,
+    deleted: &'static str,
+}
+
+impl Marks {
+    fn of<D: SqlDialect + ?Sized>(dialect: &D) -> Self {
+        match dialect.revision_strategy() {
+            RevisionStrategy::AllocateNow => Self {
+                created: "created_rev",
+                deleted: "deleted_rev",
+            },
+            RevisionStrategy::AssignAtCommit => Self {
+                created: "created_batch",
+                deleted: "deleted_batch",
+            },
+        }
+    }
+}
+
+/// Fails closed for the writes not yet ported to [`RevisionStrategy::AssignAtCommit`]
+/// (M5, T5.5), rather than writing revision columns that store does not have.
+fn allocate_now_only<D: SqlDialect + ?Sized>(dialect: &D, what: &str) -> Result<(), Error> {
+    match dialect.revision_strategy() {
+        RevisionStrategy::AllocateNow => Ok(()),
+        RevisionStrategy::AssignAtCommit => Err(Error::Store(StoreError::Backend {
+            message: format!("{what} does not support revisions assigned at commit yet"),
+        })),
+    }
+}
+
+/// `docs/10-postgres.md` §1.6.1 step 4: a batch id, with no ordering meaning and no lock.
+fn next_batch<T, D>(txn: &mut T, dialect: &D) -> Result<u64, Error>
+where
+    T: WriteTxn + ?Sized,
+    D: SqlDialect + ?Sized,
+{
+    let sequence = dialect.table(BATCH_SEQ).replace('\'', "''");
+    one_integer(txn, &format!("SELECT nextval('{sequence}')"), "batch id")
+}
+
+/// `docs/10-postgres.md` §1.6.1 step 6: the `pemba_pending` row that queues the commit
+/// trigger. Returns the writing transaction's id, read back with `RETURNING` because the
+/// driver has no other way to hand it over.
+fn queue_pending<T, D>(txn: &mut T, dialect: &D, batch: SqlValue, kind: &str) -> Result<u64, Error>
+where
+    T: WriteTxn + ?Sized,
+    D: SqlDialect + ?Sized,
+{
+    // xid8 has no cast to bigint; through text it is exact.
+    let rows = txn.query(
+        &format!(
+            "INSERT INTO {} (batch_id, kind, xid) VALUES ({}, {}, pg_current_xact_id()) \
+             RETURNING xid::text::bigint",
+            dialect.table(PENDING),
+            dialect.placeholder(1),
+            dialect.placeholder(2),
+        ),
+        &[batch, SqlValue::Text(kind.to_owned())],
+    )?;
+    match rows.as_slice() {
+        [row] => match row.as_slice() {
+            [SqlValue::Integer(n)] => non_negative(*n, "transaction id"),
+            _ => Err(corrupt(
+                "pending insert returned a non-integer transaction id",
+            )),
+        },
+        _ => Err(corrupt("pending insert did not return one row")),
+    }
 }
 
 /// Step 4: a new `pemba_revisions` row; its id is the revision.
@@ -475,8 +613,9 @@ fn precondition_query<D: SqlDialect + ?Sized>(
     let (filter_sql, params) = filter_where(dialect, f, 1);
     (
         format!(
-            "SELECT 1 FROM {} WHERE {filter_sql} AND deleted_rev IS NULL LIMIT 1",
-            dialect.table(RELATIONSHIPS)
+            "SELECT 1 FROM {} WHERE {filter_sql} AND {} IS NULL LIMIT 1",
+            dialect.table(RELATIONSHIPS),
+            Marks::of(dialect).deleted,
         ),
         params,
     )
@@ -561,6 +700,12 @@ fn revision_value(rev: Revision) -> Result<SqlValue, Error> {
         .map_err(|_| Error::Store(StoreError::RevisionsExhausted))
 }
 
+fn integer_value(n: u64, what: &str) -> Result<SqlValue, Error> {
+    i64::try_from(n)
+        .map(SqlValue::Integer)
+        .map_err(|_| corrupt(&format!("{what} {n} is out of range")))
+}
+
 fn non_negative(n: i64, what: &str) -> Result<u64, Error> {
     u64::try_from(n).map_err(|_| corrupt(&format!("negative {what} {n}")))
 }
@@ -612,7 +757,12 @@ fn civil_from_days(days: i64) -> (i64, u32, u32) {
 
 #[cfg(test)]
 mod tests {
-    use super::civil_from_days;
+    use super::{Applied, civil_from_days, delete_matching, write, write_schema};
+    use crate::error::Error;
+    use crate::model::{Precondition, RelationshipFilter, WriteOp, WriteRequest};
+    use crate::store::{
+        PlaceholderStyle, RevisionStrategy, SqlDialect, SqlValue, StoreError, WriteTxn,
+    };
 
     #[test]
     fn civil_dates() {
@@ -620,5 +770,201 @@ mod tests {
         assert_eq!(civil_from_days(11_016), (2000, 2, 29));
         assert_eq!(civil_from_days(20_741), (2026, 10, 15));
         assert_eq!(civil_from_days(-1), (1969, 12, 31));
+    }
+
+    struct Dialect(PlaceholderStyle, RevisionStrategy);
+
+    impl SqlDialect for Dialect {
+        fn placeholder_style(&self) -> PlaceholderStyle {
+            self.0
+        }
+        fn revision_strategy(&self) -> RevisionStrategy {
+            self.1
+        }
+        fn table(&self, name: &str) -> String {
+            format!("app.{name}")
+        }
+        fn row_id(&self) -> &'static str {
+            "ctid"
+        }
+    }
+
+    const BATCH: i64 = 41;
+    const XID: i64 = 7;
+    const REVISION: i64 = 5;
+
+    /// Records every statement and answers the few queries the write algorithm reads.
+    #[derive(Default)]
+    struct Recorder(Vec<(String, Vec<SqlValue>)>);
+
+    impl WriteTxn for Recorder {
+        fn execute(&mut self, sql: &str, params: &[SqlValue]) -> Result<u64, StoreError> {
+            self.0.push((sql.to_owned(), params.to_vec()));
+            Ok(1)
+        }
+        fn query(
+            &mut self,
+            sql: &str,
+            params: &[SqlValue],
+        ) -> Result<Vec<Vec<SqlValue>>, StoreError> {
+            self.0.push((sql.to_owned(), params.to_vec()));
+            let one = |n| Ok(vec![vec![SqlValue::Integer(n)]]);
+            if sql.starts_with("SELECT nextval") {
+                one(BATCH)
+            } else if sql.contains("RETURNING") {
+                one(XID)
+            } else if sql.contains("MAX(version)") {
+                one(0)
+            } else if sql.starts_with("SELECT 1") {
+                // Every precondition below is MustExist.
+                one(1)
+            } else {
+                Ok(Vec::new())
+            }
+        }
+        fn last_insert_id(&mut self) -> Result<i64, StoreError> {
+            Ok(REVISION)
+        }
+    }
+
+    fn request() -> WriteRequest {
+        let rel = |s: &str| s.parse().unwrap();
+        WriteRequest {
+            ops: vec![
+                WriteOp::Create(rel("document:a#viewer@user:anne")),
+                WriteOp::Touch(rel("document:b#viewer@user:bob")),
+                WriteOp::Delete(rel("document:c#viewer@user:carl")),
+            ],
+            preconditions: vec![Precondition::MustExist(RelationshipFilter::new(
+                "document".parse().unwrap(),
+            ))],
+        }
+    }
+
+    const STRATEGIES: [RevisionStrategy; 2] = [
+        RevisionStrategy::AllocateNow,
+        RevisionStrategy::AssignAtCommit,
+    ];
+
+    #[test]
+    fn placeholder_styles() {
+        assert_eq!(PlaceholderStyle::Question.placeholder(3), "?");
+        assert_eq!(PlaceholderStyle::Dollar.placeholder(3), "$3");
+        assert_eq!(PlaceholderStyle::Format.placeholder(3), "%s");
+    }
+
+    #[test]
+    fn allocate_now_marks_rows_with_the_revision() {
+        let mut txn = Recorder::default();
+        let d = Dialect(PlaceholderStyle::Dollar, RevisionStrategy::AllocateNow);
+        let applied = write(&mut txn, &d, &request(), Some(0)).unwrap();
+        assert_eq!(applied, Applied::At(crate::model::Revision(5)));
+        let sql: Vec<&str> = txn.0.iter().map(|(s, _)| s.as_str()).collect();
+        assert!(
+            sql.iter()
+                .any(|s| s.starts_with("INSERT INTO app.pemba_revisions"))
+        );
+        assert!(
+            !sql.iter()
+                .any(|s| s.contains("_batch") || s.contains("pemba_pending"))
+        );
+    }
+
+    /// `docs/10-postgres.md` §1.6.1 steps 4–7: a batch id from the sequence marks every
+    /// row, one pending row queues the commit trigger, and no revision is drawn.
+    #[test]
+    fn assign_at_commit_marks_rows_with_a_batch() {
+        let mut txn = Recorder::default();
+        let d = Dialect(PlaceholderStyle::Dollar, RevisionStrategy::AssignAtCommit);
+        let applied = write(&mut txn, &d, &request(), Some(0)).unwrap();
+        assert_eq!(applied, Applied::Pending { batch: 41, xid: 7 });
+        assert!(applied.into_revision().is_err());
+
+        let sql: Vec<&str> = txn.0.iter().map(|(s, _)| s.as_str()).collect();
+        assert!(sql.contains(&"SELECT nextval('app.pemba_batch_seq')"));
+        assert!(
+            !sql.iter()
+                .any(|s| s.contains("pemba_revisions") || s.contains("_rev"))
+        );
+        let precondition = sql.iter().find(|s| s.starts_with("SELECT 1")).unwrap();
+        assert!(
+            precondition.contains("deleted_batch IS NULL"),
+            "{precondition}"
+        );
+
+        let ops: Vec<&(String, Vec<SqlValue>)> = txn
+            .0
+            .iter()
+            .filter(|(s, _)| s.contains("app.pemba_relationships") && !s.starts_with("SELECT"))
+            .collect();
+        assert_eq!(ops.len(), 3);
+        assert!(ops[0].0.contains("created_batch") && ops[0].1[6] == SqlValue::Integer(BATCH));
+        assert!(ops[1].0.contains("WHERE deleted_batch IS NULL DO NOTHING"));
+        assert!(
+            ops[2]
+                .0
+                .starts_with("UPDATE app.pemba_relationships SET deleted_batch = $1")
+        );
+        assert_eq!(ops[2].1[0], SqlValue::Integer(BATCH));
+
+        // The pending row comes after every op, inside the savepoint.
+        let pending = sql
+            .iter()
+            .position(|s| s.starts_with("INSERT INTO app.pemba_pending"))
+            .unwrap();
+        assert_eq!(sql[pending + 1], "RELEASE SAVEPOINT pemba_write");
+        assert_eq!(
+            txn.0[pending].1,
+            [SqlValue::Integer(BATCH), SqlValue::Text("write".into())]
+        );
+    }
+
+    /// psycopg and Django read every `%` as the start of a placeholder
+    /// (`docs/10-postgres.md` §2.3), so statement text may hold no other `%`, and the
+    /// `%s` count must match the parameters.
+    #[test]
+    fn format_style_statements_have_no_stray_percent() {
+        for strategy in STRATEGIES {
+            let mut txn = Recorder::default();
+            let d = Dialect(PlaceholderStyle::Format, strategy);
+            write(&mut txn, &d, &request(), Some(0)).unwrap();
+            if strategy == RevisionStrategy::AllocateNow {
+                let filter = RelationshipFilter::new("document".parse().unwrap());
+                delete_matching(&mut txn, &d, &filter, 10).unwrap();
+                write_schema(&mut txn, &d, "definition user {}", "h", &|_| Ok(())).unwrap();
+            }
+            for (sql, params) in &txn.0 {
+                assert_eq!(
+                    sql.matches('%').count(),
+                    sql.matches("%s").count(),
+                    "{strategy:?}: {sql}"
+                );
+                assert_eq!(
+                    sql.matches("%s").count(),
+                    params.len(),
+                    "{strategy:?}: {sql}"
+                );
+            }
+        }
+    }
+
+    /// The writes T5.5 has not ported yet refuse a commit-assigned store rather than write
+    /// revision columns it does not have.
+    #[test]
+    fn unported_writes_fail_closed_at_commit_assignment() {
+        let d = Dialect(PlaceholderStyle::Dollar, RevisionStrategy::AssignAtCommit);
+        let mut txn = Recorder::default();
+        let filter = RelationshipFilter::new("document".parse().unwrap());
+        let err = delete_matching(&mut txn, &d, &filter, 10).unwrap_err();
+        assert!(
+            matches!(err, Error::Store(StoreError::Backend { .. })),
+            "{err:?}"
+        );
+        let err = write_schema(&mut txn, &d, "definition user {}", "h", &|_| Ok(())).unwrap_err();
+        assert!(
+            matches!(err, Error::Store(StoreError::Backend { .. })),
+            "{err:?}"
+        );
+        assert_eq!(txn.0, Vec::new());
     }
 }

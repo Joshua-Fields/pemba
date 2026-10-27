@@ -12,6 +12,7 @@ use pemba_core::store::{
     DeleteResult, ReadStore, RelationCount, ReverseFilter, SchemaCheck, SqlDialect, SqlStore,
     StoreError, StoredSchema, WritableStore, WriteTxn,
 };
+use pemba_core::write::Applied;
 use pemba_sqlite_common::{
     MIN_SQLITE_VERSION, SqliteDialect, canonical_main_file, migrate, parse_sqlite_version, reads,
 };
@@ -571,6 +572,7 @@ impl WritableStore for PySqliteStore {
     fn write(&self, req: &WriteRequest, schema_version: Option<u64>) -> Result<Revision, Error> {
         let rev = self.with_write_txn(&mut |txn| {
             pemba_core::write::write(txn, &SqliteDialect, req, schema_version)
+                .and_then(Applied::into_revision)
         })?;
         self.cache.head.fetch_max(rev.0, Ordering::AcqRel);
         Ok(rev)
