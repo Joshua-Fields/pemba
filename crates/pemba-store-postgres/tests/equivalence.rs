@@ -83,21 +83,21 @@ fn memory_sqlite_and_postgres_are_equivalent() {
             let sqlite = TempSqlite::new();
             store_equivalence::equivalent(&[&memory, sqlite.store.as_ref().unwrap(), &pg], &ops)?;
 
+            // Every revision drawn committed: the sequence's last value is head. (GC prunes
+            // the map, so counting its rows would not do.)
             let row = admin(&url)
                 .query_one(
                     &format!(
-                        "SELECT count(*), max(rev) FROM {}.pemba_revisions",
-                        schema.q()
+                        "SELECT s.last_value, s.is_called, \
+                         (SELECT max(rev) FROM {q}.pemba_revisions) FROM {q}.pemba_rev_seq s",
+                        q = schema.q()
                     ),
                     &[],
                 )
                 .unwrap();
-            let (rows, max): (i64, i64) = (row.get(0), row.get(1));
-            prop_assert_eq!(
-                rows - 1,
-                max,
-                "a sequential run left a gap in the revisions"
-            );
+            let (last, called, head): (i64, bool, i64) = (row.get(0), row.get(1), row.get(2));
+            let drawn = if called { last } else { 0 };
+            prop_assert_eq!(drawn, head, "a sequential run left a gap in the revisions");
             Ok(())
         })
         .unwrap();

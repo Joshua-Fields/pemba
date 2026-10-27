@@ -1327,3 +1327,32 @@ it is resolved.
   stale version check (one more query, or the setting read in the same statement); (c)
   revisit after T5.12's benchmarks.
 - Resolve by: maintainer.
+
+## OQ-053 — Resolving a `PendingRevision` after GC pruned its batch
+- Raised in: T5.7 (`docs/10-postgres.md` §1.6.4, §1.6.5)
+- Blocking: no
+- Problem: §1.6.4 maps "committed, but the batch is not in the map" to `WriteRolledBack`
+  (a write rolled back to a savepoint). Once GC prunes map rows below the horizon, a
+  committed write resolved very late also lands there, and calling it rolled back would
+  be wrong: a caller might write it again, or act as if it never happened.
+- Current choice: fail closed. With `gc_horizon = 0` (GC never ran) the answer stays
+  `WriteRolledBack`; otherwise `resolve` returns `Error::Store(Backend)` saying "rolled
+  back to a savepoint, or GC pruned it below the horizon; resolve a PendingRevision
+  right after its commit". Tested by `resolving_a_batch_gc_pruned_fails_closed`.
+- Options considered: keep `pemba_pending` rows until their map row is pruned and tell
+  the cases apart by them (savepoint-rolled-back batches have none) — but a pruned batch
+  loses both together, so it does not separate them; store the writing xid in the map
+  and keep a "pruned up to" mark (xids are not in commit order, so not exact).
+- Resolve by: maintainer; probably fine as is, since resolving happens right after
+  commit in practice.
+
+## OQ-054 — Reads below head cost about 9× a head read
+- Raised in: T5.7 (`tests/gc_measure.rs`)
+- Blocking: no (correct, and T5.12 owns the benchmarks)
+- Finding: paging 500 tuples with `read_relationships` at `Exact(head − 1)` over 100,000
+  write calls took 87 ms p50 before compaction and 69 ms after, against 9 ms at head
+  (the `deleted_batch IS NULL` form). The spike measured +34% for a 500-row lookup at an
+  old revision with SQL approximations (§1.5.2, F12). Not investigated: the plan of the
+  paged map join (keyset cursor plus `JOIN … LEFT JOIN` over the whole type) may be the
+  cause rather than the join itself.
+- Resolve by: T5.12 (benchmarks, F12).

@@ -473,7 +473,7 @@ where
             dialect.placeholder(1)
         ),
         // Through the batch map: a batch not in it (pending, or rolled back) is never
-        // collected. Pruning pending rows and the map itself is T5.7.
+        // collected.
         RevisionStrategy::AssignAtCommit => format!(
             "SELECT r.{row_id} FROM {table} r JOIN {} m ON m.batch_id = r.deleted_batch \
              WHERE m.rev <= {}",
@@ -484,6 +484,112 @@ where
     Ok(txn.execute(
         &format!(
             "DELETE FROM {table} WHERE {row_id} IN ({collectable} LIMIT {})",
+            dialect.placeholder(2),
+        ),
+        &[
+            revision_value(horizon)?,
+            SqlValue::Integer(i64::try_from(max_rows).unwrap_or(i64::MAX)),
+        ],
+    )?)
+}
+
+/// GC step 3, [`RevisionStrategy::AssignAtCommit`] only (`docs/10-postgres.md` §1.6.5,
+/// "rebase"): sets `created_batch = 0` on at most `max_rows` rows whose creating batch
+/// maps to a revision at or below the stored horizon; returns how many. Batch 0 is
+/// revision 0, so such a row stays visible at every readable revision, as before. Run
+/// after [`gc_batch`] has removed every row deleted at or below the horizon, so no
+/// `deleted_batch` below it is left to rebase. Returns 0 on other stores.
+///
+/// # Errors
+///
+/// [`Error::Store`] if a statement fails or the stored horizon is unreadable.
+pub fn compact_batch<T, D>(txn: &mut T, dialect: &D, max_rows: usize) -> Result<u64, Error>
+where
+    T: WriteTxn + ?Sized,
+    D: SqlDialect + ?Sized,
+{
+    if dialect.revision_strategy() == RevisionStrategy::AllocateNow {
+        return Ok(0);
+    }
+    let horizon = gc_horizon(txn, dialect)?;
+    let table = dialect.table(RELATIONSHIPS);
+    let row_id = dialect.row_id();
+    Ok(txn.execute(
+        &format!(
+            "UPDATE {table} SET created_batch = 0 WHERE {row_id} IN (SELECT r.{row_id} \
+             FROM {table} r JOIN {} m ON m.batch_id = r.created_batch \
+             WHERE r.created_batch <> 0 AND m.rev <= {} LIMIT {})",
+            dialect.table(REVISIONS),
+            dialect.placeholder(1),
+            dialect.placeholder(2),
+        ),
+        &[
+            revision_value(horizon)?,
+            SqlValue::Integer(i64::try_from(max_rows).unwrap_or(i64::MAX)),
+        ],
+    )?)
+}
+
+/// GC step 4, [`RevisionStrategy::AssignAtCommit`] only: removes at most `max_rows`
+/// `pemba_pending` rows whose batch is mapped. A committed batch's pending row is garbage
+/// once the commit trigger has mapped it; the rows of open transactions are invisible
+/// here. Returns 0 on other stores.
+///
+/// # Errors
+///
+/// [`Error::Store`] if a statement fails.
+pub fn prune_pending_batch<T, D>(txn: &mut T, dialect: &D, max_rows: usize) -> Result<u64, Error>
+where
+    T: WriteTxn + ?Sized,
+    D: SqlDialect + ?Sized,
+{
+    if dialect.revision_strategy() == RevisionStrategy::AllocateNow {
+        return Ok(0);
+    }
+    let pending = dialect.table(PENDING);
+    Ok(txn.execute(
+        &format!(
+            "DELETE FROM {pending} WHERE batch_id IN (SELECT p.batch_id FROM {pending} p \
+             JOIN {} m ON m.batch_id = p.batch_id LIMIT {})",
+            dialect.table(REVISIONS),
+            dialect.placeholder(1),
+        ),
+        &[SqlValue::Integer(
+            i64::try_from(max_rows).unwrap_or(i64::MAX),
+        )],
+    )?)
+}
+
+/// GC step 5, [`RevisionStrategy::AssignAtCommit`] only: removes at most `max_rows` batch
+/// map rows below the stored horizon that no relationship row (after [`gc_batch`] and
+/// [`compact_batch`], none does) and no schema version references. Schema rows keep
+/// their batch, so `StoredSchema::created_rev` stays exact. Batch 0 and every map row at
+/// or above the horizon stay, so head stays defined. Returns 0 on other stores.
+///
+/// # Errors
+///
+/// [`Error::Store`] if a statement fails or the stored horizon is unreadable.
+pub fn prune_map_batch<T, D>(txn: &mut T, dialect: &D, max_rows: usize) -> Result<u64, Error>
+where
+    T: WriteTxn + ?Sized,
+    D: SqlDialect + ?Sized,
+{
+    if dialect.revision_strategy() == RevisionStrategy::AllocateNow {
+        return Ok(0);
+    }
+    let horizon = gc_horizon(txn, dialect)?;
+    let map = dialect.table(REVISIONS);
+    let table = dialect.table(RELATIONSHIPS);
+    Ok(txn.execute(
+        &format!(
+            "DELETE FROM {map} WHERE batch_id IN (SELECT m.batch_id FROM {map} m \
+             WHERE m.batch_id <> 0 AND m.rev < {} \
+             AND NOT EXISTS (SELECT 1 FROM {table} r WHERE r.created_batch = m.batch_id) \
+             AND NOT EXISTS (SELECT 1 FROM {table} r WHERE r.deleted_batch = m.batch_id) \
+             AND NOT EXISTS (SELECT 1 FROM {} s WHERE s.created_batch = m.batch_id) \
+             LIMIT {})",
+            dialect.placeholder(1),
+            dialect.table(SCHEMA),
             dialect.placeholder(2),
         ),
         &[

@@ -74,6 +74,11 @@ CREATE INDEX pemba_rel_rev
 CREATE INDEX pemba_rel_deleted
     ON {s}.pemba_relationships (deleted_batch) WHERE deleted_batch IS NOT NULL;
 
+-- For GC's rebase and map pruning (docs/10-postgres.md §1.6.5). Rebased rows (batch 0)
+-- leave it, so it holds only rows created since the last GC.
+CREATE INDEX pemba_rel_created
+    ON {s}.pemba_relationships (created_batch) WHERE created_batch <> 0;
+
 CREATE TABLE {s}.pemba_schema (
     version       bigint PRIMARY KEY,
     source        text   NOT NULL,
