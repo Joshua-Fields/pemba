@@ -1,0 +1,98 @@
+[
+  {
+    "scheme": "counter",
+    "committed_txns": 679,
+    "writes_per_s": 67.9,
+    "observations": 38624,
+    "violations": 0,
+    "head_regressions": 0,
+    "write_order_vs_commit_order_inversions": 0,
+    "rev_order_vs_commit_order_inversions": 0,
+    "visibility_lag_ms": {
+      "p50": 0.2,
+      "p99": 1.0,
+      "max": 1.4
+    },
+    "writer_blocked_ms": {
+      "p50": 74.5,
+      "p99": 3078.1,
+      "max": 3112.2
+    },
+    "long_txns": 2,
+    "errors": {},
+    "dangling_provisional_rows": 0,
+    "config": {
+      "writers": 8,
+      "readers": 4,
+      "duration_s": 10.0,
+      "hold_ms": 30,
+      "long_every_s": 4.0,
+      "long_s": 3.0,
+      "isolation": "REPEATABLE_READ"
+    }
+  },
+  {
+    "scheme": "watermark",
+    "committed_txns": 6466,
+    "writes_per_s": 646.6,
+    "observations": 9196,
+    "violations": 0,
+    "head_regressions": 0,
+    "write_order_vs_commit_order_inversions": 20063,
+    "rev_order_vs_commit_order_inversions": 20063,
+    "visibility_lag_ms": {
+      "p50": 16.8,
+      "p99": 2892.4,
+      "max": 2998.6
+    },
+    "writer_blocked_ms": {
+      "p50": 5.9,
+      "p99": 9.1,
+      "max": 12.0
+    },
+    "long_txns": 2,
+    "errors": {},
+    "dangling_provisional_rows": 0,
+    "config": {
+      "writers": 8,
+      "readers": 4,
+      "duration_s": 10.0,
+      "hold_ms": 30,
+      "long_every_s": 4.0,
+      "long_s": 3.0,
+      "isolation": "REPEATABLE_READ"
+    }
+  },
+  {
+    "scheme": "committime",
+    "committed_txns": 6762,
+    "writes_per_s": 676.2,
+    "observations": 20103,
+    "violations": 0,
+    "head_regressions": 0,
+    "write_order_vs_commit_order_inversions": 21165,
+    "rev_order_vs_commit_order_inversions": 0,
+    "visibility_lag_ms": {
+      "p50": 0.3,
+      "p99": 1.5,
+      "max": 5.2
+    },
+    "writer_blocked_ms": {
+      "p50": 4.0,
+      "p99": 6.8,
+      "max": 13.0
+    },
+    "long_txns": 2,
+    "errors": {},
+    "dangling_provisional_rows": 0,
+    "config": {
+      "writers": 8,
+      "readers": 4,
+      "duration_s": 10.0,
+      "hold_ms": 30,
+      "long_every_s": 4.0,
+      "long_s": 3.0,
+      "isolation": "REPEATABLE_READ"
+    }
+  }
+]

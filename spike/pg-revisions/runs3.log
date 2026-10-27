@@ -1,0 +1,13 @@
+## SER no long x2
+{"scheme": "committid", "writes_per_s": 623.2, "violations": 0, "head_regressions": 0, "write_order_vs_commit_order_inversions": 12858, "rev_order_vs_commit_order_inversions": 0, "visibility_lag_ms": {"p50": 0.3, "p99": 1.5, "max": 5.6}, "writer_blocked_ms": {"p50": 3.7, "p99": 6.4, "max": 9.5}, "errors": {"40001": 140}}
+{"scheme": "watermark", "writes_per_s": 600.0, "violations": 0, "head_regressions": 0, "write_order_vs_commit_order_inversions": 12071, "rev_order_vs_commit_order_inversions": 12071, "visibility_lag_ms": {"p50": 9.8, "p99": 27.3, "max": 30.5}, "writer_blocked_ms": {"p50": 5.7, "p99": 9.0, "max": 11.3}, "errors": {"40001": 26}}
+## SER long
+{"scheme": "committid", "writes_per_s": 667.0, "violations": 0, "head_regressions": 0, "write_order_vs_commit_order_inversions": 20510, "rev_order_vs_commit_order_inversions": 0, "visibility_lag_ms": {"p50": 0.4, "p99": 1.5, "max": 4.8}, "writer_blocked_ms": {"p50": 3.9, "p99": 6.3, "max": 11.5}, "errors": {"40001": 234}}
+## RR long
+{"scheme": "committid", "writes_per_s": 686.8, "violations": 0, "head_regressions": 0, "write_order_vs_commit_order_inversions": 21877, "rev_order_vs_commit_order_inversions": 0, "visibility_lag_ms": {"p50": 0.3, "p99": 1.6, "max": 3.0}, "writer_blocked_ms": {"p50": 3.8, "p99": 6.4, "max": 13.8}, "errors": {}}
+## RC long tid
+{"scheme": "committid", "writes_per_s": 686.2, "violations": 0, "head_regressions": 0, "write_order_vs_commit_order_inversions": 45159, "rev_order_vs_commit_order_inversions": 0, "visibility_lag_ms": {"p50": 0.4, "p99": 1.8, "max": 6.5}, "writer_blocked_ms": {"p50": 3.7, "p99": 6.1, "max": 13.9}, "errors": {}, "forced": {"b_blocked_s": 0.003, "b_committed_while_a_open": true, "rev_a": 2, "rev_b": 1, "head_observed_while_a_open": 1, "violation": false}}
+{"savepoint_checks": {"scheme": "committime", "revs_after_savepoint_rollback": [1, 2], "two_writes_one_txn": [1, 2], "rows_after_rollback": 2, "provisional_left": 0, "rev_seq_last_value": 2, "rev_known_before_commit_with_set_constraints_immediate": 3, "create_then_delete_same_txn": [[4, 5]]}}
+{"savepoint_checks": {"scheme": "committid", "revs_after_savepoint_rollback": [1, 2], "two_writes_one_txn": [1, 2], "rows_after_rollback": 2, "provisional_left": 0, "rev_seq_last_value": 2, "rev_known_before_commit_with_set_constraints_immediate": 3, "create_then_delete_same_txn": [[4, 5]]}}
+## tput
+{"scheme": "committid", "writes_per_s": 1212.3, "violations": 0, "head_regressions": 0, "write_order_vs_commit_order_inversions": 0, "rev_order_vs_commit_order_inversions": 0, "visibility_lag_ms": {"p50": 0.9, "p99": 3.9, "max": 6.6}, "writer_blocked_ms": {"p50": 9.3, "p99": 13.4, "max": 16.7}, "errors": {}}

@@ -1,0 +1,178 @@
+[
+  {
+    "scheme": "naive",
+    "committed_txns": 16135,
+    "writes_per_s": 806.8,
+    "observations": 39371,
+    "violations": 39355,
+    "head_regressions": 0,
+    "write_order_vs_commit_order_inversions": 61567,
+    "rev_order_vs_commit_order_inversions": 61571,
+    "visibility_lag_ms": {
+      "p50": 0.4,
+      "p99": 1.7,
+      "max": 5.4
+    },
+    "writer_blocked_ms": {
+      "p50": 3.1,
+      "p99": 5.0,
+      "max": 12.1
+    },
+    "long_txns": 3,
+    "errors": {},
+    "dangling_provisional_rows": 0,
+    "config": {
+      "writers": 8,
+      "readers": 4,
+      "duration_s": 20.0,
+      "hold_ms": 30,
+      "long_every_s": 4.0,
+      "long_s": 3.0,
+      "isolation": "READ_COMMITTED"
+    },
+    "forced_inversion": {
+      "b_blocked_s": 0.002,
+      "b_committed_while_a_open": true,
+      "rev_a": 1,
+      "rev_b": 2,
+      "head_observed_while_a_open": 2,
+      "violation": true
+    }
+  },
+  {
+    "scheme": "counter",
+    "committed_txns": 1199,
+    "writes_per_s": 60.0,
+    "observations": 74244,
+    "violations": 0,
+    "head_regressions": 0,
+    "write_order_vs_commit_order_inversions": 0,
+    "rev_order_vs_commit_order_inversions": 0,
+    "visibility_lag_ms": {
+      "p50": 0.2,
+      "p99": 1.0,
+      "max": 1.2
+    },
+    "writer_blocked_ms": {
+      "p50": 74.1,
+      "p99": 3068.1,
+      "max": 3107.5
+    },
+    "long_txns": 3,
+    "errors": {},
+    "dangling_provisional_rows": 0,
+    "config": {
+      "writers": 8,
+      "readers": 4,
+      "duration_s": 20.0,
+      "hold_ms": 30,
+      "long_every_s": 4.0,
+      "long_s": 3.0,
+      "isolation": "READ_COMMITTED"
+    },
+    "forced_inversion": {
+      "b_committed_while_a_open": false,
+      "b_blocked_s": 1.021,
+      "rev_a": 1,
+      "rev_b": 2,
+      "head_observed_while_a_open": 0,
+      "violation": false
+    }
+  },
+  {
+    "scheme": "watermark",
+    "committed_txns": 12860,
+    "writes_per_s": 643.0,
+    "observations": 17605,
+    "violations": 0,
+    "head_regressions": 0,
+    "write_order_vs_commit_order_inversions": 40761,
+    "rev_order_vs_commit_order_inversions": 40762,
+    "visibility_lag_ms": {
+      "p50": 21.3,
+      "p99": 2919.6,
+      "max": 2999.3
+    },
+    "writer_blocked_ms": {
+      "p50": 5.7,
+      "p99": 9.2,
+      "max": 11.0
+    },
+    "long_txns": 3,
+    "errors": {},
+    "dangling_provisional_rows": 0,
+    "config": {
+      "writers": 8,
+      "readers": 4,
+      "duration_s": 20.0,
+      "hold_ms": 30,
+      "long_every_s": 4.0,
+      "long_s": 3.0,
+      "isolation": "READ_COMMITTED"
+    },
+    "forced_inversion": {
+      "b_blocked_s": 0.003,
+      "b_committed_while_a_open": true,
+      "rev_a": 1,
+      "rev_b": 2,
+      "head_observed_while_a_open": 0,
+      "violation": false
+    }
+  },
+  {
+    "scheme": "committime",
+    "committed_txns": 13180,
+    "writes_per_s": 659.0,
+    "observations": 36086,
+    "violations": 0,
+    "head_regressions": 0,
+    "write_order_vs_commit_order_inversions": 40289,
+    "rev_order_vs_commit_order_inversions": 0,
+    "visibility_lag_ms": {
+      "p50": 0.4,
+      "p99": 1.6,
+      "max": 9.7
+    },
+    "writer_blocked_ms": {
+      "p50": 4.1,
+      "p99": 8.0,
+      "max": 14.8
+    },
+    "long_txns": 3,
+    "errors": {},
+    "dangling_provisional_rows": 0,
+    "config": {
+      "writers": 8,
+      "readers": 4,
+      "duration_s": 20.0,
+      "hold_ms": 30,
+      "long_every_s": 4.0,
+      "long_s": 3.0,
+      "isolation": "READ_COMMITTED"
+    },
+    "forced_inversion": {
+      "b_blocked_s": 0.004,
+      "b_committed_while_a_open": true,
+      "rev_a": 2,
+      "rev_b": 1,
+      "head_observed_while_a_open": 1,
+      "violation": false
+    }
+  },
+  {
+    "savepoint_checks": {
+      "revs_after_savepoint_rollback": [
+        1,
+        2
+      ],
+      "two_writes_one_txn": [
+        1,
+        2
+      ],
+      "rows_after_rollback": 2,
+      "provisional_left": 0,
+      "rev_seq_last_value": 2,
+      "rev_known_before_commit_with_set_constraints_immediate": 3
+    }
+  }
+]

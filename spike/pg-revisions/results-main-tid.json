@@ -1,0 +1,88 @@
+[
+  {
+    "scheme": "committid",
+    "committed_txns": 13724,
+    "writes_per_s": 686.2,
+    "observations": 35710,
+    "violations": 0,
+    "head_regressions": 0,
+    "write_order_vs_commit_order_inversions": 45159,
+    "rev_order_vs_commit_order_inversions": 0,
+    "visibility_lag_ms": {
+      "p50": 0.4,
+      "p99": 1.8,
+      "max": 6.5
+    },
+    "writer_blocked_ms": {
+      "p50": 3.7,
+      "p99": 6.1,
+      "max": 13.9
+    },
+    "long_txns": 3,
+    "errors": {},
+    "dangling_provisional_rows": 0,
+    "config": {
+      "writers": 8,
+      "readers": 4,
+      "duration_s": 20.0,
+      "hold_ms": 30,
+      "long_every_s": 4.0,
+      "long_s": 3.0,
+      "isolation": "READ_COMMITTED"
+    },
+    "forced_inversion": {
+      "b_blocked_s": 0.003,
+      "b_committed_while_a_open": true,
+      "rev_a": 2,
+      "rev_b": 1,
+      "head_observed_while_a_open": 1,
+      "violation": false
+    }
+  },
+  {
+    "savepoint_checks": {
+      "scheme": "committime",
+      "revs_after_savepoint_rollback": [
+        1,
+        2
+      ],
+      "two_writes_one_txn": [
+        1,
+        2
+      ],
+      "rows_after_rollback": 2,
+      "provisional_left": 0,
+      "rev_seq_last_value": 2,
+      "rev_known_before_commit_with_set_constraints_immediate": 3,
+      "create_then_delete_same_txn": [
+        [
+          4,
+          5
+        ]
+      ]
+    }
+  },
+  {
+    "savepoint_checks": {
+      "scheme": "committid",
+      "revs_after_savepoint_rollback": [
+        1,
+        2
+      ],
+      "two_writes_one_txn": [
+        1,
+        2
+      ],
+      "rows_after_rollback": 2,
+      "provisional_left": 0,
+      "rev_seq_last_value": 2,
+      "rev_known_before_commit_with_set_constraints_immediate": 3,
+      "create_then_delete_same_txn": [
+        [
+          4,
+          5
+        ]
+      ]
+    }
+  }
+]

@@ -1,0 +1,103 @@
+[
+  {
+    "scheme": "counter",
+    "committed_txns": 674,
+    "writes_per_s": 67.4,
+    "observations": 38239,
+    "violations": 0,
+    "head_regressions": 0,
+    "write_order_vs_commit_order_inversions": 0,
+    "rev_order_vs_commit_order_inversions": 0,
+    "visibility_lag_ms": {
+      "p50": 0.2,
+      "p99": 0.9,
+      "max": 1.4
+    },
+    "writer_blocked_ms": {
+      "p50": 74.8,
+      "p99": 3062.4,
+      "max": 3127.6
+    },
+    "long_txns": 2,
+    "errors": {},
+    "dangling_provisional_rows": 0,
+    "config": {
+      "writers": 8,
+      "readers": 4,
+      "duration_s": 10.0,
+      "hold_ms": 30,
+      "long_every_s": 4.0,
+      "long_s": 3.0,
+      "isolation": "SERIALIZABLE"
+    }
+  },
+  {
+    "scheme": "watermark",
+    "committed_txns": 6377,
+    "writes_per_s": 637.7,
+    "observations": 8900,
+    "violations": 0,
+    "head_regressions": 0,
+    "write_order_vs_commit_order_inversions": 19453,
+    "rev_order_vs_commit_order_inversions": 19453,
+    "visibility_lag_ms": {
+      "p50": 16.5,
+      "p99": 2891.0,
+      "max": 2990.2
+    },
+    "writer_blocked_ms": {
+      "p50": 6.0,
+      "p99": 9.4,
+      "max": 13.5
+    },
+    "long_txns": 2,
+    "errors": {
+      "40001": 22
+    },
+    "dangling_provisional_rows": 0,
+    "config": {
+      "writers": 8,
+      "readers": 4,
+      "duration_s": 10.0,
+      "hold_ms": 30,
+      "long_every_s": 4.0,
+      "long_s": 3.0,
+      "isolation": "SERIALIZABLE"
+    }
+  },
+  {
+    "scheme": "committime",
+    "committed_txns": 3240,
+    "writes_per_s": 324.0,
+    "observations": 20872,
+    "violations": 0,
+    "head_regressions": 0,
+    "write_order_vs_commit_order_inversions": 5357,
+    "rev_order_vs_commit_order_inversions": 0,
+    "visibility_lag_ms": {
+      "p50": 0.3,
+      "p99": 1.5,
+      "max": 2.6
+    },
+    "writer_blocked_ms": {
+      "p50": 3.8,
+      "p99": 6.3,
+      "max": 13.9
+    },
+    "long_txns": 1,
+    "errors": {
+      "40001": 4013,
+      "53200": 522
+    },
+    "dangling_provisional_rows": 0,
+    "config": {
+      "writers": 8,
+      "readers": 4,
+      "duration_s": 10.0,
+      "hold_ms": 30,
+      "long_every_s": 4.0,
+      "long_s": 3.0,
+      "isolation": "SERIALIZABLE"
+    }
+  }
+]
