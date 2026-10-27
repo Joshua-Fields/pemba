@@ -801,14 +801,21 @@ Options considered:
 | Async engine API | Rejected. It would make `Engine`, `ReadStore` and the evaluator async (or duplicate them), make PyO3 integration harder (ADR-003's context), and gain nothing for CPU-bound graph walks over a connection pool. |
 
 Consequences:
-- **Called from async Rust:** callers wrap engine calls in `spawn_blocking`. Whether the
-  `postgres` crate panics when called directly inside a tokio runtime is unverified;
-  T5.3 adds a test, and the docs will say "use `spawn_blocking`".
+- **Called from async Rust:** callers wrap engine calls in `spawn_blocking`. Verified in
+  T5.3: called directly on a thread running a tokio runtime, the `postgres` crate panics
+  (it blocks on its own runtime). `pemba-store-postgres/tests/migrate.rs` pins both that
+  `spawn_blocking` works and that the direct call panics, so a driver change that stops
+  panicking fails the test and prompts a docs update.
 - **Connection pool:** hand-rolled, like the SQLite reader pool (`05` §4.2). Default 8,
   covering native writes and snapshots alike; there is no writer mutex because Postgres
   serialises at commit. `r2d2_postgres` (last release 2024-12) adds a dependency for about
   60 lines of code.
-- **TLS:** `tokio-postgres-rustls` 0.14.0, behind a default-on `tls` feature.
+- **TLS:** `tokio-postgres-rustls` 0.14.0, behind a default-on `tls` feature. T5.3 uses
+  rustls 0.23 with the `ring` provider (its own `ClientConfig`, not the process default)
+  and `rustls-native-certs` roots; `webpki-roots` is not used because its licence
+  (CDLA-Permissive-2.0) is not on the `deny.toml` list. The server certificate is always
+  verified; the DSN's `sslmode` decides whether TLS is used. A server with a certificate
+  the platform does not trust needs `sslmode=disable` until a CA option is added.
   - Pro: no OpenSSL in manylinux wheels, which avoids the system-library problem
     ADR-014's packaging has.
   - Con: it is third-party; `postgres-native-tls` and `postgres-openssl` 0.5.3 are
@@ -1004,6 +1011,16 @@ Notes on the column choices:
   `search_path` on a foreign connection cannot redirect pemba's SQL. The trigger
   function pins `SET search_path = pg_catalog, pg_temp`, which guards against
   search-path hijacking.
+- **The store's own connections** run `SET search_path = pg_catalog, pg_temp` when opened
+  (T5.3), so built-in functions and operators in pemba's SQL cannot be shadowed either;
+  the migration and the runner also qualify them with `pg_catalog`. Foreign connections
+  keep the app's `search_path`: there only tables are qualified (and the trigger pins its
+  own path).
+- **The schema must exist.** Migrations create tables in it, never the schema itself, so
+  a typo fails (`InvalidRequest`) rather than creating a second store.
+- **Schema names** must be 1–63 bytes and contain no NUL, `$` or `\`: the name is baked
+  into the trigger function's dollar-quoted body and its string literals. Anything else,
+  including quotes and spaces, is quoted.
 - **Several stores in one database.** Use one schema each. The revision lock key is
   `(PEMBA_LOCK_CLASS, '<s>.pemba_revisions'::regclass::oid)`. `PEMBA_LOCK_CLASS` is the
   fixed constant `0x70656D62` ("pemb"); it is documented, so apps can avoid it in their
@@ -1029,8 +1046,14 @@ Notes on the column choices:
   `batch_execute` (simple query protocol, several statements); no splitting is needed.
   Flag for review: the runner differs from SQLite's.
 - **Opening a store.** `open()` with `auto_migrate = false` is the recommended production
-  default, as for SQLite. It returns `NotMigrated` or `StorageVersionTooNew` exactly as
-  SQLite does, and also checks server version ≥ the minimum and encoding `UTF8`.
+  default, as for SQLite; unlike SQLite it is also the default value of
+  `PostgresConfig::auto_migrate` (T5.3), so app processes never need DDL privileges unless
+  asked. It returns `NotMigrated` or `StorageVersionTooNew` exactly as SQLite does, and
+  also checks server version ≥ the minimum and encoding `UTF8`; either failing is
+  `Error::Store` (`Backend`), as an unsuitable SQLite library is.
+- **Isolation.** Each migration transaction is `READ COMMITTED` whatever
+  `default_transaction_isolation` says: the version read after the advisory lock must see
+  a concurrent migrator's commit.
 - **Minimum Postgres version: 15.**
   - The design needs `pg_current_xact_id` / `pg_xact_status` (13+).
   - 14 reaches end of life on 2026-11-12.

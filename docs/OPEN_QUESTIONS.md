@@ -1170,3 +1170,26 @@ it is resolved.
 - Resolution: Resolved by the human, 2026-10-27: write(conn=...) / write_in return
   PendingRevision on all stores; there is no assign_now. int(pending) works for one
   release with a deprecation warning, then is removed.
+
+## OQ-046 — `pemba_rel_rev` cannot serve head reads index-only without `resource_id`
+- Raised in: T5.3 (`docs/10-postgres.md` §3.2)
+- Blocking: no (storage version 1 is unreleased until T5.12; T5.4 can change it)
+- Current choice: T5.3 builds the index as §3.2 lists it, the SQLite columns with
+  `deleted_batch` appended: `(subject_type, subject_id, subject_relation, resource_type,
+  relation, created_batch, deleted_batch)`. §3.2 says `deleted_batch` is added "so that
+  head reads stay index-only", but a reverse read also returns `resource_id`, which is not
+  in the index, so Postgres must visit the heap anyway.
+- Options considered: add `INCLUDE (resource_id)` (index-only, larger index); leave as is
+  and drop the claim from §3.2.
+- Resolve by: T5.4, with `EXPLAIN` on the reverse-read shapes.
+
+## OQ-047 — Default of `PostgresConfig::auto_migrate`
+- Raised in: T5.3 (`docs/10-postgres.md` §3.4)
+- Blocking: no
+- Current choice: `false`. §3.4 says `auto_migrate = false` is "the recommended production
+  default, as for SQLite", but SQLite's field defaults to `true`; the spec does not say
+  which default the Postgres field takes. `false` is the conservative reading: an app
+  process never runs DDL on a shared database unless asked, and a skipped deploy step is
+  `NotMigrated`, not a surprise migration.
+- Options considered: `true`, matching `SqliteConfig` (convenient for local development).
+- Resolve by: maintainer, before T5.9 (Python `Engine.postgres` mirrors the default).
