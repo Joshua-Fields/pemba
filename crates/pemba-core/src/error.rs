@@ -68,6 +68,16 @@ pub enum Error {
         /// The store's head when the request started.
         head: Revision,
     },
+    /// [`Engine::resolve`](crate::Engine::resolve) on a write whose transaction is still
+    /// open: its revision is assigned when that transaction commits
+    /// (`docs/10-postgres.md` §1.6.4). Resolve after the commit.
+    #[error("the write's transaction has not committed yet, so it has no revision")]
+    RevisionPending,
+    /// [`Engine::resolve`](crate::Engine::resolve) on a write that will never have a
+    /// revision: its transaction rolled back, or it was rolled back to a savepoint before
+    /// the transaction committed (`docs/10-postgres.md` §1.6.4).
+    #[error("the write was rolled back, so it has no revision")]
+    WriteRolledBack,
     /// The requested revision is below the GC horizon, so its history is gone.
     #[error("revision {requested} has expired (GC horizon is {horizon})")]
     RevisionExpired {
@@ -208,6 +218,8 @@ impl Error {
         "PRECONDITION_FAILED",
         "BATCH_TOO_LARGE",
         "REVISION_NOT_YET_AVAILABLE",
+        "REVISION_PENDING",
+        "WRITE_ROLLED_BACK",
         "REVISION_EXPIRED",
         "MAX_DEPTH_EXCEEDED",
         "NON_MONOTONIC_CYCLE",
@@ -239,6 +251,8 @@ impl Error {
             Self::PreconditionFailed { .. } => "PRECONDITION_FAILED",
             Self::BatchTooLarge { .. } => "BATCH_TOO_LARGE",
             Self::RevisionNotYetAvailable { .. } => "REVISION_NOT_YET_AVAILABLE",
+            Self::RevisionPending => "REVISION_PENDING",
+            Self::WriteRolledBack => "WRITE_ROLLED_BACK",
             Self::RevisionExpired { .. } => "REVISION_EXPIRED",
             Self::MaxDepthExceeded { .. } => "MAX_DEPTH_EXCEEDED",
             Self::NonMonotonicCycle { .. } => "NON_MONOTONIC_CYCLE",
@@ -277,6 +291,8 @@ mod tests {
             | Error::PreconditionFailed { .. }
             | Error::BatchTooLarge { .. }
             | Error::RevisionNotYetAvailable { .. }
+            | Error::RevisionPending
+            | Error::WriteRolledBack
             | Error::RevisionExpired { .. }
             | Error::MaxDepthExceeded { .. }
             | Error::NonMonotonicCycle { .. }
@@ -313,6 +329,8 @@ mod tests {
                 requested: r,
                 head: r,
             },
+            Error::RevisionPending,
+            Error::WriteRolledBack,
             Error::RevisionExpired {
                 requested: r,
                 horizon: r,

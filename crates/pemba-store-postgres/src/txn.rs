@@ -1,5 +1,6 @@
 //! [`WriteTxn`] over a `postgres` transaction, so the shared write algorithm of
-//! [`pemba_core::write`] can run on this store's connections.
+//! [`pemba_core::write`] can run on this store's connections and, through
+//! `Engine::write_in`, inside the app's own transactions.
 //!
 //! Each statement is prepared first and its parameters converted to the Rust type of the
 //! parameter type the server inferred: a portable [`SqlValue::Integer`] binds as `int8`,
@@ -8,13 +9,53 @@
 //! way; a column of a type outside the portable subset fails closed.
 
 use pemba_core::store::{SqlValue, StoreError, WriteTxn};
-use postgres::GenericClient;
+use postgres::Transaction;
 use postgres::types::{ToSql, Type};
 
 use crate::store_err;
 
-/// A [`WriteTxn`] on anything that runs statements: a `postgres::Transaction` in practice.
-pub(crate) struct PostgresTxn<'a, C: GenericClient>(pub(crate) &'a mut C);
+/// The app's own `postgres` transaction, for
+/// [`Engine::write_in`](pemba_core::Engine::write_in) on a [`PostgresStore`]
+/// (`docs/10-postgres.md` §1.6.4): the relationships commit or roll back with the app's
+/// rows.
+///
+/// Only a [`Transaction`] (or a savepoint, which is one) is accepted, so a write can never
+/// run in autocommit, where it would not be atomic. Any isolation level works; under
+/// REPEATABLE READ and SERIALIZABLE, retry the whole transaction on the retryable
+/// `TRANSACTION_CONFLICT`, with backoff (`docs/06-api.md` §1).
+///
+/// ```no_run
+/// # use pemba_core::{Engine, Error};
+/// # use pemba_core::model::WriteRequest;
+/// # use pemba_store_postgres::{PgTxn, PostgresStore};
+/// # fn example(engine: &Engine<PostgresStore>, client: &mut postgres::Client, req: WriteRequest)
+/// # -> Result<(), Box<dyn std::error::Error>> {
+/// let mut tx = client.transaction()?;
+/// tx.execute("INSERT INTO documents (id) VALUES ($1)", &[&"readme"])?;
+/// let pending = engine.write_in(&mut PgTxn::new(&mut tx), req)?;
+/// tx.commit()?; // only now does the write get its revision
+/// let rev = engine.resolve(&pending)?;
+/// # Ok(())
+/// # }
+/// ```
+///
+/// [`PostgresStore`]: crate::PostgresStore
+pub struct PgTxn<'a, 't> {
+    tx: &'a mut Transaction<'t>,
+}
+
+impl<'a, 't> PgTxn<'a, 't> {
+    /// Wraps `tx`; nothing is sent until the engine writes.
+    pub fn new(tx: &'a mut Transaction<'t>) -> Self {
+        Self { tx }
+    }
+}
+
+impl std::fmt::Debug for PgTxn<'_, '_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PgTxn").finish_non_exhaustive()
+    }
+}
 
 /// One parameter, typed for the statement.
 enum Bound {
@@ -101,13 +142,13 @@ fn column(row: &postgres::Row, i: usize) -> Result<SqlValue, StoreError> {
     Ok(v.unwrap_or(SqlValue::Null))
 }
 
-impl<C: GenericClient> PostgresTxn<'_, C> {
+impl PgTxn<'_, '_> {
     fn prepare_bound(
         &mut self,
         sql: &str,
         params: &[SqlValue],
     ) -> Result<(postgres::Statement, Vec<Bound>), StoreError> {
-        let stmt = self.0.prepare(sql).map_err(|e| store_err(&e))?;
+        let stmt = self.tx.prepare(sql).map_err(|e| store_err(&e))?;
         if stmt.params().len() != params.len() {
             return Err(StoreError::Backend {
                 message: format!(
@@ -127,17 +168,17 @@ impl<C: GenericClient> PostgresTxn<'_, C> {
     }
 }
 
-impl<C: GenericClient> WriteTxn for PostgresTxn<'_, C> {
+impl WriteTxn for PgTxn<'_, '_> {
     fn execute(&mut self, sql: &str, params: &[SqlValue]) -> Result<u64, StoreError> {
         let (stmt, bound) = self.prepare_bound(sql, params)?;
         let refs: Vec<_> = bound.iter().map(Bound::as_sql).collect();
-        self.0.execute(&stmt, &refs).map_err(|e| store_err(&e))
+        self.tx.execute(&stmt, &refs).map_err(|e| store_err(&e))
     }
 
     fn query(&mut self, sql: &str, params: &[SqlValue]) -> Result<Vec<Vec<SqlValue>>, StoreError> {
         let (stmt, bound) = self.prepare_bound(sql, params)?;
         let refs: Vec<_> = bound.iter().map(Bound::as_sql).collect();
-        self.0
+        self.tx
             .query(&stmt, &refs)
             .map_err(|e| store_err(&e))?
             .iter()

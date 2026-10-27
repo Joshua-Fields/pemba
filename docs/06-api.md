@@ -268,6 +268,16 @@ SQLite, wrap the caller's transaction in `SqliteTxn` and open it with `BEGIN IMM
 deferred transaction that read before another connection committed cannot take the write
 lock, and the write fails with the retryable `StoreError::Conflict` (`05` §5.1).
 
+With Postgres (T5.8), wrap the caller's `postgres::Transaction` in `PgTxn::new(&mut tx)`;
+any isolation level works. The revision is assigned at commit, so `resolved()` is `None`
+until a `resolve` succeeds (the answer is then cached in the value and its clones).
+`resolve` runs on an engine connection in autocommit and fails with `RevisionPending`
+while the caller's transaction is open, and `WriteRolledBack` after a rollback or a
+rollback to a savepoint that covered the write (`10` §1.6.4). A REPEATABLE READ or
+SERIALIZABLE transaction whose snapshot is older than a schema write fails with the
+retryable `TRANSACTION_CONFLICT` (OQ-049): retry the whole transaction. The role needs
+`SELECT, INSERT, UPDATE` on the store's tables and `USAGE` on its sequences.
+
 `StoreError::Conflict` (`is_retryable()` is true) means the caller's **whole transaction is
 stale**, not just the failed statement: it read a snapshot that another connection has since
 committed past, so everything it decided on (its own reads, preconditions, application rows)
@@ -383,7 +393,8 @@ Every variant has a stable machine code (`Error::code() -> &'static str`, e.g.
 `STORAGE_VERSION_TOO_NEW`, `FOREIGN_CONNECTION_MISMATCH`, `LOOKUP_TOO_LARGE` (T2.4),
 `SCHEMA_CHANGE_ORPHANS` (T2.6), `TRANSACTION_CONFLICT` (T3.1: `Store(StoreError::Conflict)`,
 split from `STORE_ERROR` so the code alone tells a caller to retry the whole transaction),
-`AMBIGUOUS_WILDCARD_EXCLUSION` (T3.4b);
+`AMBIGUOUS_WILDCARD_EXCLUSION` (T3.4b), `REVISION_PENDING` and `WRITE_ROLLED_BACK` (T5.8,
+from `Engine::resolve` on Postgres);
 variants added later use their name in SCREAMING_SNAKE case. Runtime codes never carry the
 `E_` prefix, which belongs to schema diagnostics (`ErrorCode`). `Error::CODES` lists every
 code `code()` can return.
@@ -581,7 +592,9 @@ PembaError(Exception)               .code: str  (Rust Error::code()), .retryable
 ├── NoSchemaError                    NO_SCHEMA
 ├── InvalidRelationshipError         INVALID_RELATIONSHIP; .relationship: str, .reason: str (E_ code)
 ├── InvalidRequestError              INVALID_REQUEST, BATCH_TOO_LARGE
-├── ConsistencyError                 REVISION_NOT_YET_AVAILABLE, REVISION_EXPIRED
+├── ConsistencyError                 REVISION_NOT_YET_AVAILABLE, REVISION_EXPIRED,
+│                                    REVISION_PENDING, WRITE_ROLLED_BACK (T5.8; own
+│                                    subclasses RevisionPending / WriteRolledBack in T5.9)
 ├── EvaluationLimitError             MAX_DEPTH_EXCEEDED, FANOUT_EXCEEDED, READ_LIMIT_EXCEEDED,
 │                                    LOOKUP_TOO_LARGE, NON_MONOTONIC_CYCLE
 ├── StaleRelationshipError           STALE_RELATIONSHIP; .relationship: str

@@ -4,7 +4,8 @@
 //! (tables, migrations, schema qualification), §1.6.2 (reads: [`ReadStore`] with a
 //! `REPEATABLE READ` snapshot) and §1.6.1 (native writes: [`WritableStore`], each call
 //! its own READ COMMITTED transaction, the revision assigned by a trigger at commit).
-//! Joining the app's own transaction (`Engine::write_in`) follows in T5.8.
+//! A write can also join the app's own transaction: `Engine::write_in` with a [`PgTxn`],
+//! then `Engine::resolve` after the commit (§1.6.4).
 //!
 //! [`ReadStore`]: pemba_core::store::ReadStore
 //! [`WritableStore`]: pemba_core::store::WritableStore
@@ -82,6 +83,7 @@ pub use dialect::{PostgresDialect, check_schema_name};
 pub use migrate::{MIN_SERVER_VERSION_NUM, STORAGE_VERSION};
 /// The `postgres` crate this store is built against.
 pub use postgres;
+pub use txn::PgTxn;
 
 /// The first key of every two-key advisory lock pemba takes (`docs/10-postgres.md` §3.3):
 /// `0x70656D62`, "pemb". Applications using two-key advisory locks should avoid it.
@@ -147,7 +149,22 @@ pub struct PostgresStore {
     cache: Cache,
     /// Whether the early-firing warning (`docs/10-postgres.md` §1.6.7) was given.
     early_warned: AtomicBool,
+    /// The cluster's `system_identifier` and the database name, which a caller's
+    /// transaction must match (`docs/10-postgres.md` §2.3).
+    identity: Identity,
 }
+
+/// Which database a connection is on: the cluster (`pg_control_system()`'s
+/// `system_identifier`) and the database in it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Identity {
+    system: i64,
+    database: String,
+}
+
+/// Selects [`Identity`]; executable by `PUBLIC`, tested as an unprivileged role.
+const IDENTITY_SQL: &str = "SELECT (pg_catalog.pg_control_system()).system_identifier, \
+                            pg_catalog.current_database()::pg_catalog.text";
 
 /// Head and GC horizon as last observed (`docs/05-storage.md` §2 "Revision checks"),
 /// for range checks on reads made on the store rather than a snapshot. Refreshed by
@@ -219,11 +236,19 @@ impl PostgresStore {
         } else {
             migrate::check(&mut client, &dialect)?;
         }
+        let row = client
+            .query_one(IDENTITY_SQL, &[])
+            .map_err(|e| Error::Store(store_err(&e)))?;
+        let identity = Identity {
+            system: row.try_get(0).map_err(|e| Error::Store(store_err(&e)))?,
+            database: row.try_get(1).map_err(|e| Error::Store(store_err(&e)))?,
+        };
         let store = Self {
             pool: pool::Pool::new(pg_config, connector, config.pool_size, client),
             dialect,
             cache: Cache::default(),
             early_warned: AtomicBool::new(false),
+            identity,
         };
         // Seed the cache so reads on the store work before anyone asks for head.
         store.head_revision()?;

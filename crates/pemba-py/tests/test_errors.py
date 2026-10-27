@@ -23,6 +23,9 @@ EXPECTED: dict[str, type[pemba.PembaError]] = {
     "BATCH_TOO_LARGE": pemba.InvalidRequestError,
     "REVISION_NOT_YET_AVAILABLE": pemba.ConsistencyError,
     "REVISION_EXPIRED": pemba.ConsistencyError,
+    # Own subclasses in T5.9, with the Python Postgres engine.
+    "REVISION_PENDING": pemba.ConsistencyError,
+    "WRITE_ROLLED_BACK": pemba.ConsistencyError,
     "MAX_DEPTH_EXCEEDED": pemba.EvaluationLimitError,
     "FANOUT_EXCEEDED": pemba.EvaluationLimitError,
     "READ_LIMIT_EXCEEDED": pemba.EvaluationLimitError,
