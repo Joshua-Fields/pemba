@@ -60,9 +60,12 @@ CREATE INDEX pemba_rel_fwd
                                 subject_type, subject_id, subject_relation,
                                 created_batch, deleted_batch);
 
+-- INCLUDE (resource_id): a reverse read returns it, so without it every match visits the
+-- heap; with it reads at head are index-only scans (OQ-046).
 CREATE INDEX pemba_rel_rev
     ON {s}.pemba_relationships (subject_type, subject_id, subject_relation,
-                                resource_type, relation, created_batch, deleted_batch);
+                                resource_type, relation, created_batch, deleted_batch)
+    INCLUDE (resource_id);
 
 CREATE INDEX pemba_rel_deleted
     ON {s}.pemba_relationships (deleted_batch) WHERE deleted_batch IS NOT NULL;

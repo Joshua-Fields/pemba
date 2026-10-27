@@ -1182,6 +1182,13 @@ it is resolved.
 - Options considered: add `INCLUDE (resource_id)` (index-only, larger index); leave as is
   and drop the claim from §3.2.
 - Resolve by: T5.4, with `EXPLAIN` on the reverse-read shapes.
+- Resolution: Resolved in T5.4 (flagged for review in its PR): `INCLUDE (resource_id)`.
+  `EXPLAIN (ANALYZE, BUFFERS)` of the head-form reverse read (subject, resource type,
+  `deleted_batch IS NULL`) on 200,000 rows, 100 matches, Postgres 18: an Index Scan with
+  108 shared buffers without it; an Index Only Scan, 0 heap fetches, 5 buffers with it.
+  Storage version 1 is unreleased (until T5.12), so migration v1 is amended in place; a
+  development database migrated before T5.4 keeps the old index and should be re-created.
+  `10` §3.2 updated.
 
 ## OQ-047 — Default of `PostgresConfig::auto_migrate`
 - Raised in: T5.3 (`docs/10-postgres.md` §3.4)
