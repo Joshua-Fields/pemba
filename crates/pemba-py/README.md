@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/Joshua-Fields/pemba/main/assets/pemba-logo.png" alt="pemba logo: a fruit bat hanging from a branch, with a keyhole on its folded wings" width="420">
+  <img src="https://raw.githubusercontent.com/Joshua-Fields/pemba/main/assets/pemba-logo.png" alt="pemba logo: a fruit bat with an orange fox face hanging from a branch, a keyhole on its folded wings, beside the word pemba" width="420">
 </p>
 
 # pemba
