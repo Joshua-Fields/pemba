@@ -1147,3 +1147,18 @@ it is resolved.
   examples and tests).
 - Resolve by: human decision during T3.9 (the 0.1.0 public-surface audit, `08`)
 - Resolution: (fill in)
+
+## OQ-045 — What a foreign-mode write returns (D1)
+- Raised in: Postgres design (`docs/10-postgres.md` §0, §1.6.4)
+- Blocking: yes, for T5.0 (public API)
+- Current choice: decided in design review (2026-10-27), pending the maintainer's
+  resolution. `engine.write(..., conn=)` and `Engine::write_in` return `PendingRevision` on
+  both stores (resolved at return on SQLite, after commit on Postgres); `at_least=` accepts
+  it; no `assign_now`. Breaking on SQLite; migration in `10` §1.6.4. Reason: on Postgres a
+  write inside the caller's transaction cannot know its commit-ordered revision before
+  commit without blocking every other writer (`10` §1.2).
+- Options considered: Postgres-only `PendingRevision` with SQLite unchanged (portable code
+  would need a store check); `assign_now=True` (option (a) for that transaction); always
+  assigning at write time (one long transaction stalls every relationship write).
+- Resolve by: maintainer
+- Resolution: (fill in)
