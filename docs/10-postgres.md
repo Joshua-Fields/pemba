@@ -3,6 +3,8 @@
 Status: **accepted with changes** (design review, 2026-10-27). The review accepted option
 (d). It also decided that `PendingRevision` is returned on both stores and that there is no
 `assign_now`, and it deferred the async adapters to a phase after the first Postgres release.
+Round 3 (SERIALIZABLE give-ups, §1.5.2) changed (d) to its batch-map form: rows carry batch
+ids, and the commit trigger only maps each batch to its revision.
 The maintainer records the resolutions of OQ-002, OQ-003 and OQ-045. No production code
 exists yet. The Postgres store stays out of scope (CLAUDE.md §6) until T5.0 lands.
 
@@ -16,13 +18,18 @@ and PR/issue descriptions. No SpiceDB code was read (golden rule 2).
 ## 0. Summary and decisions needed
 
 1. **Revision ordering (OQ-002): assign the revision at COMMIT, not at write time.**
-   - A `DEFERRABLE INITIALLY DEFERRED` constraint trigger fires as the transaction commits.
-   - It takes a store-wide advisory lock, draws the next revision from a sequence, and
-     rewrites the batch's provisional marks into that revision.
+   - Each write call marks its rows with a **batch id**, which comes from a sequence and
+     has no ordering meaning, and inserts one `pemba_pending` row.
+   - A `DEFERRABLE INITIALLY DEFERRED` constraint trigger on that row fires as the
+     transaction commits. It takes a store-wide advisory lock, draws the next revision with
+     `nextval()`, and inserts one `pemba_revisions` row mapping the batch to that revision.
+     Rows are never rewritten (§1.5.2).
    - The lock is held only from that point to the end of the commit (milliseconds), so a
      foreign transaction that stays open for seconds blocks nobody.
-   - Revisions stay `u64` and totally ordered. Visibility, `Latest`, `AtLeast`, `Exact` and
-     GC keep their SQLite meaning.
+   - Revisions stay `u64` and totally ordered. `Latest`, `AtLeast`, `Exact` and GC keep
+     their SQLite meaning.
+   - Reads at head need no translation. Reads at an older revision look up batch ids in
+     the map (§1.6.2).
    - **The cost:** a write inside a caller's transaction cannot know its revision before
      that transaction commits. §1.2 shows that this holds for *any* scheme with `u64`
      commit-ordered revisions that doesn't block other writers or delay their visibility.
@@ -47,15 +54,17 @@ and PR/issue descriptions. No SpiceDB code was read (golden rule 2).
 |---|---|---|---|
 | F1 | Public API, **breaking** | `engine.write(..., conn=)` (Python) and `Engine::write_in` (Rust) return `PendingRevision` instead of `Revision` on **both** stores. It is resolved at return on SQLite and after commit on Postgres. `at_least=` accepts a `PendingRevision`. Native writes still return `Revision`. Migration in §1.6.4. | §1.6.4, `06` §1, §2.1–2.2, README |
 | F2 | Public API (additive) | `Engine.postgres(...)`, `PostgresStore` / `PostgresConfig`, `Engine::resolve`, and new errors `WriteRolledBack` and `RevisionPending`. Later (T5.13): `engine.write_async(..., conn=)` and `pemba.aio`. | §1.6.4, §2 |
-| F3 | On-disk format | New Postgres layout. It is not the SQLite layout: `pemba_revisions` gains `batch_id`, plus a new `pemba_pending` table, two sequences, a trigger function, and negative "provisional" revisions that exist only inside uncommitted transactions. SQLite is unchanged. | §3 |
+| F3 | On-disk format | New Postgres layout. It is not the SQLite layout: rows carry batch ids (`created_batch` / `deleted_batch`) instead of revisions, `pemba_revisions` maps each batch to its revision, and there is a `pemba_pending` table, two sequences and a trigger function. SQLite is unchanged. | §3 |
 | F4 | README guarantee | "One counter per store, starting at 1" stays true, but on Postgres **numbers can be skipped**. A revision drawn by the commit trigger is lost if the commit then fails. `05` §10's "a later write may be given the same number" after a rollback does not apply: Postgres never reuses a number. The exact wording changes are in §1.6.3. | §1.6.3 |
 | F5 | README guarantee | "The returned revision becomes readable when you commit" becomes "the returned `PendingRevision` resolves, and becomes readable, when you commit". On SQLite it is resolved immediately, as today. | §1.6.4 |
 | F6 | README guarantee | "In one process `Latest` already sees it" is **preserved** by the proposal. Option (b) would have broken it. | §1.3 |
-| F7 | Behaviour | SERIALIZABLE callers see more retryable `Conflict`s. Spike: 1.2% of transactions hit at least one 40001, against 0.3% without pemba's commit step. With exponential backoff, up to 0.08% still failed 11 attempts in a row (baseline: none). The root cause is only partly known (T5.6). | §1.6.8 |
+| F7 | Behaviour | SERIALIZABLE stays supported. Round 3: 0.10–0.25% of transactions hit a retryable `Conflict` (40001), at or below the comparison scheme without pemba's commit step. With retries using exponential backoff, 0 of 71,585 transactions failed all retries. The documented requirement is to **retry with backoff and jitter**: immediate retries lose transactions with or without pemba (§1.6.8). | §1.5.2, §1.6.8 |
 | F8 | Behaviour | A prepared (2PC) transaction holds the revision lock from `PREPARE TRANSACTION` until `COMMIT PREPARED`. | §1.6.6 |
 | F9 | ADR text | ADR-005's consequence line gets an amendment, ADR-006 needs a Postgres amendment (several drivers and param styles), and ADR-003's open question is closed. | §5 T5.0 |
 | F10 | Dependencies | `postgres` (0.19.14) plus a TLS connector. | §2.1 |
-| F11 | Behaviour | `SET CONSTRAINTS ALL IMMEDIATE` in the app's transaction, or naming pemba's trigger, draws the revision at that statement. It then holds the store-wide lock until the transaction ends, so that transaction behaves like option (a). | §1.6.7 |
+| F11 | Behaviour | `SET CONSTRAINTS ALL IMMEDIATE` in the app's transaction, or naming pemba's trigger, draws the revision at that statement. It then holds the store-wide lock until the transaction ends, so that transaction behaves like option (a). The trigger detects this and warns. | §1.6.7 |
+| F12 | Performance | Reads at a revision older than head (`at_exactly`, later pages, `iter_resources`) join the batch map. Spike: a 500-row lookup is +34% at p50; point reads show no measurable change. Reads at head are unchanged. | §1.6.2 |
+| F13 | README guarantee, clarified (both stores) | Two write calls in one app transaction commit at two revisions, so `at_exactly(first)` shows the transaction half-applied. This is not new behaviour, but the README never said it. | §1.6.2 |
 
 ---
 
@@ -179,36 +188,40 @@ with `pg_visible_in_snapshot`.
 
   Rejected. Revisit if pemba ever drops `u64` revisions for opaque tokens.
 
-**(d) Commit-time assignment (recommended).**
+**(d) Commit-time assignment (recommended; batch-map form since round 3).**
 - *Mechanism:*
-  - The write algorithm marks its rows with a **provisional** value, `-batch_id`, where
-    `batch_id` comes from a separate sequence and has no ordering meaning.
-  - It records the tuple ids (ctids) it wrote and inserts one `pemba_pending` row.
+  - Each write call draws a **batch id** from `pemba_batch_seq`; it has no ordering
+    meaning. The batch id goes into the rows the call creates (`created_batch`) or deletes
+    (`deleted_batch`), and the call inserts one `pemba_pending` row.
   - A deferred constraint trigger on `pemba_pending` fires at COMMIT, inside the
-    committing transaction. It takes the store-wide advisory xact lock, calls
-    `r := nextval(rev_seq)`, rewrites the batch's provisional marks to `r`, and inserts
-    `(r, batch_id)` into `pemba_revisions`.
+    committing transaction. It takes the store-wide advisory xact lock and inserts
+    `(batch_id, nextval('pemba_rev_seq'))` into `pemba_revisions`. It does nothing else.
   - The lock is released when the commit ends.
-- *Correctness:* yes. Rows in flight are invisible to other transactions, so a provisional
-  value is never seen by a reader. The commit-order argument is the same as for (a), with
-  the critical section shrunk to "trigger + commit record". Spike: 0 violations at
-  READ COMMITTED, REPEATABLE READ and SERIALIZABLE, two seeds, more than 40k
-  write-vs-commit-order inversions per run, and 0 revision-vs-commit inversions.
+  - In rounds 1–2, the trigger also rewrote the rows' provisional marks into the
+    revision (the `committid` variant). Round 3 removed that rewrite, because its
+    commit-time writes made some SERIALIZABLE transactions fail every retry (§1.5.2).
+- *Correctness:* yes. The rows and map entry of an open transaction are invisible to
+  others, and they become visible together at commit. The commit-order argument is the
+  same as for (a), with the critical section shrunk to "trigger + commit record". Spike,
+  every round:
+  - 0 violations at READ COMMITTED, REPEATABLE READ and SERIALIZABLE;
+  - more than 40k write-vs-commit-order inversions per run;
+  - 0 revision-vs-commit inversions.
 - *Throughput:* commits of pemba-writing transactions are serialised for about one commit
-  flush each. Spike: 1,212/s with 16 writers and no holds (watermark: 1,038; naive,
-  unordered: 1,852). With 0–30 ms holds, 686/s against 643 for (b), 60 for (a) and 807
-  naive.
-- *Long foreign transactions:* they hold the lock only during their own commit. Spike:
-  with a 3 s transaction every 4 s, p99 writer wait was 6.1 ms and p99 visibility lag
-  1.8 ms.
+  flush each. Round 3, READ COMMITTED, 0–30 ms holds, long transactions: 755 writes/s
+  (round 2's rewrite form: 736). Round 1, same load: 686 for the rewrite form, against
+  643 for (b), 60 for (a) and 807 unordered. A 1,000-tuple batch commits in 0.95 ms,
+  against 5.3 ms for the rewrite form and 0.85 ms with no commit step (§1.6.1).
+- *Long foreign transactions:* they hold the lock only during their own commit. With a
+  3 s transaction every 4 s: p99 writer wait 5.6 ms, p99 visibility lag 1.6 ms.
 - *Cost:*
   - The revision is unknown until commit (§1.2), which forces the API change F1.
-  - Each created or deleted row is written twice (insert, then the rewrite at commit), so
-    there are more dead tuples for autovacuum.
-  - SERIALIZABLE callers see a few more retryable conflicts (F7).
+  - Reads at older revisions join the batch map (F12, §1.6.2).
+  - The map grows by one row per write call, which GC prunes (§1.6.5).
   - The design depends on a PL/pgSQL trigger.
-- *GC, `Exact`:* unchanged, apart from gaps (§1.6.3). *`Latest`, `AtLeast`:* unchanged
-  for readers. A foreign writer obtains its revision after commit (§1.6.4).
+- *GC, `Exact`:* gaps behave as in §1.6.3; GC deletes through the map (§1.6.5).
+  *`Latest`, `AtLeast`:* unchanged, and reads at head need no join. A foreign writer
+  obtains its revision after commit (§1.6.4).
 
 ### 1.4 Comparison
 
@@ -219,10 +232,10 @@ with `pg_visible_in_snapshot`.
 | Writers block each other | for the rest of the txn | no | no | during commit only |
 | Long foreign txn | stalls all writers | stalls all visibility | no effect | no effect |
 | `write(conn=)` returns revision | yes | yes | yes (a token) | **no**: pending until commit |
-| Read cost | as SQLite | `pg_locks` scan per head | per-row function | as SQLite |
+| Read cost | as SQLite | `pg_locks` scan per head | per-row function | as SQLite at head; map join at older revisions |
 | Survives dump/restore and logical replication | yes | yes | no | yes |
-| SERIALIZABLE callers | no extra conflicts | about baseline | n/a | about 3% conflicts |
-| Spike, writes/s (0–30 ms holds, long txns) | 60 | 643 | not built | 686 |
+| SERIALIZABLE callers | no extra conflicts | baseline | n/a | baseline (§1.5.2) |
+| Spike, writes/s (0–30 ms holds, long txns) | 60 | 643 | not built | 686 (round 1); 755 (round 3) |
 
 ### 1.5 Spike evidence
 
@@ -269,7 +282,7 @@ the rows with each other, not as absolute numbers):
   | (b) | 0.5% |
   | naive | 0.4% |
   | (d) predicate rewrite | **45–58% of attempts**, plus 522 `53200` (out of shared memory, from the predicate-lock table) |
-  | (d) ctid rewrite | **2.7–3.4%** of commits (failed attempts ÷ commits; per-transaction rates with retries in §1.6.8) |
+  | (d) ctid rewrite | **2.7–3.4%** of commits (failed attempts ÷ commits; rounds 1–2 harness; superseded by §1.5.2) |
 
   The predicate `UPDATE ... WHERE created_rev = -batch` at commit takes SIREAD locks on
   index pages that every concurrent writer inserts into. Hence the ctid variant.
@@ -284,7 +297,7 @@ the rows with each other, not as absolute numbers):
 | A rolled-back transaction | Leaves nothing. |
 | Two writes in one transaction | Get two consecutive revisions. |
 | `SET CONSTRAINTS ALL IMMEDIATE` | Assigns the revision at that statement (§1.6.7). |
-| Create a tuple, then delete it in a second write of the same transaction | **Found a bug in the first ctid variant:** the second write moved the tuple, the TID update missed it, and `created_rev = -6` was left behind. Fixed by the predicate fallback in §1.6.1; the spike re-checked it. |
+| Create a tuple, then delete it in a second write of the same transaction | **Found a bug in the first ctid variant:** the second write moved the tuple, the TID update missed it, and `created_rev = -6` was left behind. It was fixed by a predicate fallback. The round-3 batch-map design rewrites nothing, so this class of bug cannot occur; re-checked (`[[4, 5]]`). |
 
 ### 1.5.1 Review checks (second round)
 
@@ -300,90 +313,180 @@ with the diagnostic `ssi_probe.py`. Results:
 | Skipped revisions | Two skips produced (early trigger then rollback; app constraint failing after pemba's trigger). `Exact` at a skipped number equals the revision before it. GC at and around the gap stayed correct. | §1.6.3 |
 | Trigger firings, 1,000-tuple writes | 20 writes fired it 20 times and drew 20 revisions. Two writes in one transaction drew 2. | §1.6.1 |
 | Commit cost, 1,000-tuple batch | 7.6 ms (creates) and 3.4 ms (deletes), against 1.0 ms with no commit-time rewrite | §1.6.1 |
-| SERIALIZABLE with app retries | 0 violations. 1.2% of transactions hit 40001, against 0.3% baseline. Some failures are sticky. | §1.6.8 |
+| SERIALIZABLE with app retries | Rounds 1–2: some failures were sticky. Superseded by round 3 (§1.5.2). | §1.5.2 |
+
+### 1.5.2 Round 3: SERIALIZABLE give-ups
+
+The review did not accept a documented rate of transactions that fail every retry, because
+a correct app that retries must not lose writes. Two hypotheses were tested at
+SERIALIZABLE with the same harness.
+
+**Setup:** 8 writers and 4 readers, 20–30 s per run. Apps retry the whole transaction on
+40001 up to 10 times, sleeping a random 0 .. min(1 s, 10 ms × 2ⁿ) between attempts.
+
+- **A: draw the revision with `nextval()` under `pg_advisory_xact_lock`, with no counter
+  row and no table read.**
+  - The round 1–2 trigger (`committid`) already did this, so "A alone" is that variant.
+  - Ordering holds because Postgres makes a commit visible before it releases the
+    committer's locks (§1.3 (a)).
+  - Gaps from aborted transactions behave as in §1.6.3: a drawn number is never reused,
+    and a write rolled back before commit draws nothing.
+- **A+B: also remove the commit-time row rewrite** (`batchmap`). Rows carry batch ids,
+  and the trigger only inserts `batch_id → revision`.
+
+**First, a harness fix.** Rounds 1–2 resolved the writer's revision in a new transaction
+on the writer's own SERIALIZABLE connection. The comparison scheme did no such read, and
+the design resolves on an engine connection (§1.6.4), so round 3 does the same. Rerunning
+the old behaviour (`--resolve-on-writer`) gave 0.57–0.72% of transactions affected and 1–9
+give-ups per run. So part of round 2's excess came from the harness.
+
+| Run (SERIALIZABLE, backoff, ≤ 10 retries) | Scheme | Transactions hitting 40001 | Failed all retries | Violations | Writes/s |
+|---|---|---|---|---|---|
+| no long txns, seed 1, 20 s | A | 52 / 12,419 (0.42%) | **3** | 0 | 621 |
+| | **A+B** | 29 / 13,838 (0.21%) | **0** | 0 | 692 |
+| | baseline (watermark) | 33 / 12,019 (0.27%) | 0 | 0 | 601 |
+| 3 s txn every 4 s, seed 1, 20 s | A | 35 / 12,977 (0.27%) | 0 | 0 | 649 |
+| | **A+B** | 36 / 14,250 (0.25%) | **0** | 0 | 713 |
+| | baseline | 30 / 12,227 (0.25%) | 0 | 0 | 611 |
+| no long txns, seed 7, 30 s | A | 56 / 19,656 (0.28%) | 0 | 0 | 655 |
+| | **A+B** | 32 / 20,848 (0.15%) | **0** | 0 | 695 |
+| 3 s txn every 4 s, seed 11, 30 s | A | 37 / 20,280 (0.18%) | **2** | 0 | 676 |
+| | **A+B** | 23 / 22,649 (0.10%) | **0** | 0 | 755 |
+
+- **A+B:** 0 transactions failed all retries in 4 runs (71,585 transactions). Its 40001
+  rate was at or below the comparison scheme's.
+- **A alone:** lost 5 transactions, in 2 of the 4 runs.
+- **Immediate retries (≤ 5, no backoff) lose transactions with or without pemba's commit
+  step:**
+  - A+B: 2 of 14,162, 6 of 21,473, and 6 of 22,044 (with long transactions).
+  - The comparison scheme: 0 of 12,183, 7 of 17,460, and 5 of 18,420.
+  - A alone: 33 of 13,412.
+
+  So "a correct app with retries" means retries with backoff and jitter (§1.6.8).
+
+**Other checks for A+B:**
+- **READ COMMITTED, 3 s long transactions, 20 s:** 755 writes/s, 0 violations, writer wait
+  p99 5.6 ms, lag p99 1.6 ms. A: 736 writes/s, 0 violations, 6.2 ms, 1.8 ms.
+- **REPEATABLE READ:** 767 writes/s, 0 violations, 0 errors.
+- **Deterministic checks:** forced inversion, savepoint rollback, transaction rollback, two
+  writes in one transaction, create-then-delete in one transaction, `SET CONSTRAINTS` (B
+  waited 1.0 s), and skipped revisions with GC at the gap. All gave the same results as
+  for A (`r3-review-checks-batchmap.log`).
+
+**Commit cost, 1,000-tuple batches** (median of 10; the trigger fired 20 times for 20
+writes):
+
+| Scheme | Commit, create / delete | Write, create / delete |
+|---|---|---|
+| A+B | 0.95 / 0.94 ms | 184 / 196 ms |
+| A | 5.3 / 4.1 ms | 241 / 248 ms |
+| No commit step (revision drawn at write time) | 0.85 / 0.96 ms | 187 / 199 ms |
+
+**Read overhead** (`bench_reads.py`). The Rust benches cannot run on Postgres yet, so this
+script emulates each `07` §7 bench shape's store reads in SQL:
+- each request runs in one REPEATABLE READ snapshot whose first statement reads head;
+- statements are server-side prepared;
+- the data is 20,000 batches and about 240k tuples, 20% of the background deleted later;
+- "older revision" means R = 10,000.
+
+p50 end to end, in ms:
+
+| Scenario (store reads) | Columns, at head | Batch map, at head | Columns, older R | Batch map, older R |
+|---|---|---|---|---|
+| `direct_hit` (1) | 0.675 | 0.705 | 0.689 | 0.749 |
+| `groups_depth_10` (11) | 2.599 | 2.557 | 2.586 | 2.695 |
+| `folders_depth_30` (32) | 6.788 | 6.650 | 6.833 | 6.434 |
+| `wide_groups_10k` (2) | 0.695 | 0.722 | 0.698 | 0.756 |
+| `lookup_resources_10k` (1 reverse read, 500 rows) | 0.802 | 0.769 | 0.796 | **1.075** |
+
+Server execution time (`EXPLAIN ANALYZE`, median of 30; ANALYZE's timing inflates the
+join plan):
+
+| Query | Columns, at head | Batch map, at head | Columns, older R | Batch map, older R |
+|---|---|---|---|---|
+| One-row forward read | 0.008 ms | 0.006 ms | 0.007 ms | 0.024 ms |
+| 500-row reverse read | 0.179 ms | 0.164 ms | 0.178 ms | 1.431 ms |
+
+What the read numbers mean:
+- **At head:** no difference beyond noise, because there is no join.
+- **At an older revision:** point reads cost about 0.02 ms more server-side, which is
+  invisible end to end. The 500-row lookup costs 0.28 ms more at p50 (+34%), because every
+  row looks up its batch.
+- **Which reads are at an older revision:** later pages of a lookup (`at_exactly` of the
+  first page's revision, `iter_resources`) and explicit history reads. Flag F12.
+
+**Decision: A+B.** It is the only variant with 0 transactions failing all retries, so
+SERIALIZABLE stays supported in v1, and the fallback (rejecting SERIALIZABLE at write time)
+is not needed. `detect_immediate.py` also showed that the trigger can tell COMMIT from an
+early `SET CONSTRAINTS` (§1.6.7).
 
 ### 1.6 Recommended design in detail
 
 #### 1.6.1 Write algorithm (changes to `05` §5)
 
 Steps 1–3 (validation, duplicates, schema version, preconditions) are unchanged.
-Precondition reads inside the same transaction see the transaction's own provisional
-rows: `deleted_rev = -b` is not `NULL`, so the row counts as deleted, which is correct.
+Precondition reads inside the same transaction see the transaction's own rows. A row it
+deleted has `deleted_batch` set, not `NULL`, so it counts as deleted, which is correct.
 
 ```text
 4. b := nextval('pemba_batch_seq')                -- no ordering meaning, no lock
-5. for each op (provisional revision p = -b):
-   Create: INSERT ... (created_rev = p) RETURNING ctid
-   Touch:  INSERT ... ON CONFLICT (...) WHERE deleted_rev IS NULL DO NOTHING RETURNING ctid
-   Delete: UPDATE ... SET deleted_rev = p WHERE <tuple> AND deleted_rev IS NULL RETURNING ctid
-6. INSERT INTO pemba_pending (batch_id, kind, created_tids, deleted_tids, xid)
-       VALUES (b, kind, <ctids>, <ctids>, pg_current_xact_id())  -- queues the trigger
+5. for each op:
+   Create: INSERT ... (created_batch = b)          -- unique index violation -> AlreadyExists
+   Touch:  INSERT ... ON CONFLICT (...) WHERE deleted_batch IS NULL DO NOTHING
+   Delete: UPDATE ... SET deleted_batch = b WHERE <tuple> AND deleted_batch IS NULL
+6. INSERT INTO pemba_pending (batch_id, kind, xid) VALUES (b, kind, pg_current_xact_id())
+                                                   -- queues the commit trigger
 7. return Pending { batch: b, xid }
 ```
 
 The trigger function, `pemba_assign_revision()`, runs at COMMIT (or at PREPARE, or at
-`SET CONSTRAINTS ... IMMEDIATE`):
+`SET CONSTRAINTS ... IMMEDIATE`, §1.6.7):
 
 ```text
+early := current_query() is not COMMIT / END / PREPARE TRANSACTION   -- §1.6.7
+if early: RAISE WARNING '...revision assigned before COMMIT by "<statement>"...'
 lock   pg_advisory_xact_lock(PEMBA_LOCK_CLASS, <oid of this store's pemba_revisions>)
-r    := nextval('pemba_rev_seq')
-UPDATE rels SET created_rev = r WHERE ctid = ANY(created_tids) AND created_rev = -b
-  if fewer rows than ctids: UPDATE rels SET created_rev = r WHERE created_rev = -b
-UPDATE rels SET deleted_rev = r WHERE ctid = ANY(deleted_tids) AND deleted_rev = -b
-  if fewer rows than ctids: UPDATE rels SET deleted_rev = r WHERE deleted_rev = -b
-if kind = 'schema': UPDATE pemba_schema SET created_rev = r WHERE created_rev = -b
-INSERT INTO pemba_revisions (rev, batch_id, kind, committed_at) VALUES (r, b, kind, clock_timestamp())
+INSERT INTO pemba_revisions (batch_id, rev, kind, committed_at, early)
+    VALUES (b, nextval('pemba_rev_seq'), kind, clock_timestamp(), early)
 ```
 
 How the pieces work:
 
-- **TID fast path.** It only *writes* tuples the transaction itself created, so SSI sees
-  no predicate reads.
-- **Predicate fallback.** It runs only when a later write in the same transaction moved a
-  tuple (the spike's create-then-delete case). It uses the tiny partial indexes of §3.
-- **Rows of a batch keep the batch's own sign.** Within one transaction, write 2 can only
-  change write 1's tuples by setting `deleted_rev`, so each mark is rewritten by its own
-  batch's trigger.
-- **Firing order.** Postgres fires deferred triggers in event order, so the batches of one
-  transaction get increasing revisions.
+- **No rewrite and no reads at commit.** The trigger writes one row per batch, so SSI
+  sees one index insertion per batch (§1.5.2). Creating a tuple and deleting it in a later
+  write of the same transaction needs no special handling: the row carries two batch ids,
+  and each is mapped at commit.
+- **Firing order.** Postgres fires deferred triggers in event order, so the batches of
+  one transaction get increasing revisions. The transaction holds the lock from its first
+  firing to its end, so those revisions are also consecutive.
 - **Once per write call, not per tuple.** The trigger is `FOR EACH ROW` on
-  `pemba_pending`, which gets one row per write call (batch), however many tuples that
-  batch touches. So the lock is requested and a number drawn once per write call.
+  `pemba_pending`, which gets one row per write call (batch), however many tuples the
+  batch touches.
   - Spike: twenty 1,000-tuple writes fired it 20 times (`pg_stat_user_functions.calls`)
     and drew 20 revisions.
-  - A transaction with k write calls fires it k times and gets k consecutive revisions,
-    the same as SQLite's k revisions. Advisory locks are re-entrant within a transaction,
-    so the second and later requests are granted at once.
-  - Folding all of a transaction's batches into one revision would change the README's
-    "every write commits at a new revision", so it is not proposed.
-- **Commit cost grows with the batch.** The rewrite touches every tuple of the batch under
-  the lock. Spike, medians of 10, 1,000-tuple batches:
-
-  | Batch | Commit | Write | Same batch, revision allocated at write time (commit / write) |
-  |---|---|---|---|
-  | Creates | 7.6 ms | 246 ms | 1.0 ms / 203 ms |
-  | Deletes | 3.4 ms | 256 ms | 1.0 ms / 208 ms |
-
-  The writes issue one statement per tuple; `RETURNING ctid` and the pending partial
-  indexes add about 20%. The lock is held for about 7 µs per created tuple, so a
-  10,000-tuple `delete_matching` batch holds it for tens of milliseconds. Its `limit`
-  bounds this; document that large deletes should use moderate limits.
+  - Advisory locks are re-entrant within a transaction, so later firings in the same
+    transaction are granted at once.
+  - Folding a transaction's batches into one revision would change the README's "every
+    write commits at a new revision", so it is not proposed. §1.6.2 states the
+    consequence.
+- **Commit cost does not depend on batch size.** Round 3, 1,000-tuple batches: commit
+  0.95 ms (creates) and 0.94 ms (deletes), against 0.85 / 0.96 ms when the revision is
+  drawn at write time. Round 2's rewrite took 5.3 / 4.1 ms and grew with the batch. The
+  lock hold no longer depends on batch size.
 - **Lock key.** The key derives from the table's oid, looked up at run time through
-  `regclass`, so it survives dump/restore and differs per store when several pemba
-  stores share a database (§3.3).
+  `regclass`, so it survives dump/restore and differs per store when several pemba stores
+  share a database (§3.3).
 - **Function settings.** `SECURITY INVOKER`, and `SET search_path = pg_catalog, pg_temp`
   with every name schema-qualified when the migration generates the function.
 
 **Native writes** (the engine owns the transaction): run steps 1–7 on a pooled connection
-in READ COMMITTED, `COMMIT`, then
-`SELECT rev FROM pemba_revisions WHERE batch_id = $1` on the same connection. The extra
-round trip is the price of not holding the lock across one. `Engine::write` keeps
-returning `Revision`, so there is no API change for native writes.
+in READ COMMITTED, `COMMIT`, then `SELECT rev FROM pemba_revisions WHERE batch_id = $1` on
+the same connection, now in autocommit. `Engine::write` keeps returning `Revision`.
 
 `write_schema` and `delete_matching` follow the same pattern with `kind = 'schema'` and
-`'delete_filter'`. Concurrent schema writes are serialised by an extra
-`pg_advisory_xact_lock` taken before step 2b (a different key), so `version = max + 1`
-is safe.
+`'delete_filter'`; `pemba_schema` stores `created_batch` and resolves it like the rows do.
+Concurrent schema writes are serialised by an extra `pg_advisory_xact_lock` taken before
+step 2b (a different key), so `version = max + 1` is safe.
 
 #### 1.6.2 Reads
 
@@ -393,13 +496,40 @@ is safe.
   All later reads of the request use the same snapshot. This mirrors the SQLite WAL
   snapshot of `05` §2 ("Revision checks"), including the cross-process GC argument
   (§1.6.5).
-- **Visibility predicate:** unchanged, `created_rev <= R AND (deleted_rev IS NULL OR deleted_rev > R)`.
-  Committed rows always hold positive values. Negative values exist only inside uncommitted
-  transactions, and engine reads never run on a foreign connection (ADR-006).
-- **Consistency modes, unchanged:**
+- **Visibility at head** (`Latest`, `AtLeast`, and `Exact(head)`): `deleted_batch IS NULL`.
+  Every batch visible in the snapshot has committed with a revision ≤ head, and the rows
+  of open transactions are invisible, so "not deleted" means exactly "visible at head".
+  No join is needed. In the spike, every reader observation used this form, and the
+  oracle compared it with the join form: 0 differences.
+- **Visibility at R < head** (`Exact`, later pages, `iter_resources`):
+
+  ```sql
+  FROM pemba_relationships r
+  JOIN pemba_revisions c ON c.batch_id = r.created_batch
+  LEFT JOIN pemba_revisions d ON d.batch_id = r.deleted_batch
+  WHERE c.rev <= $R AND (d.rev IS NULL OR d.rev > $R)
+  ```
+
+  The cost is in §1.5.2 (F12). The store chooses the form by comparing `R` with the
+  snapshot's head; the evaluator never sees the difference.
+- **Consistency modes are unchanged:**
   - `Latest` is the newest revision committed when the snapshot was taken.
   - `AtLeast(r)` fails with `RevisionNotYetAvailable` if head < r.
   - `Exact(r)` fails if `r` is above head or below the horizon.
+- **Two write calls in one app transaction get two revisions (both stores, F13).**
+  - Each write call is its own batch with its own revision. A transaction that calls
+    `write` twice commits revisions `r` and `r + 1` atomically, and no reader at head
+    ever sees one without the other.
+  - `Exact(r)`, however, evaluates the state after the first call and before the second.
+    The app never committed that state; it shows the transaction half-applied.
+  - SQLite behaves the same, since each write allocates its own revision (`05` §5,
+    step 4).
+  - Only an explicit `at_exactly(r)` with the first write's revision exposes it. Paging
+    starts at head, which is ≥ `r + 1`.
+  - T5.0 adds to the README "Consistency guide": "**One write call, one revision.** Two
+    `write` calls in one transaction commit at two consecutive revisions, and
+    `at_exactly` the first shows the transaction half-applied. Pass all of a
+    transaction's updates to one `write` call when that matters."
 
 #### 1.6.3 Skipped revisions
 
@@ -492,6 +622,10 @@ impl Engine { pub fn resolve(&self, p: &PendingRevision) -> Result<Revision, Err
   - `committed`: retry the lookup briefly. The commit log can say "committed" an instant
     before the transaction becomes visible to new snapshots.
 - The result is cached.
+- **Resolution always runs on an engine connection in autocommit, never inside the app's
+  transaction.** In round 3, resolving in a new SERIALIZABLE transaction on the writer's
+  connection raised the share of transactions hitting 40001 from 0.21% to 0.57% (A+B,
+  §1.5.2).
 
 **Portable read-your-writes:**
 
@@ -522,23 +656,41 @@ engine.check("document:readme", "view", "user:anne", at_least=pending)
 
 #### 1.6.5 GC
 
-`05` §8 applies unchanged, with these additions:
+`05` §8 applies, with these changes:
 
-- **Deletes in batches by ctid:**
-  `DELETE FROM rels WHERE ctid = ANY(ARRAY(SELECT ctid FROM rels WHERE deleted_rev > 0 AND deleted_rev <= $h LIMIT $n))`.
-  The `> 0` term is a fail-closed guard and is always true for rows GC can see.
-- **Prune `pemba_pending`** rows whose batch has committed (`USING pemba_revisions`). They
-  are garbage as soon as the trigger has run. The rows of open transactions are invisible
-  to GC.
-- **Prune `pemba_revisions`** below the horizon, except head.
+- **Deletes go in batches by ctid, through the map:**
+  `DELETE FROM rels WHERE ctid = ANY(ARRAY(SELECT r.ctid FROM rels r JOIN pemba_revisions d ON d.batch_id = r.deleted_batch WHERE d.rev <= $h LIMIT $n))`.
+  A row deleted by an open transaction is invisible to GC, and so is its batch's map row.
+  Spike: GC at `keep_from` = a skipped number and at the next committed one gave the same
+  results as the rewrite form (§1.6.3).
+- **Pruning the map.** A map row cannot be deleted while a row still references its
+  batch, or reads at R ≥ horizon would lose that row. Two options; T5.7 picks one with
+  measurements:
+  - **Rebase:** after raising the horizon, GC sets `created_batch = 0` on rows whose batch
+    revision is below the horizon, in batches, each its own READ COMMITTED transaction.
+    It then deletes those map rows. Batch 0 maps to revision 0 permanently (the migration
+    inserts it), so a rebased row is visible at every readable revision, which is correct
+    because it was created before the horizon.
+    - `deleted_batch` never needs rebasing: rows deleted at or below the horizon are
+      removed first.
+    - A reader whose snapshot predates the rebase sees the old values and the old map,
+      which is consistent.
+    - Cost: each row is rewritten once in its life, at GC time, off the commit path and
+      outside app transactions. It needs an index on `created_batch`.
+    - Rebasing only batches older than a window keeps GC's updates away from rows that
+      SERIALIZABLE apps are reading.
+  - **Keep the map:** about 50 bytes per write call, forever. This is simpler and needs
+    no extra index.
+- **Prune `pemba_pending`** rows whose batch has a map row. They are garbage as soon as
+  the commit finishes. The rows of open transactions are invisible to GC.
 - **Readers mid-GC stay correct.** The horizon is committed first. A REPEATABLE READ reader
   whose snapshot predates the GC still sees every row its revision needs, because vacuum
   cannot remove tuples an open snapshot can see. Every later request reads the new horizon
   and fails `Exact(r < keep_from)`. This is the same structure as the SQLite argument and
   needs the same test (§4).
-- **Bloat.** Long foreign transactions hold back vacuum's xmin, a general Postgres effect.
-  The commit-time rewrite adds one dead tuple, and its index entries, per created or
-  deleted tuple. Document the autovacuum settings for `pemba_relationships`.
+- **Bloat.** The commit path no longer rewrites rows, so a write leaves no extra dead
+  tuples. Long foreign transactions still hold back vacuum's xmin, a general Postgres
+  effect.
 
 #### 1.6.6 Interactions to document
 
@@ -579,46 +731,55 @@ to surface constraint errors early. Django's `check_constraints()` is believed t
 **Cost.** For the rest of that transaction it *is* option (a): every other pemba commit
 waits for it. The README states this plainly: "Don't run `SET CONSTRAINTS ALL IMMEDIATE`
 in a long transaction that writes relationships; name your own constraints instead." A
-`PendingRevision` still resolves after commit as usual. The trigger could emit a
-`NOTICE` when it fires outside COMMIT (detectable through `pg_trigger_depth()` and
-transaction state), so apps can find the statement. T5.4 checks whether that is cheap.
+`PendingRevision` still resolves after commit as usual.
+
+**Detection** (spike, `detect_immediate.py`). Inside the trigger, `current_query()` is the
+statement that made it fire:
+
+| How the trigger fired | `current_query()` |
+|---|---|
+| At commit | `COMMIT` or `END` |
+| Early, by `SET CONSTRAINTS` | `SET CONSTRAINTS ALL IMMEDIATE`, or the named form |
+| IMMEDIATE set before the write | pemba's own `INSERT INTO pemba_pending ...` |
+| 2PC (§1.6.6) | `PREPARE TRANSACTION` |
+
+So the trigger can tell. Proposal (T5.5):
+- **The trigger** sets `pemba_revisions.early = true` and raises a `WARNING` naming the
+  statement: `pemba: revision assigned before COMMIT by "SET CONSTRAINTS ALL IMMEDIATE";
+  the store-wide revision lock is held until this transaction ends`. The WARNING reaches
+  the client (psycopg's notice handler) and the server log.
+- **`resolve()`** sees `early` and emits a `tracing` warning (Rust) or a `PembaWarning`
+  (Python), once per engine. Apps that never read notices still find out.
+- **Known false positive:** a client that sends several statements in one simple query
+  ending in `COMMIT` shows the whole string. Match `COMMIT` / `END` as the final
+  statement.
+- **Cost:** one `current_query()` call per batch.
 
 #### 1.6.8 SERIALIZABLE callers
 
 Native writes use READ COMMITTED, so this concerns only foreign mode inside SERIALIZABLE
 app transactions. Every failure seen is SQLSTATE 40001, which pemba maps to the retryable
-`Conflict`. SERIALIZABLE apps must already retry on it.
+`Conflict`.
 
-Spike: 8 writers, 20 s; the app retries the whole transaction on 40001.
-
-| Scheme and retry policy | Transactions hitting ≥ 1 × 40001 | Gave up | Writes/s |
-|---|---|---|---|
-| Baseline (watermark, no commit step), immediate retry ≤ 5 | 36 of 12,010 (0.3%) | 0 | 600 |
-| (d), immediate retry ≤ 5 | 142 of 12,030 (1.2%) | 74 (0.6%) | 598 |
-| (d), exponential backoff with full jitter (10 ms × 2ⁿ, cap 1 s), retry ≤ 10 | 65 of 9,205 (0.7%) | 7 (0.08%) | 460 |
-| (d), the same backoff, plus a 3 s SERIALIZABLE transaction every 4 s (2 seeds) | 67–68 of 9.3–9.8k (0.7%) | 3–6 (≤ 0.06%) | 467–492 |
-| Baseline, the same backoff, long transactions | 23 of 11,915 (0.2%) | 0 | 596 |
-
-The 40001 figures count transactions, not attempts. Throughput with backoff includes
-writers sleeping between retries. No run had a G2 violation.
-
-**What this means:**
-- **Added failure rate:** about 1 percentage point of transactions see at least one
-  `Conflict` (0.3% → 1.2%).
-- **Retries handle almost all of it, but not quite all.**
-  - With immediate retries, 0.6% of transactions failed six times running.
-  - With backoff and jitter, 0.03–0.08% still failed 11 times running. The baseline had
-    none.
-  - These are *sticky* conflicts: a retried transaction keeps colliding with the same
-    partners until they finish.
-- **Partial diagnosis (`ssi_probe.py`).** Removing the store-wide lock changes nothing.
-  Removing the commit-time row rewrite or the revision-row insert each halves the sticky
-  failures (70 → 36 transactions); neither alone explains them. Both are writes at commit
-  that SSI must check against concurrent transactions' read sets.
-- **Guidance:** SERIALIZABLE callers retry with exponential backoff and jitter. T5.6
-  root-causes the sticky conflicts before the first Postgres release. Target: in the
-  harness, no transaction exhausts a 10-retry backoff loop. If that target is missed,
-  this table goes into the README.
+- **Rate.** Round 3, A+B, with retries and backoff: 0.10–0.25% of transactions hit at
+  least one 40001. That is at or below the comparison scheme without a commit step
+  (0.25–0.27%), so pemba's commit step adds no measurable failure rate.
+- **Retries with backoff recover all of them.** 0 of 71,585 transactions failed all 10
+  retries, across 4 runs (two seeds each, with and without 3 s long SERIALIZABLE
+  transactions), and there were 0 violations.
+- **Immediate retries are not enough, with or without pemba.** Retrying at once, up to 5
+  times, lost 2–6 transactions per 14k–22k with A+B, and 0–7 with the comparison scheme.
+  A retried transaction meets the same concurrent partners again.
+- **Documented requirement:** retry the whole transaction on `Conflict` with exponential
+  backoff and jitter. The spike used a random 0 .. min(1 s, 10 ms × 2ⁿ), up to 10
+  attempts. The README states this, with an example loop for psycopg and SQLAlchemy.
+- **History.** Rounds 1–2 had 0.03–0.08% of transactions fail every retry with backoff.
+  There were two causes: the commit-time rewrite and revision insert (each about half,
+  `ssi_probe.py`), and a harness artifact (resolving on the writer's connection). Round 3
+  removed both. A alone (the rewrite design, with the harness fixed) still lost 5
+  transactions in 2 of 4 runs.
+- **SERIALIZABLE stays supported in v1.** The fallback of rejecting it at write time is
+  not needed. T5.6 keeps a zero-give-up assertion in CI.
 
 ---
 
@@ -758,22 +919,22 @@ CREATE TABLE <s>.pemba_meta (
     value text NOT NULL
 );  -- ('storage_version','1'), ('gc_horizon','0'), ('created_at', ISO-8601)
 
-CREATE SEQUENCE <s>.pemba_batch_seq;   -- provisional ids, no ordering meaning
+CREATE SEQUENCE <s>.pemba_batch_seq;   -- batch ids, no ordering meaning
 CREATE SEQUENCE <s>.pemba_rev_seq;     -- revisions; drawn only by the commit trigger
 
-CREATE TABLE <s>.pemba_revisions (     -- committed batches only
-    rev          bigint PRIMARY KEY,
-    batch_id     bigint NOT NULL UNIQUE,
-    kind         text   NOT NULL CHECK (kind IN ('write', 'schema', 'delete_filter')),
-    committed_at timestamptz NOT NULL   -- clock_timestamp() inside the commit trigger
+CREATE TABLE <s>.pemba_revisions (     -- the batch map: committed batches only
+    batch_id     bigint  PRIMARY KEY,
+    rev          bigint  NOT NULL UNIQUE,
+    kind         text    NOT NULL CHECK (kind IN ('base', 'write', 'schema', 'delete_filter')),
+    committed_at timestamptz NOT NULL,  -- clock_timestamp() inside the commit trigger
+    early        boolean NOT NULL DEFAULT false   -- fired before COMMIT (§1.6.7)
 );
+-- migration: INSERT (0, 0, 'base', now(), false) -- target of the GC rebase (§1.6.5)
 
 CREATE TABLE <s>.pemba_pending (       -- one row per batch; garbage once committed
-    batch_id     bigint PRIMARY KEY,
-    kind         text   NOT NULL,
-    xid          xid8   NOT NULL,      -- for PendingRevision resolution
-    created_tids tid[]  NOT NULL DEFAULT '{}',
-    deleted_tids tid[]  NOT NULL DEFAULT '{}'
+    batch_id bigint PRIMARY KEY,
+    kind     text   NOT NULL,
+    xid      xid8   NOT NULL            -- for PendingRevision resolution
 );
 
 CREATE TABLE <s>.pemba_relationships (
@@ -783,15 +944,15 @@ CREATE TABLE <s>.pemba_relationships (
     subject_type     text COLLATE "C" NOT NULL,
     subject_id       text COLLATE "C" NOT NULL,      -- '*' for wildcard
     subject_relation text COLLATE "C" NOT NULL DEFAULT '',
-    created_rev      bigint NOT NULL CHECK (created_rev <> 0),
-    deleted_rev      bigint          CHECK (deleted_rev <> 0)  -- NULL = live; < 0 = in flight
+    created_batch    bigint NOT NULL,
+    deleted_batch    bigint                          -- NULL = live
 );
 
 CREATE TABLE <s>.pemba_schema (
-    version     bigint PRIMARY KEY,            -- max + 1 under the schema-write lock
-    source      text   NOT NULL,
-    hash        text   NOT NULL,
-    created_rev bigint NOT NULL
+    version       bigint PRIMARY KEY,          -- max + 1 under the schema-write lock
+    source        text   NOT NULL,
+    hash          text   NOT NULL,
+    created_batch bigint NOT NULL
 );
 
 CREATE CONSTRAINT TRIGGER pemba_assign_revision
@@ -802,9 +963,11 @@ CREATE CONSTRAINT TRIGGER pemba_assign_revision
 
 Notes on the column choices:
 
+- **Batch ids are not revisions.** The store translates them through `pemba_revisions`
+  for reads below head (§1.6.2). A row's revision is never stored on the row.
 - **`COLLATE "C"`** on every text column makes comparisons bytewise. That matches SQLite's
-  `BINARY`, so the `05` §2 result order and pagination cursors agree with SQLite,
-  which store equivalence needs. With the database default (for example `en_US.UTF-8`),
+  `BINARY`, so the `05` §2 result order and pagination cursors agree with SQLite, which
+  store equivalence needs. With the database default (for example `en_US.UTF-8`),
   `'B' < 'a'` would differ between the stores. The store also requires the database
   encoding to be `UTF8` and fails `open()` otherwise.
 - **`bigint`** holds `Revision(u64)` values up to `i64::MAX`, the same as SQLite's
@@ -813,16 +976,17 @@ Notes on the column choices:
 
 ### 3.2 Indexes
 
-- **Same as SQLite (`05` §4):** `pemba_rel_live` (partial, unique, `WHERE deleted_rev IS NULL`;
-  also the `ON CONFLICT` target), `pemba_rel_fwd` (covering), `pemba_rel_rev`, and
-  `pemba_rel_deleted` (partial, `WHERE deleted_rev IS NOT NULL`, for GC). Include
-  `deleted_rev > 0` in the GC index predicate.
-- **New partial indexes for the commit-trigger fallback:**
-  - `pemba_rel_pending_created ON (created_rev) WHERE created_rev < 0`
-  - `pemba_rel_pending_deleted ON (deleted_rev) WHERE deleted_rev < 0`
-
-  Every in-flight row enters them, and each entry is dead once its commit rewrites the
-  row, so they stay near-empty after vacuum.
+- **The same four as SQLite (`05` §4)**, with batch columns in place of revision columns:
+  - `pemba_rel_live`: partial and unique, `WHERE deleted_batch IS NULL`; also the
+    `ON CONFLICT` target.
+  - `pemba_rel_fwd`: covering, ending `created_batch, deleted_batch`.
+  - `pemba_rel_rev`: ending `created_batch, deleted_batch`. `deleted_batch` is added so
+    that head reads stay index-only.
+  - `pemba_rel_deleted`: on `(deleted_batch) WHERE deleted_batch IS NOT NULL`, for GC.
+- **The map** is indexed by its primary key `batch_id` (for the joins) and by
+  `UNIQUE (rev)` (for head and range checks).
+- **Optional:** `pemba_rel_created ON (created_batch)`, only if T5.7 chooses the GC
+  rebase.
 - **No index on the visibility columns alone.** Reads go through `pemba_rel_fwd` and
   `pemba_rel_rev`, as on SQLite.
 
@@ -891,11 +1055,15 @@ server and drop their schema on success.
      - `PendingRevision` on every store: resolved at return on SQLite and memory; pending,
        committed and rolled back on Postgres;
      - `SET CONSTRAINTS ALL IMMEDIATE` before and after a write, and followed by
-       `ALL DEFERRED`: revisions correct and no provisional rows left;
+       `ALL DEFERRED`: revisions correct and every committed batch mapped;
      - skipped revisions made both ways (§1.6.3): `Exact` at the gap equals the revision
        before it, `AtLeast(gap)`, `gc(keep_from = gap)`, and head when the newest numbers
        were skipped;
-     - a 1,000-tuple batch: one trigger firing, one revision, no provisional rows left.
+     - a 1,000-tuple batch: one trigger firing, one revision;
+     - head reads (`deleted_batch IS NULL`) agree with the map join at R = head, on every
+       conformance case;
+     - an early trigger firing (`SET CONSTRAINTS ALL IMMEDIATE`) sets `early`, raises the
+       WARNING, and makes `resolve()` emit the warning once.
 2. **Store equivalence (property 5).**
    - Generalise `store_equivalence` from pairs to N stores: memory ≡ SQLite ≡ Postgres.
    - Sequential ops never fail at commit, so revision numbers match exactly. Add an
@@ -918,9 +1086,9 @@ server and drop their schema on success.
      that head; head monotonic in real time; revision order == commit order for every
      pair where one commit finished before the other started.
    - **Variants:** READ COMMITTED, REPEATABLE READ, and SERIALIZABLE. SERIALIZABLE writers
-     retry on `Conflict` with backoff; the test asserts 0 violations and reports the
-     conflict and give-up rates. The give-up rate becomes an assertion once T5.6 meets
-     its target.
+     retry on `Conflict` with backoff (§1.6.8). The test asserts 0 violations and
+     **0 transactions failing all retries**, and reports the 40001 rate against the
+     comparison scheme run in the same job.
    - **`SET CONSTRAINTS ALL IMMEDIATE` variants:** the long transaction runs it; then every
      transaction does. Assert 0 violations. Writer wait is reported (it is expected to
      reach the long transaction's duration) and not asserted.
@@ -964,7 +1132,8 @@ Each task ends green: the §5 checks of CLAUDE.md, plus the Postgres CI job once
   - Amend ADR-003 (sync; async adapters later), ADR-005 (consequences; skipped numbers)
     and ADR-006 (Postgres drivers and placeholders).
   - Update `02` §4, `05` (§10, new §11), `06` (`PendingRevision`, `Engine.postgres`) and
-    README (§1.6.3 wording, F5, the `SET CONSTRAINTS` warning).
+    README (§1.6.3 wording, F5, the `SET CONSTRAINTS` warning, F13's "one write call,
+    one revision", and SERIALIZABLE retry-with-backoff guidance).
   - CHANGELOG "Breaking" entry with the §1.6.4 migration table.
   - Remove Postgres from CLAUDE.md §6.
 - **T5.1 — `PendingRevision` on SQLite (the breaking change, shipped first).**
@@ -978,30 +1147,35 @@ Each task ends green: the §5 checks of CLAUDE.md, plus the Postgres CI job once
   - SQLite behaviour unchanged; done when green.
 - **T5.3 — `pemba-store-postgres` skeleton and migrations.**
   - Crate, config, pool, rustls TLS feature.
-  - Migration v1: tables, sequences, and the trigger with its ctid path and predicate
-    fallback.
+  - Migration v1: tables, sequences, the batch-map trigger (one INSERT plus early-firing
+    detection), and batch 0 → revision 0.
   - `migrate` / `open` / `NotMigrated` / `StorageVersionTooNew`, version and `UTF8`
     checks, schema qualification.
   - Postgres CI job (service container, 15 and 18).
   - Tests: idempotent and concurrent `migrate`, non-default schema, hostile `search_path`,
     and the `spawn_blocking` check.
-- **T5.4 — Reads.** `ReadStore`, head/horizon (head = highest committed), the REPEATABLE
-  READ `snapshot()`, the `05` §6 queries, and `COLLATE "C"` ordering. The conformance
-  read cases pass.
+- **T5.4 — Reads.**
+  - `ReadStore`, head/horizon (head = highest committed), the REPEATABLE READ
+    `snapshot()`, and the `05` §6 queries in two forms: `deleted_batch IS NULL` at head,
+    and the map join below head (§1.6.2).
+  - `COLLATE "C"` ordering.
+  - The conformance read cases pass.
 - **T5.5 — Native writes.**
   - `write`, `write_schema` and `delete_matching` through the commit trigger, the
     post-commit lookup, and SQLSTATE mapping.
   - The full conformance suite passes (the §4.1 additions included).
   - Store equivalence memory ≡ SQLite ≡ Postgres.
-  - Evaluate the out-of-COMMIT `NOTICE` (§1.6.7).
+  - Early-firing detection: the `early` column, the WARNING, and the warning from
+    `resolve()` (`tracing` in Rust, `PembaWarning` in Python) (§1.6.7).
 - **T5.6 — Permanent revision-order concurrency test (§4.4)** at all three isolation
   levels, plus the `SET CONSTRAINTS` variants, the commit-cost check and the negative
   control.
-  - **Root-cause the sticky SERIALIZABLE conflicts (§1.6.8)** and meet the target (no
-    transaction exhausts a 10-retry backoff loop), or document the measured rate in the
-    README.
-- **T5.7 — GC.** Horizon first, ctid batches, pruning of pending and revision rows, the
-  mid-GC reader test, and GC at skipped numbers.
+  - SERIALIZABLE with backoff: assert 0 transactions failing all retries (§1.6.8).
+- **T5.7 — GC.**
+  - Horizon first, then deletes through the map in ctid batches, and pruning of pending
+    rows.
+  - Map pruning: measure the rebase against keeping the map, then pick one (§1.6.5).
+  - The mid-GC reader test, and GC at skipped numbers.
 - **T5.8 — Rust foreign mode.**
   - `PgTxn` over `postgres::Transaction`, `write_in` → `PendingRevision`, `resolve` with
     `pg_xact_status`.
@@ -1016,8 +1190,8 @@ Each task ends green: the §5 checks of CLAUDE.md, plus the Postgres CI job once
 - **T5.11 — Property tests and difftest on Postgres in CI** (`proptest.yml`,
   `difftest.yml` matrix).
 - **T5.12 — Benchmarks and documentation, then the first Postgres release.**
-  - Benchmarks: write throughput against SQLite, check latency, and 1,000-tuple commit
-    cost.
+  - Benchmarks: write throughput against SQLite, check latency, 1,000-tuple commit
+    cost, and the read cost below head through the map (F12), on the `07` §7 shapes.
   - README: a Postgres section, privileges, PgBouncer, autovacuum, 2PC, the
     `SET CONSTRAINTS` warning, and SERIALIZABLE retry guidance.
 - **T5.13 — Async foreign mode (after the first Postgres release).**
