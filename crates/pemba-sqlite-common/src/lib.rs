@@ -19,7 +19,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use pemba_core::Error;
-use pemba_core::store::{SqlDialect, SqlValue, WriteTxn};
+use pemba_core::store::{PlaceholderStyle, RevisionStrategy, SqlDialect, SqlValue, WriteTxn};
 
 /// `PRAGMA synchronous` level (`docs/05-storage.md` §4).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
@@ -75,10 +75,15 @@ impl Default for SqliteConfig {
 pub struct SqliteDialect;
 
 impl SqlDialect for SqliteDialect {
-    fn placeholder(&self, _n: usize) -> String {
+    fn placeholder_style(&self) -> PlaceholderStyle {
         // Plain `?` (bound in order) rather than `?n`, as `docs/05-storage.md` §2 says: it
         // is what Python's `sqlite3` qmark style expects too.
-        "?".to_owned()
+        PlaceholderStyle::Question
+    }
+
+    fn revision_strategy(&self) -> RevisionStrategy {
+        // One writer holds the write lock from allocation to commit (`05` §5.1).
+        RevisionStrategy::AllocateNow
     }
 
     fn table(&self, name: &str) -> String {
