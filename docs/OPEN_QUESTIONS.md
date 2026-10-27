@@ -1311,3 +1311,19 @@ it is resolved.
   stores' transaction types differ (`SqliteTxn`, `PgTxn`), so a shared suite needs a
   per-store "begin / commit / rollback" adapter; left open. `gc(keep_from = gap)` stays
   T5.7.
+
+## OQ-052 — OQ-049's `FOR SHARE` roughly doubles SERIALIZABLE 40001s
+- Raised in: T5.6 (`revision_order_is_commit_order`, `docs/10-postgres.md` §1.6.8)
+- Blocking: no (every run: 0 violations, 0 transactions exhausting their retries)
+- Finding: in the harness's SERIALIZABLE variant (one write in ten reads first), pemba's
+  40001 rate over five runs was 0.33–1.67% (mean ≈ 1.1%), against 0.16–0.84% (mean ≈
+  0.4%) for the allocate-at-write control. With the `FOR SHARE` on the `schema_version`
+  row removed (a local diagnostic, reverted), pemba's rate over three runs was 0.33–0.87%
+  (mean ≈ 0.55%) against the control's 0.66–0.82%. So the spike's "the commit step adds no
+  measurable failure rate" still holds, but OQ-049's row lock costs about half a point at
+  SERIALIZABLE. Retries with backoff absorb it.
+- Options: (a) keep as is (current); (b) skip `FOR SHARE` when
+  `current_setting('transaction_isolation') = 'serializable'`, where SSI already refuses a
+  stale version check (one more query, or the setting read in the same statement); (c)
+  revisit after T5.12's benchmarks.
+- Resolve by: maintainer.
