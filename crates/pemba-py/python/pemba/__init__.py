@@ -22,7 +22,10 @@ from pemba._errors import (
     StorageError,
     TransactionConflictError,
     PembaError,
+    PembaWarning,
+    RevisionPending,
     WriteConflictError,
+    WriteRolledBack,
 )
 from pemba._revision import PendingRevision, Revision
 from pemba._pemba import (
@@ -69,5 +72,8 @@ __all__ = [
     "TraceNode",
     "TransactionConflictError",
     "PembaError",
+    "PembaWarning",
+    "RevisionPending",
     "WriteConflictError",
+    "WriteRolledBack",
 ]

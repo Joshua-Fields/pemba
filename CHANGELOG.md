@@ -32,7 +32,12 @@ The Rust crates and the Python package share one version: `0.1.0-alpha.2` on cra
 - `PendingRevision` (Rust and Python) and `Engine::resolve`. Python's `at_least=`
   accepts a `PendingRevision`.
 - Error codes `REVISION_PENDING` and `WRITE_ROLLED_BACK`, from `Engine::resolve` on a
-  store that assigns revisions at commit (Python: `ConsistencyError` for now).
+  store that assigns revisions at commit (Python: `RevisionPending` and
+  `WriteRolledBack`, both `ConsistencyError`s).
+- Python: `Engine.postgres(dsn, *, schema=None, pool_size=8, auto_migrate=False)`, whose
+  calls release the GIL; `write(conn=)` on it joins a psycopg 3 or psycopg2 transaction,
+  a SQLAlchemy `Session` / `Connection`, or `django.db.connection`, and works from async
+  code through `AsyncSession.run_sync`. `pemba.PembaWarning`. `Engine::store()` in Rust.
 
 - `pemba check --color <auto|always|never>`. `auto`, the default, is the previous
   behaviour: colour only on a terminal, and not when `NO_COLOR` is set. `always` colours

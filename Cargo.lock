@@ -1189,6 +1189,7 @@ dependencies = [
  "pemba",
  "pemba-schema",
  "pemba-sqlite-common",
+ "pemba-store-postgres",
  "pemba-store-pysqlite",
  "pyo3",
 ]

@@ -23,9 +23,8 @@ EXPECTED: dict[str, type[pemba.PembaError]] = {
     "BATCH_TOO_LARGE": pemba.InvalidRequestError,
     "REVISION_NOT_YET_AVAILABLE": pemba.ConsistencyError,
     "REVISION_EXPIRED": pemba.ConsistencyError,
-    # Own subclasses in T5.9, with the Python Postgres engine.
-    "REVISION_PENDING": pemba.ConsistencyError,
-    "WRITE_ROLLED_BACK": pemba.ConsistencyError,
+    "REVISION_PENDING": pemba.RevisionPending,
+    "WRITE_ROLLED_BACK": pemba.WriteRolledBack,
     "MAX_DEPTH_EXCEEDED": pemba.EvaluationLimitError,
     "FANOUT_EXCEEDED": pemba.EvaluationLimitError,
     "READ_LIMIT_EXCEEDED": pemba.EvaluationLimitError,
@@ -59,9 +58,15 @@ def test_every_rust_code_maps_to_exactly_one_class() -> None:
 
 def test_hierarchy_shape() -> None:
     assert issubclass(pemba.TransactionConflictError, pemba.StorageError)
-    for cls in set(EXPECTED.values()) - {pemba.TransactionConflictError}:
-        assert cls.__bases__ == (pemba.PembaError,), cls
+    subclasses = {
+        pemba.TransactionConflictError: pemba.StorageError,
+        pemba.RevisionPending: pemba.ConsistencyError,
+        pemba.WriteRolledBack: pemba.ConsistencyError,
+    }
+    for cls in set(EXPECTED.values()):
+        assert cls.__bases__ == (subclasses.get(cls, pemba.PembaError),), cls
     assert pemba.PembaError.__bases__ == (Exception,)
+    assert issubclass(pemba.PembaWarning, UserWarning)
 
 
 def raises(code: str, fn: Callable[[], object]) -> pemba.PembaError:

@@ -38,6 +38,8 @@ must_use_candidate = "allow"
 # extension for SQLite symbols.
 pemba = { workspace = true, features = ["memory"] }
 pemba-store-pysqlite.workspace = true
+# `Engine.postgres` (docs/10-postgres.md §2.2); TLS through rustls, no OpenSSL (§2.1).
+pemba-store-postgres.workspace = true
 pemba-sqlite-common.workspace = true
 pemba-schema.workspace = true
 # Python bindings (ADR-014); abi3 so one wheel per platform covers every CPython >= 3.11.
