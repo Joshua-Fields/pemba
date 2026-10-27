@@ -51,7 +51,7 @@ jobs:
       postgres:
         image: postgres:18
         env:
-          POSTGRES_PASSWORD: postgres
+          POSTGRES_HOST_AUTH_METHOD: trust
         ports:
           - 5432:5432
         options: >-
@@ -83,7 +83,7 @@ jobs:
           PEMBA_DIFFTEST_REQUIRED: "1"
           PEMBA_DIFFTEST_CASES: ${{ inputs.cases || '500' }}
           PEMBA_DIFFTEST_STORE: ${{ matrix.store }}
-          PEMBA_PG_URL: postgres://postgres:postgres@localhost:5432/postgres
+          PEMBA_PG_URL: postgres://postgres@localhost:5432/postgres
         # One test at a time: two at once more than double SpiceDB's memory.
         run: cargo test -p pemba-difftest --test difftest -- --ignored --nocapture --test-threads=1
       - name: SpiceDB log on failure
