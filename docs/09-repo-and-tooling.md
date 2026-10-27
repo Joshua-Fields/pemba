@@ -126,9 +126,13 @@ them, never `set -x` around them, and do not expose them to workflows triggered 
 - `wheels.yml` (`v*` tags + manual only, not PRs): maturin-action builds one abi3
   (`cp311-abi3`) wheel per ADR-014 platform (manylinux 2_17 x86_64 and aarch64, macOS
   arm64 and x86_64, Windows x86_64), checks it contains no SQLite
-  (`ci/check_no_sqlite.py`), then installs each wheel on its platform (aarch64 under QEMU,
+  (`ci/check_no_sqlite.py`) and that its Postgres TLS is rustls with no OpenSSL
+  (`ci/check_tls.py`, T5.10), then installs each wheel on its platform (aarch64 under QEMU,
   macOS x86_64 under Rosetta 2) with CPython 3.11 and 3.14 and runs the whole pytest suite
-  against it. It also builds an sdist and checks a wheel built from it imports. On a `v*`
+  against it. `smoke-postgres` installs the Linux x86_64 wheel and runs
+  `tests/test_postgres.py` with every driver against a Postgres 15 and 18 service
+  container, plus a TLS server with an untrusted certificate that the wheel must refuse.
+  It also builds an sdist and checks a wheel built from it imports. On a `v*`
   tag, `publish` uploads the wheels and sdist to PyPI by trusted publishing, after every
   smoke test passes and a required reviewer approves the `pypi` environment. A manual run
   builds and tests only. Run it by hand after changing the

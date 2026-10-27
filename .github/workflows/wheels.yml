@@ -41,7 +41,7 @@ jobs:
           manylinux: ${{ matrix.manylinux || 'auto' }}
           working-directory: crates/pemba-py
           args: --release --out dist
-      - name: one abi3 wheel, no SQLite inside (ADR-006, OQ-032)
+      - name: one abi3 wheel, no SQLite inside (ADR-006, OQ-032), rustls and no OpenSSL (T5.10)
         shell: bash
         working-directory: crates/pemba-py
         run: |
@@ -50,6 +50,7 @@ jobs:
           case "$(ls dist/*.whl)" in *-cp311-abi3-*) ;; *) echo "not an abi3 (cp311) wheel"; exit 1;; esac
           python3 -c "import sys, zipfile; z = zipfile.ZipFile(sys.argv[1]); [open(n.rsplit('/', 1)[-1], 'wb').write(z.read(n)) for n in z.namelist() if '_pemba' in n]" dist/*.whl
           python3 ci/check_no_sqlite.py _pemba.*
+          python3 ci/check_tls.py _pemba.*
       - uses: actions/upload-artifact@v4
         with:
           name: wheel-${{ matrix.platform }}
@@ -162,12 +163,74 @@ jobs:
               pytest -q -p no:cacheprovider
             '
 
+  smoke-postgres:
+    # T5.10: the built Linux wheel (not a dev build) against a Postgres service container:
+    # Engine.postgres and foreign mode with every driver, and TLS through the bundled
+    # rustls, which must refuse a server whose certificate the platform does not trust.
+    name: smoke (linux-x86_64, Postgres ${{ matrix.pg }})
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        pg: ["15", "18"]
+    services:
+      postgres:
+        image: postgres:${{ matrix.pg }}
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 30
+    env:
+      PEMBA_PG_URL: postgres://postgres:postgres@localhost:5432/postgres
+      PEMBA_PG_TLS_URL: postgres://postgres:postgres@localhost:5433/postgres
+      PEMBA_PG_REQUIRED: "1"
+    defaults:
+      run:
+        shell: bash
+        working-directory: crates/pemba-py
+    steps:
+      - uses: actions/checkout@v5
+      # Service containers take no command line, so the TLS server runs here: TLS on, with
+      # the image's own self-signed (snakeoil) certificate.
+      - name: a Postgres with an untrusted TLS certificate
+        run: |
+          docker run -d --name pg-tls -e POSTGRES_PASSWORD=postgres -p 5433:5432 \
+            postgres:${{ matrix.pg }} -c ssl=on \
+            -c ssl_cert_file=/etc/ssl/certs/ssl-cert-snakeoil.pem \
+            -c ssl_key_file=/etc/ssl/private/ssl-cert-snakeoil.key
+          for i in $(seq 1 30); do docker exec pg-tls pg_isready -U postgres && break; sleep 1; done
+          docker exec pg-tls psql -U postgres -tAc 'SHOW ssl' | grep -qx on
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@v5
+        with:
+          name: wheel-linux-x86_64
+          path: crates/pemba-py/dist
+      - name: install the wheel and the drivers, test them
+        run: |
+          python -m venv .venv
+          source .venv/bin/activate
+          pip install pytest==9.1.1 "psycopg[binary]==3.3.6" psycopg2-binary==2.9.13 \
+            sqlalchemy==2.1.6 django==6.1.2 greenlet==3.5.6
+          pip install --no-index --find-links dist pemba
+          python -c "import pemba, sys; assert 'site-packages' in pemba.__file__, pemba.__file__"
+          python ci/check_tls.py
+          pytest -q -p no:cacheprovider tests/test_postgres.py tests/test_errors.py
+
   publish:
     # Trusted publishing: PyPI trusts this workflow, in the `pypi` environment, for the
     # `pemba` project; no API token is stored. Waits for every smoke test as well as the
     # builds, so a wheel that fails its tests is never uploaded.
     name: publish to PyPI
-    needs: [build, sdist, smoke, smoke-aarch64]
+    needs: [build, sdist, smoke, smoke-aarch64, smoke-postgres]
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     timeout-minutes: 15

@@ -146,12 +146,13 @@ jobs:
           pytest -q
           mypy --strict tests
       # The shipped artefact, not just the dev build (ADR-006, OQ-032).
-      - name: release wheel bundles no SQLite
+      - name: release wheel bundles no SQLite, and rustls but no OpenSSL
         run: |
           source .venv/bin/activate 2>/dev/null || source .venv/Scripts/activate
           maturin build --release --out dist
           python -c "import sys, zipfile; z = zipfile.ZipFile(sys.argv[1]); [open(n.rsplit('/', 1)[-1], 'wb').write(z.read(n)) for n in z.namelist() if '_pemba' in n]" dist/*.whl
           python ci/check_no_sqlite.py _pemba.*
+          python ci/check_tls.py _pemba.*
 
   python-oldest:
     # The oldest combination docs/05-storage.md §4.3 claims: CPython 3.11 (the abi3 floor,
@@ -252,10 +253,22 @@ jobs:
           --health-retries 30
     env:
       PEMBA_PG_URL: postgres://postgres:postgres@localhost:5432/postgres
+      PEMBA_PG_TLS_URL: postgres://postgres:postgres@localhost:5433/postgres
       PEMBA_PG_REQUIRED: "1"
     steps:
       - uses: actions/checkout@v5
       - uses: Swatinem/rust-cache@v2
+      # For test_tls_verifies_the_server_certificate (T5.10): TLS on, with the image's own
+      # self-signed certificate, which rustls must refuse. Service containers take no
+      # command line, so it runs here.
+      - name: a Postgres with an untrusted TLS certificate
+        run: |
+          docker run -d --name pg-tls -e POSTGRES_PASSWORD=postgres -p 5433:5432 \
+            postgres:${{ matrix.pg }} -c ssl=on \
+            -c ssl_cert_file=/etc/ssl/certs/ssl-cert-snakeoil.pem \
+            -c ssl_key_file=/etc/ssl/private/ssl-cert-snakeoil.key
+          for i in $(seq 1 30); do docker exec pg-tls pg_isready -U postgres && break; sleep 1; done
+          docker exec pg-tls psql -U postgres -tAc 'SHOW ssl' | grep -qx on
       - run: cargo test -p pemba-store-postgres --all-features
       # The permanent revision-order test (docs/10-postgres.md §4.4, T5.6), about 20 s.
       # --nocapture so each variant's 40001 rate, writer wait and visibility lag are in
@@ -275,6 +288,7 @@ jobs:
           pip install maturin==1.15.0 pytest==9.1.1 mypy==2.4.0 "psycopg[binary]==3.3.6" \
             psycopg2-binary==2.9.13 sqlalchemy==2.1.6 django==6.1.2 greenlet==3.5.6
           maturin develop
+          python ci/check_tls.py
           pytest -q tests/test_postgres.py tests/test_errors.py
           mypy --strict tests
       # The plaintext-only build still compiles and passes.

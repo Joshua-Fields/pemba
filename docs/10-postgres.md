@@ -884,6 +884,12 @@ Consequences:
   - Con: it is third-party; `postgres-native-tls` and `postgres-openssl` 0.5.3 are
     first-party.
   - Needs a one-line dependency justification (golden rule 9).
+  - **T5.10:** every wheel is checked to contain rustls and no OpenSSL
+    (`ci/check_tls.py`), and the Postgres smoke tests (CI and `wheels.yml`) run a server
+    with TLS on and a self-signed certificate: `sslmode=require` must fail with
+    "error performing TLS handshake: … certificate …", and `sslmode=disable` must connect.
+    Driver errors other than database errors now carry their cause chain, which is how
+    the certificate reason reaches the message (the chain never quotes the DSN).
 
 ### 2.2 Python: native engine
 
