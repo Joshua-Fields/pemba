@@ -587,11 +587,14 @@ pemba schema validate <file.zed>           exit 0 ok / 1 errors; prints rustc-st
 pemba schema fmt <file.zed> [--check]      canonical formatting
 pemba test <fixture.yaml>...               runs fixture files (docs/07 §3); exit 1 on failure
 pemba check <resource>#<permission>@<subject> (--fixture f.yaml | --db app.db)
-            [--explain | --json] [--at-exactly REV]
+            [--explain | --json] [--at-exactly REV] [--color auto|always|never]
 pemba migrate --db app.db                  (not yet implemented)
 ```
 Use `clap` (derive). Colour (only `check --explain` uses it) is plain ANSI SGR codes, no
-crate: on only when stdout is a terminal and `NO_COLOR` is unset or empty.
+crate, chosen by `check --color`: `auto` (the default) colours only when stdout is a
+terminal and `NO_COLOR` is unset or empty; `always` colours even a pipe and overrides
+`NO_COLOR`; `never` does not colour. `--color` is accepted, and has no effect, without
+`--explain`.
 
 `check` (T4.1) evaluates one check. `--fixture` loads a fixture file's `schema` (or
 `schemaFile`) and `relationships` into a memory store, ignoring its assertions and steps;
@@ -603,8 +606,11 @@ not in WAL mode, or a missing file is exit 2. Without `--explain` or `--json` it
 as above): a header line, then the tree, one node per line with `✓`/`✗` (`·` for skipped),
 the stored tuple that matched after `←`, subject sets as `via <stored tuple>`, memo hits
 and cycle hits as `(see above)`, cycle heads with their pass count, and evaluated
-branches that did not decide the answer marked `(not needed)` (dimmed in colour, with the
-granting path bold). `--json` prints `CheckTrace::to_json()` on one line (§3.1);
+branches that did not decide the answer marked `(not needed)`. An exclusion denied by its
+subtracted side has both sides on the granting path: the base's grant and what removed it.
+In colour the granting path is bold, evaluated nodes off it are in the normal colour, and
+only skipped nodes and memo hits off the path are dimmed; without the escapes the text is
+the same (`04` §3.8). `--json` prints `CheckTrace::to_json()` on one line (§3.1);
 `--explain` and `--json` are mutually exclusive. Errors go to stderr as
 `error: <CODE>: <message>`.
 

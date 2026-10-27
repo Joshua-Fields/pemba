@@ -42,8 +42,8 @@ allowed: document:arch#view@user:frank (revision 2)
 denied: document:arch#view@user:carol (revision 2)
 
 ✗ document:arch#view = (comment + viewer + folder->view) - blocked
-├── ✓ base: comment + viewer + folder->view  (not needed)
-│   ├── ✗ document:arch#comment = edit + commenter
+├── ✓ base: comment + viewer + folder->view
+│   ├── ✗ document:arch#comment = edit + commenter  (not needed)
 │   │   ├── ✗ document:arch#edit = (owner + editor + folder->edit) - blocked
 │   │   │   ├── ✓ base: owner + editor + folder->edit
 │   │   │   │   ├── ✗ document:arch#owner  (no matching relationship)
@@ -62,7 +62,7 @@ denied: document:arch#view@user:carol (revision 2)
 │   │   │   │           └── · org->manage  (skipped)
 │   │   │   └── ✓ subtracted: document:arch#blocked  ← document:arch#blocked@user:carol
 │   │   └── ✗ document:arch#commenter  (no matching relationship)
-│   ├── ✗ document:arch#viewer  (no matching relationship)
+│   ├── ✗ document:arch#viewer  (no matching relationship; not needed)
 │   └── ✓ folder->view
 │       └── ✓ folder:specs#view = edit + viewer + parent->view
 │           ├── ✓ folder:specs#edit  (see above)
@@ -104,8 +104,8 @@ allowed: folder:specs#edit@user:dave (revision 2)
 denied: document:secret#view@user:frank (revision 2)
 
 ✗ document:secret#view = (comment + viewer + folder->view) - blocked
-├── ✓ base: comment + viewer + folder->view  (not needed)
-│   ├── ✗ document:secret#comment = edit + commenter
+├── ✓ base: comment + viewer + folder->view
+│   ├── ✗ document:secret#comment = edit + commenter  (not needed)
 │   │   ├── ✗ document:secret#edit = (owner + editor + folder->edit) - blocked
 │   │   │   ├── ✗ base: owner + editor + folder->edit
 │   │   │   │   ├── ✗ document:secret#owner  (no matching relationship)

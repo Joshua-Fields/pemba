@@ -1,5 +1,6 @@
 //! `pemba check` run as a real process (`docs/06-api.md` §3): answers and exit codes,
-//! `--explain`, `--json`, `--at-exactly`, and `--db` on a SQLite file it must not change.
+//! `--explain`, `--color`, `--json`, `--at-exactly`, and `--db` on a SQLite file it must not
+//! change.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
@@ -138,13 +139,118 @@ fn explain_renders_the_trace_without_colour() {
         "denied: document:d#view@user:eve (revision 2)\n\
          \n\
          ✗ document:d#view = (viewer + edit) - banned\n\
-         ├── ✓ base: viewer + edit  (not needed)\n\
-         │   ├── ✗ document:d#viewer\n\
+         ├── ✓ base: viewer + edit\n\
+         │   ├── ✗ document:d#viewer  (not needed)\n\
          │   │   └── ✗ group:staff#member  via document:d#viewer@group:staff#member  (no matching relationship)\n\
          │   └── ✓ document:d#edit = editor\n\
          │       └── ✓ document:d#editor  ← document:d#editor@user:eve\n\
          └── ✓ subtracted: document:d#banned  ← document:d#banned@user:eve\n"
     );
+}
+
+/// The README's "Debugging permissions" example is what `--explain` prints for it (the
+/// README runs it against a database; the fixture holds the same data).
+#[test]
+fn readme_explain_example_is_current() {
+    let readme = std::fs::read_to_string(root().join("README.md")).unwrap();
+    let command = "$ pemba check 'document:d#view@user:mallory' --db app.db --explain\n";
+    let start = readme.find(command).expect("the README example") + command.len();
+    let end = start + readme[start..].find("```").unwrap();
+    let out = pemba(&[
+        "check",
+        "document:d#view@user:mallory",
+        "--fixture",
+        BANNED,
+        "--explain",
+    ]);
+    assert_eq!(code(&out), 1);
+    assert_eq!(stdout(&out), readme[start..end]);
+}
+
+/// `pemba check --explain --color <when>` on the denied `eve` query, with `NO_COLOR` set
+/// as given (`None`: unset). Stdout is a pipe here, never a terminal.
+fn explain_with(color: Option<&str>, no_color: Option<&str>) -> Output {
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_pemba"));
+    cmd.args([
+        "check",
+        "document:d#view@user:eve",
+        "--fixture",
+        BANNED,
+        "--explain",
+    ])
+    .current_dir(root())
+    .env_remove("NO_COLOR");
+    if let Some(c) = color {
+        cmd.args(["--color", c]);
+    }
+    if let Some(v) = no_color {
+        cmd.env("NO_COLOR", v);
+    }
+    cmd.output().expect("run pemba")
+}
+
+/// `--color auto` (the default) colours only a terminal: a pipe gets plain text even with
+/// `NO_COLOR` unset.
+#[test]
+fn color_auto_is_plain_when_not_a_terminal() {
+    let plain = stdout(&explain_with(Some("never"), None));
+    for out in [explain_with(None, None), explain_with(Some("auto"), None)] {
+        assert_eq!(code(&out), 1);
+        assert_eq!(stdout(&out), plain);
+    }
+}
+
+/// `--color never` is plain, `NO_COLOR` or not.
+#[test]
+fn color_never_is_plain() {
+    for no_color in [None, Some("1")] {
+        let out = explain_with(Some("never"), no_color);
+        assert_eq!(code(&out), 1);
+        let text = stdout(&out);
+        assert!(!text.contains('\x1b'), "{text}");
+        assert!(
+            text.starts_with("denied: document:d#view@user:eve"),
+            "{text}"
+        );
+    }
+}
+
+/// `--color always` colours a pipe and overrides `NO_COLOR`; without the escapes it is the
+/// plain text, and both sides of the exclusion are on the (bold) path.
+#[test]
+fn color_always_overrides_no_color_and_a_pipe() {
+    let plain = stdout(&explain_with(Some("never"), None));
+    for no_color in [None, Some("1")] {
+        let out = explain_with(Some("always"), no_color);
+        assert_eq!(code(&out), 1);
+        let text = stdout(&out);
+        assert!(text.contains('\x1b'), "{text}");
+        assert_eq!(strip_ansi(&text), plain);
+        for side in ["base: viewer + edit", "subtracted: document:d#banned"] {
+            let line = text.lines().find(|l| l.contains(side)).unwrap();
+            assert!(line.contains("\x1b[1m"), "not bold: {line}");
+        }
+    }
+}
+
+#[test]
+fn color_rejects_an_unknown_value() {
+    let out = explain_with(Some("sometimes"), None);
+    assert_eq!(code(&out), 2);
+    assert!(stderr(&out).contains("--color"), "{}", stderr(&out));
+}
+
+/// `s` without its ANSI escapes (`ESC [ ... m`).
+fn strip_ansi(s: &str) -> String {
+    let mut out = String::new();
+    let mut rest = s;
+    while let Some(i) = rest.find('\x1b') {
+        out.push_str(&rest[..i]);
+        let m = rest[i..].find('m').unwrap();
+        rest = &rest[i + m + 1..];
+    }
+    out.push_str(rest);
+    out
 }
 
 #[test]
