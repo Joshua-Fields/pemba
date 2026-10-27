@@ -485,7 +485,7 @@ starts, against the spec as it stands then.
 - Shareable links that encode the schema, tuples and query; fixture YAML import/export.
 
 ### M7 — 0.1.0 and launch
-- Pass the T3.7 gate, cut 0.1.0 on crates.io and PyPI (manual human publish step).
+- Pass the T3.7 gate, cut 0.1.0 on crates.io and PyPI
 - Docs site, examples and a launch post centred on transactional writes.
 - Triage process for issues and a public roadmap.
 
