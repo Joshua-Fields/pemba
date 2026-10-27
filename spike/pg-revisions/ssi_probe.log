@@ -1,0 +1,2 @@
+{"variant": "norewrite", "txns": 6827, "40001": 358, "retry": {"txns_needing_retry": 62, "max_attempts": 6, "gave_up": 36}, "violations": "n/a"}
+{"variant": "noinsert", "txns": 0, "40001": 323, "retry": {"txns_needing_retry": 53, "max_attempts": 6, "gave_up": 36}, "violations": "n/a"}

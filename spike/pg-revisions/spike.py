@@ -34,6 +34,12 @@ from psycopg import errors
 DSN = os.environ.get("SPIKE_DSN", "host=localhost port=55432 user=postgres password=spike dbname=spike")
 
 # Advisory lock namespaces (two-int4 form: classid, objid).
+# Review additions: "none" | "long" | "all" -- who runs SET CONSTRAINTS ALL IMMEDIATE
+# after write(); RETRY -- how often a writer retries a transaction that failed with 40001.
+IMMEDIATE = "none"
+RETRY = 0
+BACKOFF = False   # exponential backoff with full jitter between retries (10 ms * 2^n, cap 1 s)
+
 NS = {"counter": 70001, "watermark_alloc": 70002, "watermark_rev": 70003, "committime": 70004,
       "committid": 70005}
 
@@ -243,6 +249,8 @@ class Results:
     txns: list[TxnRecord] = field(default_factory=list)
     observations: list[tuple[float, float, int, int, int]] = field(default_factory=list)  # t0,t1,head,n,h
     errors: dict[str, int] = field(default_factory=dict)
+    attempts: list[int] = field(default_factory=list)   # per committed txn (RETRY > 0)
+    gave_up: int = 0
     lock: threading.Lock = field(default_factory=threading.Lock)
 
     def err(self, code: str) -> None:
@@ -262,21 +270,42 @@ def writer_loop(scheme, name, stop, res, rng, isolation, hold_ms, long_every=Non
         creates = [(f"doc:{name}:{i}", f"user:{rng.randrange(50)}")]
         deletes = [mine.pop(rng.randrange(len(mine)))] if mine and rng.random() < 0.3 else []
         held = long_s if is_long else (rng.uniform(0, hold_ms) / 1000 if rng.random() < 0.5 else 0.0)
-        t_begin = time.perf_counter()
-        try:
-            conn.execute("SELECT 1")           # opens the app's transaction
-            token = write(scheme, conn, creates, deletes)
-            t_written = time.perf_counter()
-            if held:
-                time.sleep(held)
-            t_cs = time.perf_counter()
-            conn.commit()
-            t_ce = time.perf_counter()
-        except psycopg.Error as e:
-            conn.rollback()
-            res.err(getattr(e, "sqlstate", None) or type(e).__name__)
+        attempt, ok = 0, False
+        while not ok:
+            attempt += 1
+            t_begin, t_cs = time.perf_counter(), None
+            try:
+                conn.execute("SELECT 1")           # opens the app's transaction
+                token = write(scheme, conn, creates, deletes)
+                if IMMEDIATE == "all" or (IMMEDIATE == "long" and is_long):
+                    conn.execute("SET CONSTRAINTS ALL IMMEDIATE")
+                t_written = time.perf_counter()
+                if held:
+                    time.sleep(held)
+                t_cs = time.perf_counter()
+                conn.commit()
+                t_ce = time.perf_counter()
+                ok = True
+            except psycopg.Error as e:
+                conn.rollback()
+                code = getattr(e, "sqlstate", None) or type(e).__name__
+                res.err(code)
+                phase = "commit" if t_cs is not None else "write"
+                res.err(f"{code}:{phase}:{'long' if is_long else 'short'}:attempt{min(attempt, 3)}")
+                if code == "40001" and attempt <= RETRY:
+                    if BACKOFF:
+                        time.sleep(rng.uniform(0, min(1.0, 0.01 * 2 ** attempt)))
+                    continue
+                break
+        if not ok:
+            if RETRY:
+                with res.lock:
+                    res.gave_up += 1
             mine.extend(deletes)
             continue
+        if RETRY:
+            with res.lock:
+                res.attempts.append(attempt)
         rev = resolve_committed(scheme, conn, token)
         conn.commit()
         mine.extend(creates)
@@ -399,6 +428,9 @@ def analyse(scheme: str, res: Results, duration: float) -> dict:
         "long_txns": sum(1 for t in txns if t.long),
         "errors": res.errors,
         "dangling_provisional_rows": dangling,
+        "retry": ({"txns_needing_retry": sum(1 for a in res.attempts if a > 1),
+                   "max_attempts": max(res.attempts, default=0), "gave_up": res.gave_up}
+                  if RETRY else None),
     }
 
 
@@ -483,9 +515,14 @@ def main():
     ap.add_argument("--isolation", default="READ_COMMITTED")
     ap.add_argument("--seed", type=int, default=20261027)
     ap.add_argument("--out", default="results.json")
+    ap.add_argument("--immediate", default="none", choices=["none", "long", "all"])
+    ap.add_argument("--retry", type=int, default=0)
+    ap.add_argument("--backoff", action="store_true")
     ap.add_argument("--extras", action="store_true", help="forced-inversion + savepoint checks")
     a = ap.parse_args()
     iso = psycopg.IsolationLevel[a.isolation]
+    global IMMEDIATE, RETRY, BACKOFF
+    IMMEDIATE, RETRY, BACKOFF = a.immediate, a.retry, a.backoff
     results = []
     for scheme in a.schemes.split(","):
         r = run(scheme, a.writers, a.readers, a.duration, a.hold_ms,
@@ -497,7 +534,7 @@ def main():
         print(json.dumps({k: r[k] for k in ("scheme", "writes_per_s", "violations", "head_regressions",
                                              "write_order_vs_commit_order_inversions",
                                              "rev_order_vs_commit_order_inversions",
-                                             "visibility_lag_ms", "writer_blocked_ms", "errors")}
+                                             "visibility_lag_ms", "writer_blocked_ms", "errors", "retry")}
                          | ({"forced": r["forced_inversion"]} if a.extras else {})))
         results.append(r)
     if a.extras:

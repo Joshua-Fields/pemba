@@ -43,6 +43,21 @@ and fingerprint the rows visible at it inside one REPEATABLE READ snapshot.
 - `--extras`: a deterministic forced inversion (A writes, B writes and commits while A is
   open, reader observes, A commits) and savepoint/rollback/same-transaction checks.
 
-Results: `results-*.json`, `runs*.log`; summary in `docs/10-postgres.md` §1.5.
+## Review checks (second round, `docs/10-postgres.md` §1.5.1)
+
+```bash
+python review_checks.py      # SET CONSTRAINTS ALL IMMEDIATE, skipped revisions, 1,000-tuple batches
+python spike.py --schemes committid --immediate long --duration 20   # IMMEDIATE on the long txn
+python spike.py --schemes committid --immediate all --long-every 0   # IMMEDIATE everywhere
+python spike.py --schemes committid,watermark --isolation SERIALIZABLE --retry 10 --backoff
+python ssi_probe.py          # diagnostic: which trigger step causes sticky 40001s
+```
+`--retry N` retries a transaction on 40001 up to N times (`--backoff`: 10 ms * 2^n with
+full jitter, cap 1 s) and reports transactions needing a retry and giving up.
+`ssi_probe.py` variants other than `full` are deliberately wrong and exist only to isolate
+the cause.
+
+Results: `results-*.json`, `runs*.log`, `review_checks.log`, `ssi_probe.log`; summary in
+`docs/10-postgres.md` §1.5 and §1.5.1.
 Environment: Postgres 17.11 in Docker Desktop on Windows 11, Python 3.12, psycopg 3.3.6.
 Absolute numbers are machine-specific; compare schemes against each other.

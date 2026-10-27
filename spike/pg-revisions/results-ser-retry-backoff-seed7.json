@@ -1,0 +1,47 @@
+[
+  {
+    "scheme": "committid",
+    "committed_txns": 9341,
+    "writes_per_s": 467.1,
+    "observations": 43102,
+    "violations": 0,
+    "head_regressions": 0,
+    "write_order_vs_commit_order_inversions": 24075,
+    "rev_order_vs_commit_order_inversions": 0,
+    "visibility_lag_ms": {
+      "p50": 0.4,
+      "p99": 1.7,
+      "max": 3.5
+    },
+    "writer_blocked_ms": {
+      "p50": 4.0,
+      "p99": 6.8,
+      "max": 14.5
+    },
+    "long_txns": 3,
+    "errors": {
+      "40001": 337,
+      "40001:commit:short:attempt1": 54,
+      "40001:write:short:attempt1": 13,
+      "40001:commit:short:attempt2": 48,
+      "40001:commit:short:attempt3": 175,
+      "40001:write:short:attempt3": 37,
+      "40001:write:short:attempt2": 10
+    },
+    "dangling_provisional_rows": 0,
+    "retry": {
+      "txns_needing_retry": 61,
+      "max_attempts": 11,
+      "gave_up": 6
+    },
+    "config": {
+      "writers": 8,
+      "readers": 4,
+      "duration_s": 20.0,
+      "hold_ms": 30,
+      "long_every_s": 4.0,
+      "long_s": 3.0,
+      "isolation": "SERIALIZABLE"
+    }
+  }
+]

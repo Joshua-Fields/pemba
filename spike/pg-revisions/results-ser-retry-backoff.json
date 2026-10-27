@@ -1,0 +1,89 @@
+[
+  {
+    "scheme": "committid",
+    "committed_txns": 9832,
+    "writes_per_s": 491.6,
+    "observations": 40661,
+    "violations": 0,
+    "head_regressions": 0,
+    "write_order_vs_commit_order_inversions": 25703,
+    "rev_order_vs_commit_order_inversions": 0,
+    "visibility_lag_ms": {
+      "p50": 0.4,
+      "p99": 1.6,
+      "max": 6.9
+    },
+    "writer_blocked_ms": {
+      "p50": 4.0,
+      "p99": 6.9,
+      "max": 10.5
+    },
+    "long_txns": 3,
+    "errors": {
+      "40001": 322,
+      "40001:commit:short:attempt1": 55,
+      "40001:commit:short:attempt2": 46,
+      "40001:write:short:attempt3": 41,
+      "40001:write:short:attempt2": 13,
+      "40001:write:short:attempt1": 13,
+      "40001:commit:short:attempt3": 154
+    },
+    "dangling_provisional_rows": 0,
+    "retry": {
+      "txns_needing_retry": 65,
+      "max_attempts": 11,
+      "gave_up": 3
+    },
+    "config": {
+      "writers": 8,
+      "readers": 4,
+      "duration_s": 20.0,
+      "hold_ms": 30,
+      "long_every_s": 4.0,
+      "long_s": 3.0,
+      "isolation": "SERIALIZABLE"
+    }
+  },
+  {
+    "scheme": "watermark",
+    "committed_txns": 11915,
+    "writes_per_s": 595.8,
+    "observations": 15124,
+    "violations": 0,
+    "head_regressions": 0,
+    "write_order_vs_commit_order_inversions": 35488,
+    "rev_order_vs_commit_order_inversions": 35489,
+    "visibility_lag_ms": {
+      "p50": 20.8,
+      "p99": 2919.0,
+      "max": 3000.1
+    },
+    "writer_blocked_ms": {
+      "p50": 6.4,
+      "p99": 10.9,
+      "max": 16.9
+    },
+    "long_txns": 3,
+    "errors": {
+      "40001": 50,
+      "40001:commit:short:attempt1": 23,
+      "40001:commit:short:attempt2": 10,
+      "40001:commit:short:attempt3": 17
+    },
+    "dangling_provisional_rows": 0,
+    "retry": {
+      "txns_needing_retry": 23,
+      "max_attempts": 8,
+      "gave_up": 0
+    },
+    "config": {
+      "writers": 8,
+      "readers": 4,
+      "duration_s": 20.0,
+      "hold_ms": 30,
+      "long_every_s": 4.0,
+      "long_s": 3.0,
+      "isolation": "SERIALIZABLE"
+    }
+  }
+]

@@ -1,0 +1,35 @@
+[
+  {
+    "scheme": "committid",
+    "committed_txns": 1198,
+    "writes_per_s": 119.8,
+    "observations": 33904,
+    "violations": 0,
+    "head_regressions": 0,
+    "write_order_vs_commit_order_inversions": 0,
+    "rev_order_vs_commit_order_inversions": 0,
+    "visibility_lag_ms": {
+      "p50": 0.3,
+      "p99": 1.4,
+      "max": 2.0
+    },
+    "writer_blocked_ms": {
+      "p50": 55.4,
+      "p99": 125.5,
+      "max": 186.6
+    },
+    "long_txns": 0,
+    "errors": {},
+    "dangling_provisional_rows": 0,
+    "retry": null,
+    "config": {
+      "writers": 8,
+      "readers": 4,
+      "duration_s": 10.0,
+      "hold_ms": 30,
+      "long_every_s": null,
+      "long_s": 3,
+      "isolation": "READ_COMMITTED"
+    }
+  }
+]
