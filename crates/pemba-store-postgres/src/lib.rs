@@ -356,9 +356,17 @@ impl First {
 /// from "fail" by [`StoreError::is_retryable`] or the code `TRANSACTION_CONFLICT`.
 pub(crate) fn store_err(e: &postgres::Error) -> StoreError {
     let Some(db) = e.as_db_error() else {
-        return StoreError::Backend {
-            message: e.to_string(),
-        };
+        // The causes carry the useful part ("error performing TLS handshake: invalid peer
+        // certificate: UnknownIssuer"). They are driver, IO and TLS errors, which never
+        // quote the connection string.
+        let mut message = e.to_string();
+        let mut cause = std::error::Error::source(e);
+        while let Some(c) = cause {
+            message.push_str(": ");
+            message.push_str(&c.to_string());
+            cause = c.source();
+        }
+        return StoreError::Backend { message };
     };
     // `postgres::Error`'s own Display is only "db error"; the server's message is the
     // useful part.

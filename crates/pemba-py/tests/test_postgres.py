@@ -423,6 +423,28 @@ def test_async_connections_are_refused(engine: pemba.Engine) -> None:
     run_async(run())
 
 
+def test_tls_verifies_the_server_certificate() -> None:
+    """T5.10: the extension speaks TLS (rustls) and fails closed on an untrusted server.
+
+    Needs ``PEMBA_PG_TLS_URL``: a server with TLS on and a certificate the platform does
+    not trust (the image's self-signed one), e.g. ``postgres -c ssl=on -c
+    ssl_cert_file=/etc/ssl/certs/ssl-cert-snakeoil.pem -c
+    ssl_key_file=/etc/ssl/private/ssl-cert-snakeoil.key``.
+    """
+    tls_url = os.environ.get("PEMBA_PG_TLS_URL")
+    if not tls_url:
+        pytest.skip("not run: set PEMBA_PG_TLS_URL")
+    sep = "&" if "?" in tls_url else "?"
+    with pytest.raises(pemba.StorageError) as exc:
+        pemba.Engine.postgres(tls_url + sep + "sslmode=require", auto_migrate=True)
+    assert "TLS handshake" in str(exc.value) and "certificate" in str(exc.value), exc.value
+    # The password never reaches the message.
+    password = urlsplit(tls_url).password
+    assert not password or password not in str(exc.value)
+    # Without TLS the same server is reachable: the failure above was the certificate.
+    pemba.Engine.postgres(tls_url + sep + "sslmode=disable", auto_migrate=True)
+
+
 def test_other_objects_are_refused(engine: pemba.Engine) -> None:
     with pytest.raises(TypeError, match="psycopg"):
         engine.write(touch=[ANNE], conn=object())
