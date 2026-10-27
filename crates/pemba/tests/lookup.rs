@@ -2,14 +2,16 @@
 //!
 //! One test per phase 1 rule (seeds and expansions) and per kind of candidate phase 2 must
 //! drop. Where a test claims a candidate was generated and then filtered out, it reads the
-//! `candidates` field of the `lookup_resources` span, so every lookup here runs under a
-//! span recorder (a test binary of its own for that reason; see `check_tracing.rs`).
+//! `candidates` field of the `lookup_resources` span from [`Recorder`], the global
+//! subscriber of this test binary (installed before any engine is built; see its doc for
+//! why it is not scoped to the test, #42).
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Mutex, Once, PoisonError};
+use std::thread::{self, ThreadId};
 
 use pemba::model::{
     Consistency, ObjectId, Relationship, Revision, SubjectRef, WriteOp, WriteRequest,
@@ -59,6 +61,7 @@ fn touch(rels: &[&str]) -> WriteRequest {
 }
 
 fn engine_on<S: WritableStore>(store: S, config: EngineConfig, rels: &[&str]) -> Engine<S> {
+    install_recorder();
     let e = Engine::builder()
         .store(store)
         .config(config)
@@ -91,12 +94,10 @@ fn page<S: WritableStore>(
     e: &Engine<S>,
     req: LookupResourcesRequest,
 ) -> (Result<LookupResourcesResponse, Error>, Option<usize>) {
-    let rec = Recorder::default();
-    let result = tracing::subscriber::with_default(rec.clone(), || {
-        tracing::callsite::rebuild_interest_cache();
-        e.lookup_resources(req)
-    });
-    let candidates = rec.field("candidates").map(|v| v.parse().unwrap());
+    let start = spans().len();
+    let result = e.lookup_resources(req);
+    let candidates =
+        recorded_field(start, "lookup_resources", "candidates").map(|v| v.parse().unwrap());
     (result, candidates)
 }
 
@@ -453,6 +454,7 @@ fn invalid_requests_are_refused() {
         let err = e.lookup_resources(request(q)).unwrap_err();
         assert!(matches!(err, Error::InvalidRequest { .. }), "{q}: {err:?}");
     }
+    install_recorder();
     let empty = Engine::builder().store(MemoryStore::new()).build().unwrap();
     let err = empty
         .lookup_resources(request("document#view@user:anne"))
@@ -594,21 +596,44 @@ impl Drop for TempDir {
 
 type Fields = Vec<(String, String)>;
 
-/// Records every span's name and fields, including values recorded after creation.
-#[derive(Clone, Default)]
-struct Recorder(Arc<Mutex<Vec<(String, Fields)>>>);
+/// Every span created in this binary, by any thread: the thread, the span's name and its
+/// fields, including values recorded after creation. A span's id is its index + 1.
+static SPANS: Mutex<Vec<(ThreadId, String, Fields)>> = Mutex::new(Vec::new());
 
-impl Recorder {
-    fn field(&self, name: &str) -> Option<String> {
-        let spans = self.0.lock().unwrap();
-        let (_, fields) = spans.iter().find(|(n, _)| n == "lookup_resources")?;
-        fields
-            .iter()
-            .rev()
-            .find(|(n, _)| n == name)
-            .map(|(_, v)| v.clone())
-    }
+fn spans() -> std::sync::MutexGuard<'static, Vec<(ThreadId, String, Fields)>> {
+    // A panicking test never holds the lock, but don't let one poison the rest.
+    SPANS.lock().unwrap_or_else(PoisonError::into_inner)
 }
+
+/// The last value of `field` on the first span named `span` that this thread created at or
+/// after index `start`.
+fn recorded_field(start: usize, span: &str, field: &str) -> Option<String> {
+    let me = thread::current().id();
+    let spans = spans();
+    let (_, _, fields) = spans[start..]
+        .iter()
+        .find(|(t, n, _)| *t == me && n == span)?;
+    fields
+        .iter()
+        .rev()
+        .find(|(n, _)| n == field)
+        .map(|(_, v)| v.clone())
+}
+
+/// Installs [`Recorder`] as the global default subscriber, once, before the first engine.
+///
+/// Not a per-test `with_default` (#42): `tracing` caches each callsite's interest process
+/// wide, and a test calling `lookup_resources` with no subscriber on another thread could
+/// cache "never" for the span while a capturing test was installing its recorder, which then
+/// saw nothing. With one always-enabled global subscriber, every interest is "always", and
+/// it is in place before any engine exists, so before any thread reaches a callsite.
+fn install_recorder() {
+    static INSTALL: Once = Once::new();
+    INSTALL.call_once(|| tracing::subscriber::set_global_default(Recorder).unwrap());
+}
+
+/// Records every span into [`SPANS`].
+struct Recorder;
 
 struct FieldVisitor<'a>(&'a mut Fields);
 
@@ -623,16 +648,17 @@ impl tracing::Subscriber for Recorder {
         true
     }
     fn new_span(&self, attrs: &tracing::span::Attributes<'_>) -> tracing::span::Id {
-        let mut spans = self.0.lock().unwrap();
         let mut fields = Vec::new();
         attrs.record(&mut FieldVisitor(&mut fields));
-        spans.push((attrs.metadata().name().to_owned(), fields));
+        let mut spans = spans();
+        let name = attrs.metadata().name().to_owned();
+        spans.push((thread::current().id(), name, fields));
         tracing::span::Id::from_u64(spans.len() as u64)
     }
     fn record(&self, id: &tracing::span::Id, values: &tracing::span::Record<'_>) {
-        let mut spans = self.0.lock().unwrap();
+        let mut spans = spans();
         let i = usize::try_from(id.into_u64() - 1).unwrap();
-        values.record(&mut FieldVisitor(&mut spans[i].1));
+        values.record(&mut FieldVisitor(&mut spans[i].2));
     }
     fn record_follows_from(&self, _: &tracing::span::Id, _: &tracing::span::Id) {}
     fn event(&self, _: &tracing::Event<'_>) {}
