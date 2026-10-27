@@ -13,10 +13,16 @@
 //! (`lookup_subjects`, on both stores), in `prop3_*_full`.
 //! Property 6 always runs at least 1 000. Property 7 (`check_with_trace`, on both stores)
 //! runs 64 cases plainly and at least 1 000 in the ignored `trace::*_full`.
+//!
+//! With `PEMBA_PROPTEST_STORE=postgres` (and `PEMBA_PG_URL`), properties 1–4 and 7 also
+//! run every case on a Postgres store, each in a fresh schema (T5.11,
+//! `docs/10-postgres.md` §4 item 2); `proptest.yml`'s Postgres entry sets it, with fewer
+//! cases, since every read is a round trip.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use pemba_core::model::{Consistency, ObjectRef, RelName, SubjectRef, WriteOp, WriteRequest};
+use pemba_core::store::WritableStore;
 use pemba_core::{CheckItem, CheckRequest, Engine, EngineConfig};
 use pemba_schema::ir::CompiledSchema;
 use pemba_store_memory::MemoryStore;
@@ -26,10 +32,19 @@ use proptest::prelude::*;
 use proptest::strategy::ValueTree;
 use proptest::test_runner::{FileFailurePersistence, TestRunner};
 
-/// At least `min` cases, or `PROPTEST_CASES` if higher.
+/// At least `min` cases, or `PROPTEST_CASES` if higher. With the Postgres variant on
+/// (`PEMBA_PROPTEST_STORE=postgres`), `PROPTEST_CASES`, when set, is the count exactly: a
+/// round trip per read makes the usual floors too slow (`docs/10-postgres.md` §4 item 2).
 fn config(min: u32) -> ProptestConfig {
     let mut c = ProptestConfig::default();
-    c.cases = c.cases.max(min);
+    let postgres = std::env::var("PEMBA_PROPTEST_STORE").as_deref() == Ok("postgres");
+    let exact = std::env::var("PROPTEST_CASES")
+        .ok()
+        .and_then(|v| v.parse().ok());
+    c.cases = match exact {
+        Some(n) if postgres => n,
+        _ => c.cases.max(min),
+    };
     // `docs/07` §2.3 keeps regressions in `proptest-regressions/`; the default would write
     // `tests/properties.proptest-regressions` instead. Relative to the crate directory.
     c.failure_persistence = Some(Box::new(FileFailurePersistence::Direct(
@@ -110,17 +125,88 @@ fn query(
     (resource, member, subject)
 }
 
+/// Postgres for the engine-versus-reference properties (T5.11): a store in a fresh
+/// schema, dropped with it, when `PEMBA_PROPTEST_STORE=postgres`; otherwise none.
+mod pg {
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    use pemba_store_postgres::postgres::{Client, NoTls};
+    use pemba_store_postgres::{PostgresConfig, PostgresStore};
+
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+
+    /// A store in its own schema; the schema is dropped with it unless a test panicked.
+    pub(super) struct TempPg {
+        pub(super) store: Option<PostgresStore>,
+        url: String,
+        schema: String,
+    }
+
+    impl Drop for TempPg {
+        fn drop(&mut self) {
+            drop(self.store.take());
+            if !std::thread::panicking()
+                && let Ok(mut c) = Client::connect(&self.url, NoTls)
+            {
+                let _ = c.batch_execute(&format!("DROP SCHEMA \"{}\" CASCADE", self.schema));
+            }
+        }
+    }
+
+    /// A fresh store, if the Postgres variant is on.
+    ///
+    /// # Panics
+    ///
+    /// If `PEMBA_PROPTEST_STORE=postgres` but `PEMBA_PG_URL` is unset, or the server
+    /// refuses.
+    pub(super) fn temp() -> Option<TempPg> {
+        if std::env::var("PEMBA_PROPTEST_STORE").as_deref() != Ok("postgres") {
+            return None;
+        }
+        let url = std::env::var("PEMBA_PG_URL")
+            .expect("PEMBA_PROPTEST_STORE=postgres needs PEMBA_PG_URL");
+        let schema = format!(
+            "pemba_prop_{}_{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        );
+        Client::connect(&url, NoTls)
+            .unwrap()
+            .batch_execute(&format!("CREATE SCHEMA \"{schema}\""))
+            .unwrap();
+        let config = PostgresConfig::default()
+            .with_schema(&schema)
+            .with_pool_size(2)
+            .with_auto_migrate(true);
+        Some(TempPg {
+            store: Some(PostgresStore::open(&url, config).unwrap()),
+            url,
+            schema,
+        })
+    }
+}
+
+/// Property 1 for one case, on the memory store and, if enabled, Postgres.
+fn engine_agrees_with_reference(case: &Case) -> Result<(), TestCaseError> {
+    agrees_on(case, MemoryStore::new())?;
+    if let Some(mut pg) = pg::temp() {
+        agrees_on(case, pg.store.take().unwrap())
+            .map_err(|e| TestCaseError::fail(format!("postgres: {e}")))?;
+    }
+    Ok(())
+}
+
 /// Property 1 for one case. Any engine error is a failure, not a skipped case: generated
 /// schemas are stratifiable, so no data cycle crosses a negation, and a
 /// `NonMonotonicCycle` would mean the engine refuses too much.
-fn engine_agrees_with_reference(case: &Case) -> Result<(), TestCaseError> {
+fn agrees_on<S: WritableStore>(case: &Case, store: S) -> Result<(), TestCaseError> {
     let src = case.schema.source();
     let schema = compile(&src);
     let oracle = Reference::new(&schema, &case.tuples)
         .map_err(|e| TestCaseError::fail(format!("oracle refused a generated case: {e}")))?;
 
     let engine = Engine::builder()
-        .store(MemoryStore::new())
+        .store(store)
         .config(unlimited())
         .build()
         .unwrap();
@@ -583,11 +669,26 @@ mod prop4 {
             .config(unlimited())
             .build()
             .unwrap();
+        let mut pg_dir = super::pg::temp();
+        let pg = pg_dir.as_mut().map(|t| {
+            Engine::builder()
+                .store(t.store.take().unwrap())
+                .config(unlimited())
+                .build()
+                .unwrap()
+        });
         let (sets, horizon) = replay(&memory, &src, case, batches, gcs)?;
         prop_assert_eq!(
             &replay(&sqlite, &src, case, batches, gcs)?,
             &(sets.clone(), horizon)
         );
+        if let Some(pg) = &pg {
+            prop_assert_eq!(
+                &replay(pg, &src, case, batches, gcs)?,
+                &(sets.clone(), horizon),
+                "postgres"
+            );
+        }
 
         // Revision 0 (before the schema) is skipped: the schema check, not MVCC, decides it.
         for (r, set) in sets.iter().enumerate().skip(1) {
@@ -600,10 +701,14 @@ mod prop4 {
                         subject: subject.clone(),
                         consistency: Consistency::Exact(rev),
                     };
-                    for (store, got) in [
+                    let mut runs = vec![
                         ("memory", memory.check(request.clone())),
-                        ("sqlite", sqlite.check(request)),
-                    ] {
+                        ("sqlite", sqlite.check(request.clone())),
+                    ];
+                    if let Some(pg) = &pg {
+                        runs.push(("postgres", pg.check(request)));
+                    }
+                    for (store, got) in runs {
                         prop_assert!(
                             matches!(
                                 got,
@@ -631,10 +736,13 @@ mod prop4 {
                     subject: subject.clone(),
                     consistency: Consistency::Exact(rev),
                 };
-                let got = [
+                let mut got = vec![
                     ("memory", memory.check(request.clone())),
-                    ("sqlite", sqlite.check(request)),
+                    ("sqlite", sqlite.check(request.clone())),
                 ];
+                if let Some(pg) = &pg {
+                    got.push(("postgres", pg.check(request)));
+                }
                 for (store, got) in got {
                     let query = (resource, member, subject);
                     historical_check_matches(&oracle, store, query, rev, want, got)?;
@@ -868,15 +976,23 @@ mod prop2 {
         let memory = engine_with(MemoryStore::new(), &src, case);
         let mut dir = super::prop5::TempSqlite::new();
         let sqlite = engine_with(dir.store.take().unwrap(), &src, case);
+        let mut pg_dir = super::pg::temp();
+        let pg = pg_dir
+            .as_mut()
+            .map(|t| engine_with(t.store.take().unwrap(), &src, case));
 
         let lookups = lookup_queries(&schema, &oracle, &universe, &case.queries);
         for (i, (resource, member, subject)) in lookups.iter().enumerate() {
             let want = expected(&oracle, &universe, resource, member, subject);
             let limit = PAGES[page_picks[i % page_picks.len()]];
-            for (store, got) in [
+            let mut runs = vec![
                 ("memory", pages(&memory, resource, member, subject, limit)),
                 ("sqlite", pages(&sqlite, resource, member, subject, limit)),
-            ] {
+            ];
+            if let Some(pg) = &pg {
+                runs.push(("postgres", pages(pg, resource, member, subject, limit)));
+            }
+            for (store, got) in runs {
                 // A page fails as a whole when any candidate's check does (§5.2), so the
                 // error is accepted if the oracle shows it applies to any object of the
                 // type (07 §2.3).
@@ -1096,6 +1212,10 @@ mod prop3 {
         let memory = engine_with(MemoryStore::new(), &src, case);
         let mut dir = super::prop5::TempSqlite::new();
         let sqlite = engine_with(dir.store.take().unwrap(), &src, case);
+        let mut pg_dir = super::pg::temp();
+        let pg = pg_dir
+            .as_mut()
+            .map(|t| engine_with(t.store.take().unwrap(), &src, case));
 
         for &q in case.queries.iter().take(LOOKUPS) {
             let (resource, member, _) = query(&schema, &oracle, &universe, q);
@@ -1109,22 +1229,23 @@ mod prop3 {
                 .collect();
             let req = LookupSubjectsRequest::new(resource.clone(), member.clone(), subject_type);
             let what = format!("lookup_subjects({resource}#{member}@{})", req.subject_type);
-            let responses: Vec<(&str, LookupSubjectsResponse)> = [
+            let mut runs = vec![
                 ("memory", memory.lookup_subjects(req.clone())),
                 ("sqlite", sqlite.lookup_subjects(req.clone())),
-            ]
-            .into_iter()
-            .map(|(store, r)| {
-                r.map(|r| (store, r))
-                    .map_err(|e| TestCaseError::fail(format!("{store}: {what} failed: {e}")))
-            })
-            .collect::<Result<_, _>>()?;
-            prop_assert_eq!(
-                &responses[0].1,
-                &responses[1].1,
-                "{} differs by store",
-                what
-            );
+            ];
+            if let Some(pg) = &pg {
+                runs.push(("postgres", pg.lookup_subjects(req.clone())));
+            }
+            let responses: Vec<(&str, LookupSubjectsResponse)> = runs
+                .into_iter()
+                .map(|(store, r)| {
+                    r.map(|r| (store, r))
+                        .map_err(|e| TestCaseError::fail(format!("{store}: {what} failed: {e}")))
+                })
+                .collect::<Result<_, _>>()?;
+            for (store, resp) in &responses[1..] {
+                prop_assert_eq!(&responses[0].1, resp, "{} differs on {}", what, store);
+            }
             for (store, resp) in &responses {
                 let mut sorted = resp.subject_ids.clone();
                 sorted.sort();
@@ -1254,6 +1375,16 @@ definition doc {
             .unwrap();
         setup(&memory, tuples);
         setup(&sqlite, tuples);
+        let mut pg_dir = super::pg::temp();
+        let pg = pg_dir.as_mut().map(|t| {
+            let e = Engine::builder()
+                .store(t.store.take().unwrap())
+                .config(unlimited())
+                .build()
+                .unwrap();
+            setup(&e, tuples);
+            e
+        });
         let mut with_exclusions = 0;
         let user: pemba_core::model::TypeName = "user".parse().unwrap();
         let users: Vec<&ObjectRef> = universe.iter().filter(|o| o.object_type == user).collect();
@@ -1264,11 +1395,17 @@ definition doc {
                 let req =
                     LookupSubjectsRequest::new(resource.clone(), member.clone(), user.clone());
                 let a = memory.lookup_subjects(req.clone());
-                let b = sqlite.lookup_subjects(req);
+                let b = sqlite.lookup_subjects(req.clone());
                 let what = format!("lookup_subjects({resource}#{member}@user)");
                 let a = a.map_err(|e| TestCaseError::fail(format!("memory: {what}: {e}")))?;
                 let b = b.map_err(|e| TestCaseError::fail(format!("sqlite: {what}: {e}")))?;
                 prop_assert_eq!(&a, &b, "{} differs by store", what);
+                if let Some(pg) = &pg {
+                    let c = pg
+                        .lookup_subjects(req)
+                        .map_err(|e| TestCaseError::fail(format!("postgres: {what}: {e}")))?;
+                    prop_assert_eq!(&a, &c, "{} differs on postgres", what);
+                }
                 with_exclusions += usize::from(a.wildcard && !a.excluded_ids.is_empty());
                 for id in a.subject_ids.iter().chain(&a.excluded_ids) {
                     prop_assert!(users.iter().any(|u| u.object_id == *id), "{}: {}", what, id);
@@ -1753,6 +1890,10 @@ mod trace {
     }
 
     /// Property 7 for one case; returns each check's `cycle_passes`, for the distribution.
+    #[allow(
+        clippy::too_many_lines,
+        reason = "one assertion list per store; splitting it would hide which store failed"
+    )]
     fn agrees(case: &Case) -> Result<Vec<u64>, TestCaseError> {
         let src = case.schema.source();
         let schema = compile(&src);
@@ -1769,6 +1910,10 @@ mod trace {
         let capped = engine(MemoryStore::new(), &src, case, CAP);
         let mut dir = super::prop5::TempSqlite::new();
         let sqlite = engine(dir.store.take().unwrap(), &src, case, usize::MAX);
+        let mut pg_dir = super::pg::temp();
+        let pg = pg_dir
+            .as_mut()
+            .map(|t| engine(t.store.take().unwrap(), &src, case, usize::MAX));
         let mut passes = Vec::new();
 
         for (resource, member, subject) in &queries {
@@ -1780,7 +1925,7 @@ mod trace {
             };
             let at = format!("{resource}#{member}@{subject}");
             let want = oracle.check(resource, member, subject).unwrap();
-            let outcomes = [
+            let mut outcomes = vec![
                 (
                     "memory",
                     memory.check(req.clone()),
@@ -1797,6 +1942,13 @@ mod trace {
                     capped.check_with_trace(req.clone()),
                 ),
             ];
+            if let Some(pg) = &pg {
+                outcomes.push((
+                    "postgres",
+                    pg.check(req.clone()),
+                    pg.check_with_trace(req.clone()),
+                ));
+            }
             for (store, plain, traced) in outcomes {
                 match (plain, traced) {
                     (Ok(plain), Ok((response, trace))) => {

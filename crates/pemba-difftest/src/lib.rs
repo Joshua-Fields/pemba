@@ -23,11 +23,58 @@ use pemba_core::model::{
     Consistency, ObjectId, ObjectRef, RelName, Relationship, SubjectRef, TypeName, WriteOp,
     WriteRequest,
 };
+use pemba_core::store::WritableStore;
 use pemba_core::{
     CheckRequest, Engine, EngineConfig, LookupResourcesRequest, LookupSubjectsRequest,
 };
 use pemba_schema::ir::CompiledSchema;
 use pemba_store_memory::MemoryStore;
+
+/// pemba on Postgres for the difftest (T5.11): a store in a fresh schema per engine.
+mod postgres {
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    use pemba_store_postgres::postgres::{Client, NoTls};
+    use pemba_store_postgres::{PostgresConfig, PostgresStore};
+
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+
+    /// Drops its schema when dropped, after the store in it is gone.
+    pub(crate) struct Schema {
+        url: String,
+        name: String,
+    }
+
+    impl Drop for Schema {
+        fn drop(&mut self) {
+            if let Ok(mut c) = Client::connect(&self.url, NoTls) {
+                let _ = c.batch_execute(&format!("DROP SCHEMA \"{}\" CASCADE", self.name));
+            }
+        }
+    }
+
+    /// A migrated store in a new schema, and the guard that drops it.
+    pub(crate) fn open(url: &str) -> Result<(PostgresStore, Schema), String> {
+        let name = format!(
+            "pemba_diff_{}_{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        );
+        Client::connect(url, NoTls)
+            .and_then(|mut c| c.batch_execute(&format!("CREATE SCHEMA \"{name}\"")))
+            .map_err(|e| format!("Postgres: {e}"))?;
+        let schema = Schema {
+            url: url.to_owned(),
+            name: name.clone(),
+        };
+        let config = PostgresConfig::default()
+            .with_schema(&name)
+            .with_pool_size(2)
+            .with_auto_migrate(true);
+        let store = PostgresStore::open(url, config).map_err(|e| format!("Postgres: {e}"))?;
+        Ok((store, schema))
+    }
+}
 
 pub use crate::spicedb::SpiceDb;
 
@@ -147,15 +194,46 @@ impl Outcome {
 
 /// Runs `case` on pemba and on SpiceDB under the datastore of `token`.
 ///
+/// pemba runs on the store `PEMBA_DIFFTEST_STORE` names: `memory` (the default), or
+/// `postgres` (T5.11, `docs/10-postgres.md` §4 item 3), which needs `PEMBA_PG_URL` and
+/// gives every engine of the case a fresh schema, dropped afterwards.
+///
 /// # Errors
 ///
 /// A message if the case could not be set up on either side (schema or tuples refused,
-/// SpiceDB unreachable). Answers that are errors are compared, not returned.
+/// SpiceDB unreachable, `PEMBA_DIFFTEST_STORE` unknown or Postgres unreachable). Answers
+/// that are errors are compared, not returned.
 pub fn run(spicedb: &SpiceDb, token: &str, case: &DiffCase) -> Result<Outcome, String> {
+    match std::env::var("PEMBA_DIFFTEST_STORE").as_deref() {
+        Err(_) | Ok("" | "memory") => run_on(spicedb, token, case, &mut || Ok(MemoryStore::new())),
+        Ok("postgres") => {
+            let url = std::env::var("PEMBA_PG_URL")
+                .map_err(|_| "PEMBA_DIFFTEST_STORE=postgres needs PEMBA_PG_URL".to_owned())?;
+            // Dropped after `run_on` returns, so after every engine of the case.
+            let mut schemas = Vec::new();
+            run_on(spicedb, token, case, &mut || {
+                let (store, schema) = postgres::open(&url)?;
+                schemas.push(schema);
+                Ok(store)
+            })
+        }
+        Ok(other) => Err(format!(
+            "PEMBA_DIFFTEST_STORE is {other:?}; use memory or postgres"
+        )),
+    }
+}
+
+/// `run` on the stores `open` makes, one per engine.
+fn run_on<S: WritableStore>(
+    spicedb: &SpiceDb,
+    token: &str,
+    case: &DiffCase,
+    open: &mut dyn FnMut() -> Result<S, String>,
+) -> Result<Outcome, String> {
     let compiled = pemba_schema::compile(&case.schema)
         .map_err(|e| format!("pemba refused the schema: {e}"))?
         .schema;
-    let engine = pemba_engine(case)?;
+    let engine = pemba_engine(case, open()?)?;
     // SpiceDB's check behind KD-2 is nondeterministic: the same schema is sometimes
     // accepted. Probe a few throwaway datastores so a case it would refuse is never
     // compared by luck (and its KD-3 re-check never fails by luck).
@@ -187,7 +265,7 @@ pub fn run(spicedb: &SpiceDb, token: &str, case: &DiffCase) -> Result<Outcome, S
     let mut theirs = spicedb.check_bulk(token, &checks)?.into_iter();
 
     // Both engines again without one type's wildcard tuples, built on first use (KD-3).
-    let mut reduced: BTreeMap<TypeName, Option<(Engine<MemoryStore>, String)>> = BTreeMap::new();
+    let mut reduced: BTreeMap<TypeName, Option<(Engine<S>, String)>> = BTreeMap::new();
     let mut without_wildcards = |ty: &TypeName, q: &Question| -> Option<(Answer, Answer)> {
         let entry = reduced.entry(ty.clone()).or_insert_with(|| {
             let less = DiffCase {
@@ -202,7 +280,7 @@ pub fn run(spicedb: &SpiceDb, token: &str, case: &DiffCase) -> Result<Outcome, S
                 ..case.clone()
             };
             let token = format!("{token}-no-{}", ty.as_str().replace('/', "_"));
-            let engine = pemba_engine(&less).ok()?;
+            let engine = pemba_engine(&less, open().ok()?).ok()?;
             spicedb.write_schema(&token, &less.schema).ok()?;
             spicedb.write_tuples(&token, &less.tuples).ok()?;
             Some((engine, token))
@@ -254,10 +332,10 @@ pub fn run(spicedb: &SpiceDb, token: &str, case: &DiffCase) -> Result<Outcome, S
     Ok(outcome)
 }
 
-/// pemba's engine over the memory store with `case`'s schema and tuples.
-fn pemba_engine(case: &DiffCase) -> Result<Engine<MemoryStore>, String> {
+/// pemba's engine over `store` with `case`'s schema and tuples.
+fn pemba_engine<S: WritableStore>(case: &DiffCase, store: S) -> Result<Engine<S>, String> {
     let engine = Engine::builder()
-        .store(MemoryStore::new())
+        .store(store)
         .config(EngineConfig::default())
         .build()
         .map_err(|e| e.to_string())?;
@@ -440,7 +518,7 @@ fn spread<T>(items: Vec<T>, n: usize) -> Vec<T> {
         .collect()
 }
 
-fn ask_pemba(engine: &Engine<MemoryStore>, q: &Question) -> Answer {
+fn ask_pemba<S: WritableStore>(engine: &Engine<S>, q: &Question) -> Answer {
     match q {
         Question::Check(resource, permission, subject) => match engine.check(CheckRequest {
             resource: resource.clone(),

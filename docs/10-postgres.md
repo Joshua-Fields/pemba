@@ -1186,10 +1186,17 @@ server and drop their schema on success.
      than a false difference.
    - Properties 1–4 and 7 (engine vs reference) gain a Postgres store variant in
      `proptest.yml`, with fewer cases (`PROPTEST_CASES`) because of round-trip cost.
+     **As built (T5.11):** `PEMBA_PROPTEST_STORE=postgres` (with `PEMBA_PG_URL`) makes
+     each of them also run every case on a Postgres store in a fresh schema, beside the
+     memory and SQLite stores; `PROPTEST_CASES` is then the count exactly (the usual
+     floors of 1,000 are too slow). `proptest.yml`'s `postgres` job runs them on
+     Postgres 15 and 18 at 200 cases.
 3. **SpiceDB difftest.** `PEMBA_DIFFTEST_STORE=postgres` runs the pemba side on the
    Postgres store instead of the memory store. `difftest.yml` gains a matrix entry with the
    Postgres service. SpiceDB stays on `serve-testing`: its datastore does not affect the
-   semantics being compared.
+   semantics being compared. **As built (T5.11):** `difftest.yml` runs a `store` matrix
+   (`memory`, `postgres`); on Postgres each engine of a case (the KD-3 re-check engines
+   too) gets a fresh schema, dropped after the case.
 4. **Permanent concurrency test** (`pemba-store-postgres/tests/revision_order.rs`, a
    Rust port of the spike, `#[ignore]` + required in CI):
    - **Workload:**

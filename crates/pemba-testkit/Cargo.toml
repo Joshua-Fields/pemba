@@ -29,3 +29,5 @@ insta.workspace = true
 # Parses `CheckTrace::to_json` in the trace properties (already in the tree via
 # pemba-difftest; dev-only, the library crates stay serde-free).
 serde_json = "1.0.154"
+# The Postgres variant of properties 1–4 and 7 (T5.11, `PEMBA_PROPTEST_STORE=postgres`).
+pemba-store-postgres.workspace = true
