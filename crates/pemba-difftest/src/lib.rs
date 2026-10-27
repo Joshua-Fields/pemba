@@ -159,20 +159,24 @@ pub fn run(spicedb: &SpiceDb, token: &str, case: &DiffCase) -> Result<Outcome, S
     // SpiceDB's check behind KD-2 is nondeterministic: the same schema is sometimes
     // accepted. Probe a few throwaway datastores so a case it would refuse is never
     // compared by luck (and its KD-3 re-check never fails by luck).
+    // The real write can still be the one it refuses (every probe accepted by luck), so it
+    // is classified the same way rather than failing the case.
+    let refused = |e: String| match known::explain_setup(&e) {
+        Some(k) => Ok(Outcome {
+            not_compared: Some(k),
+            ..Outcome::default()
+        }),
+        None => Err(e),
+    };
     for probe in 0..SCHEMA_PROBES {
         let probe_token = format!("{token}-probe{probe}");
-        let written = spicedb.write_schema(&probe_token, &case.schema);
-        if let Err(e) = written {
-            return match known::explain_setup(&e) {
-                Some(k) => Ok(Outcome {
-                    not_compared: Some(k),
-                    ..Outcome::default()
-                }),
-                None => Err(e),
-            };
+        if let Err(e) = spicedb.write_schema(&probe_token, &case.schema) {
+            return refused(e);
         }
     }
-    spicedb.write_schema(token, &case.schema)?;
+    if let Err(e) = spicedb.write_schema(token, &case.schema) {
+        return refused(e);
+    }
     spicedb.write_tuples(token, &case.tuples)?;
 
     let questions = questions(&compiled, case);
