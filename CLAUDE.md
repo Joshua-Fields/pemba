@@ -129,3 +129,22 @@ and `self`, and reject it with `E_UNSUPPORTED_FEATURE` rather than a generic par
   `docs/02-data-model.md`. Do not invent synonyms.
 - Logging/tracing: `tracing` crate, spans on `check`, `lookup_*`, `write`. No `println!`.
 - Comments explain *why*, not *what*.
+
+
+---
+
+## 8. Context hygiene
+
+Context is finite; tool output is the main cost.
+
+- Run builds, tests and benches quietly with output to a file, then read only the tail or
+  grep for failures: `cargo test -q --workspace 2>&1 > target/test.log; tail -40 target/test.log`.
+  Same for clippy, pytest (`-q`) and cargo bench. Never print full logs into the conversation.
+- Read spec files by section: grep for the heading, then read that range. Don't read
+  OPEN_QUESTIONS.md or 05-storage.md whole.
+- Delegate self-contained heavy work to a subagent and keep only its summary: benchmark
+  A/B runs, difftest investigation, codebase-wide searches, external research.
+- Don't poll CI in a loop. Push, open the PR, report the PR link, and stop unless told
+  to wait. If you must wait, use one blocking `gh run watch --exit-status` and read only
+  the final status.
+- Summaries: lead with outcome and anything needing a human decision; at most ~25 lines.
