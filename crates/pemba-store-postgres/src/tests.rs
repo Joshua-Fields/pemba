@@ -23,8 +23,8 @@ use pemba_core::model::{
     WriteRequest,
 };
 use pemba_core::store::{
-    DeleteResult, ReadStore, RelationCount, ReverseFilter, SchemaCheck, StoreError, StoredSchema,
-    WritableStore,
+    DeleteResult, GcStats, ReadStore, RelationCount, ReverseFilter, SchemaCheck, StoreError,
+    StoredSchema, WritableStore,
 };
 use pemba_core::write::Applied;
 use pemba_testkit::store_conformance;
@@ -245,6 +245,11 @@ impl WritableStore for TestStore {
     fn gc_batch(&self, max_rows: usize) -> Result<u64, Error> {
         self.store.gc_batch(max_rows)
     }
+
+    /// The store's own `gc`, with the rebase and pruning, not the trait default.
+    fn gc(&self, keep_from: Revision) -> Result<GcStats, Error> {
+        self.store.gc(keep_from)
+    }
 }
 
 fn rel(s: &str) -> Relationship {
@@ -277,8 +282,13 @@ fn docs(s: &dyn ReadStore, rev: Revision) -> Vec<String> {
 
 /// The shared write algorithm inside the app's transaction `tx`; returns the batch.
 fn app_write(s: &TestStore, tx: &mut Transaction<'_>, req: &WriteRequest) -> u64 {
+    app_write_xid(s, tx, req).0
+}
+
+/// As [`app_write`], with the writing transaction's id.
+fn app_write_xid(s: &TestStore, tx: &mut Transaction<'_>, req: &WriteRequest) -> (u64, u64) {
     match pemba_core::write::write(&mut PgTxn::new(tx), &s.store.dialect, req, None).unwrap() {
-        Applied::Pending { batch, .. } => batch,
+        Applied::Pending { batch, xid } => (batch, xid),
         other => panic!("Postgres writes assign at commit, got {other:?}"),
     }
 }
@@ -663,6 +673,221 @@ fn schema_writes_and_checked_writes_serialise() {
         assert_eq!(stored.unwrap().version, 2);
         assert_eq!(counted, 1, "the checked write's tuple was counted");
     });
+}
+
+// ---- GC (docs/10-postgres.md §1.6.5) ----
+
+fn delete(rels: &[&str]) -> WriteRequest {
+    request(rels.iter().map(|r| WriteOp::Delete(rel(r))).collect())
+}
+
+/// What a read at `rev` returns: every `doc` tuple and the live counts.
+fn transcript(s: &dyn ReadStore, rev: Revision) -> (Vec<String>, String) {
+    (docs(s, rev), format!("{:?}", s.count_by_relation(rev)))
+}
+
+/// Transcripts at `revs` on the store (join form) and through a fresh snapshot each
+/// (head form at head).
+fn transcripts(
+    s: &TestStore,
+    revs: impl Iterator<Item = Revision> + Clone,
+) -> Vec<(Vec<String>, String)> {
+    let mut out: Vec<_> = revs.clone().map(|r| transcript(&s.store, r)).collect();
+    out.extend(revs.map(|r| transcript(&*s.store.snapshot().unwrap(), r)));
+    out
+}
+
+/// One GC step, run in its own transaction.
+type GcStep<'a> = &'a dyn Fn(&mut dyn pemba_core::store::WriteTxn) -> Result<u64, Error>;
+
+fn count(s: &TestStore, sql: &str) -> i64 {
+    s.app_client()
+        .query_one(&sql.replace("{s}", s.store.dialect.quoted_schema()), &[])
+        .unwrap()
+        .get(0)
+}
+
+/// GC rebases rows created at or below the horizon to batch 0, empties `pemba_pending`
+/// and prunes map rows below the horizon, and no answer at a readable revision changes.
+#[test]
+fn gc_rebases_rows_and_prunes_the_map() {
+    let Some(url) = pg_url() else { return };
+    let s = TestStore::new(&url, false);
+    let (a, b, c) = (
+        "doc:1#viewer@user:a",
+        "doc:1#viewer@user:b",
+        "doc:1#viewer@user:c",
+    );
+    let (dan, eve) = ("doc:2#viewer@user:dan", "doc:2#viewer@user:eve");
+    let r1 = s.write(&touch(&[a, b, c]), None).unwrap();
+    s.write(&delete(&[a]), None).unwrap();
+    let r3 = s.write(&touch(&[dan]), None).unwrap();
+    s.write(&delete(&[b]), None).unwrap();
+    let r5 = s.write(&touch(&[eve]), None).unwrap();
+    assert_eq!((r1, r5), (Revision(1), Revision(5)));
+    let readable = (r3.0..=r5.0).map(Revision);
+    let before = transcripts(&s, readable.clone());
+
+    let stats = s.gc(r3).unwrap();
+    assert_eq!(stats.rows_removed, 1, "a, deleted at 2");
+    assert_eq!(transcripts(&s, readable), before);
+    assert_eq!(s.store.head_revision().unwrap(), r5);
+    assert!(matches!(
+        s.exists(r1, &rel(b)),
+        Err(StoreError::RevisionOutOfRange { .. })
+    ));
+    assert_eq!(
+        count(
+            &s,
+            "SELECT count(*) FROM {s}.pemba_relationships WHERE created_batch <> 0"
+        ),
+        1,
+        "only eve, created above the horizon, keeps its batch"
+    );
+    assert_eq!(count(&s, "SELECT count(*) FROM {s}.pemba_pending"), 0);
+    let revs: Vec<i64> = s
+        .app_client()
+        .query(
+            &format!(
+                "SELECT rev FROM {} ORDER BY rev",
+                s.table("pemba_revisions")
+            ),
+            &[],
+        )
+        .unwrap()
+        .iter()
+        .map(|r| r.get(0))
+        .collect();
+    assert_eq!(revs, [0, 3, 4, 5], "below the horizon only batch 0 is left");
+
+    // A second GC at the same horizon finds nothing, and writes go on as before.
+    assert_eq!(s.gc(r3).unwrap().rows_removed, 0);
+    let r6 = s.write(&delete(&[dan]), None).unwrap();
+    assert_eq!(docs(&s.store, r6), [c, eve]);
+    assert_eq!(docs(&s.store, r5), [c, dan, eve]);
+}
+
+/// Found by the equivalence test: map pruning must keep the batch a schema version was
+/// written in, or `current_schema` can no longer give its revision.
+#[test]
+fn gc_keeps_the_batch_of_every_schema_version() {
+    let Some(url) = pg_url() else { return };
+    let s = TestStore::new(&url, false);
+    let v1 = s.write_schema("schema one", "h1", &|_| Ok(())).unwrap();
+    s.write(&touch(&["doc:1#viewer@user:a"]), None).unwrap();
+    let r3 = s.write(&touch(&["doc:1#viewer@user:b"]), None).unwrap();
+    s.gc(r3).unwrap();
+    assert_eq!(s.store.current_schema().unwrap(), Some(v1.clone()));
+    assert_eq!(
+        s.store.snapshot().unwrap().current_schema().unwrap(),
+        Some(v1)
+    );
+}
+
+/// §1.6.5 "readers mid-GC stay correct": a snapshot taken before GC reads its old
+/// revision in full while GC runs one row at a time through every step; a fresh read
+/// below the horizon fails, and above it nothing changes between steps.
+#[test]
+fn a_snapshot_from_before_gc_reads_its_revision_in_full() {
+    let Some(url) = pg_url() else { return };
+    let s = TestStore::new(&url, false);
+    let (a, b, c) = (
+        "doc:1#viewer@user:a",
+        "doc:1#viewer@user:b",
+        "doc:1#viewer@user:c",
+    );
+    let r1 = s.write(&touch(&[a, b]), None).unwrap();
+    s.write(&delete(&[a]), None).unwrap();
+    let r3 = s.write(&touch(&[c]), None).unwrap();
+    let old = s.store.snapshot().unwrap();
+    let old_view = transcript(&*old, r1);
+    assert_eq!(old_view.0, [a, b]);
+    let at_r3 = transcript(&s.store, r3);
+
+    s.store.raise_gc_horizon(r3).unwrap();
+    assert!(matches!(
+        s.store.snapshot().unwrap().exists(r1, &rel(b)),
+        Err(StoreError::RevisionOutOfRange { .. })
+    ));
+    let dialect = &s.store.dialect;
+    let steps: [GcStep<'_>; 4] = [
+        &|t| pemba_core::write::gc_batch(t, dialect, 1),
+        &|t| pemba_core::write::compact_batch(t, dialect, 1),
+        &|t| pemba_core::write::prune_pending_batch(t, dialect, 1),
+        &|t| pemba_core::write::prune_map_batch(t, dialect, 1),
+    ];
+    let mut done = 0;
+    for step in steps {
+        while s.store.unversioned(step).unwrap() > 0 {
+            done += 1;
+            assert_eq!(transcript(&*old, r1), old_view, "after {done} GC batches");
+            assert_eq!(transcript(&*s.store.snapshot().unwrap(), r3), at_r3);
+            assert_eq!(transcript(&s.store, r3), at_r3);
+        }
+    }
+    assert!(done >= 4, "every step did something: {done}");
+}
+
+/// §1.6.3: GC at a skipped revision, then at the next committed one.
+#[test]
+fn gc_at_a_skipped_revision() {
+    let Some(url) = pg_url() else { return };
+    let s = TestStore::new(&url, false);
+    let (a, b, c) = (
+        "doc:1#viewer@user:a",
+        "doc:1#viewer@user:b",
+        "doc:1#viewer@user:c",
+    );
+    let r1 = s.write(&touch(&[a]), None).unwrap();
+    let mut app = s.app_client();
+    let mut tx = app.transaction().unwrap();
+    app_write(&s, &mut tx, &touch(&[b]));
+    tx.batch_execute("SET CONSTRAINTS ALL IMMEDIATE").unwrap();
+    tx.rollback().unwrap();
+    let gap = Revision(r1.0 + 1);
+    let r3 = s.write(&delete(&[a]), None).unwrap();
+    let r4 = s.write(&touch(&[c]), None).unwrap();
+    assert_eq!(r3, Revision(gap.0 + 1));
+    let readable = (gap.0..=r4.0).map(Revision);
+    let before = transcripts(&s, readable.clone());
+    assert_eq!(before[0].0, [a], "the gap reads as revision 1");
+
+    let stats = s.gc(gap).unwrap();
+    assert_eq!(stats.rows_removed, 0, "a was deleted above the gap");
+    assert_eq!(transcripts(&s, readable), before);
+    assert!(matches!(
+        s.exists(r1, &rel(a)),
+        Err(StoreError::RevisionOutOfRange { .. })
+    ));
+
+    let readable = (r3.0..=r4.0).map(Revision);
+    let before = transcripts(&s, readable.clone());
+    assert_eq!(s.gc(r3).unwrap().rows_removed, 1);
+    assert_eq!(transcripts(&s, readable), before);
+}
+
+/// OQ-053: once GC may have pruned a batch from the map, resolving it cannot claim
+/// "rolled back"; it fails like an expired revision, with a message about `keep_from`.
+#[test]
+fn resolving_a_batch_gc_pruned_fails_closed() {
+    let Some(url) = pg_url() else { return };
+    let s = TestStore::new(&url, false);
+    let mut app = s.app_client();
+    let mut tx = app.transaction().unwrap();
+    let (batch, xid) = app_write_xid(&s, &mut tx, &touch(&["doc:1#viewer@user:a"]));
+    tx.commit().unwrap();
+    s.write(&touch(&["doc:1#viewer@user:b"]), None).unwrap();
+    let r3 = s.write(&touch(&["doc:1#viewer@user:c"]), None).unwrap();
+    assert_eq!(s.store.resolve_batch(batch, xid).unwrap(), Revision(1));
+
+    s.gc(r3).unwrap();
+    let err = s.store.resolve_batch(batch, xid).unwrap_err();
+    assert!(
+        matches!(err, Error::PendingRevisionExpired { horizon } if horizon == r3),
+        "{err:?}"
+    );
+    assert_eq!(err.code(), "REVISION_EXPIRED");
+    assert!(err.to_string().contains("keep_from"), "{err}");
 }
 
 // ---- SQLSTATE mapping ----

@@ -720,6 +720,35 @@ engine.check("document:readme", "view", "user:anne", at_least=pending)
   tuples. Long foreign transactions still hold back vacuum's xmin, a general Postgres
   effect.
 
+**Decision (T5.7): rebase.** Measured by `tests/gc_measure.rs` (100,000 one-tuple write
+calls, Postgres 18, local, release build):
+
+| | Keep the map | Rebase |
+|---|---|---|
+| Map size | 114 bytes per write call (indexes included; the estimate above was 50), forever | the rows since the last GC: 1,002 left of 100,001 |
+| GC cost | none | 1.37 s to rebase 99,000 rows and prune the map (each step in 10,000-row transactions, off the commit path) |
+| Paging 500 tuples at `Exact(head − 1)`, p50 | 87 ms | 69 ms (−20%) |
+| Paging at head (no join), p50 | 9 ms | 9 ms |
+
+So the rebase bounds the map, makes reads below head cheaper, and costs a few seconds per
+million writes at GC time. As built:
+- `PostgresStore::gc` runs, each step in batches of 10,000 rows, each batch its own READ
+  COMMITTED transaction: raise the horizon; delete rows deleted at or below it; rebase
+  rows created at or below it (`created_batch = 0`); prune `pemba_pending` rows whose
+  batch is mapped; prune map rows below the horizon that no row **and no schema
+  version** references. Schema rows keep their batch, so `StoredSchema::created_rev`
+  stays exact (found by the store-equivalence test). `GcStats` counts the delete step
+  only, as on SQLite.
+- The AC reads "measure, then pick one" and also "GC compacts batch ids … and prunes the
+  map"; the measurements above support the second.
+- Resolving a `PendingRevision` whose batch GC has pruned cannot tell "committed, then
+  pruned" from "rolled back to a savepoint": it fails with
+  `Error::PendingRevisionExpired { horizon }`, code `REVISION_EXPIRED` (the same contract;
+  Python `ConsistencyError`), whose message says to resolve before `gc` with a
+  `keep_from` above the write (OQ-053, decided).
+- Reads below head cost about 9× a head read here (87 ms vs 9 ms for 500 tuples), more
+  than the spike's +34%: OQ-054, for T5.12's benchmarks.
+
 #### 1.6.6 Interactions to document
 
 | Situation | Behaviour |
@@ -1032,8 +1061,10 @@ Notes on the column choices:
   - `pemba_rel_deleted`: on `(deleted_batch) WHERE deleted_batch IS NOT NULL`, for GC.
 - **The map** is indexed by its primary key `batch_id` (for the joins) and by
   `UNIQUE (rev)` (for head and range checks).
-- **Optional:** `pemba_rel_created ON (created_batch)`, only if T5.7 chooses the GC
-  rebase.
+- `pemba_rel_created ON (created_batch) WHERE created_batch <> 0` (T5.7, which chose
+  the rebase, §1.6.5): for the rebase and map pruning. Rebased rows leave it, so it
+  holds only rows created since the last GC. Added to migration v1, which no release
+  has shipped.
 - **No index on the visibility columns alone.** Reads go through `pemba_rel_fwd` and
   `pemba_rel_rev`, as on SQLite.
 

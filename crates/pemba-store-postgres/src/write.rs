@@ -12,14 +12,14 @@ use std::time::Duration;
 use pemba_core::Error;
 use pemba_core::model::{RelationshipFilter, Revision, WriteRequest};
 use pemba_core::store::{
-    DeleteResult, SchemaCheck, SqlDialect, SqlStore, SqlValue, StoreError, StoredSchema,
-    WritableStore, WriteTxn,
+    DeleteResult, GC_BATCH_ROWS, GcStats, ReadStore, SchemaCheck, SqlDialect, SqlStore, SqlValue,
+    StoreError, StoredSchema, WritableStore, WriteTxn,
 };
 use pemba_core::write::{self as shared, Applied};
 use postgres::{Client, IsolationLevel};
 
 use crate::txn::PgTxn;
-use crate::{IDENTITY_SQL, PostgresStore, store_err};
+use crate::{IDENTITY_SQL, PostgresDialect, PostgresStore, store_err};
 
 fn db(e: &postgres::Error) -> Error {
     Error::Store(store_err(e))
@@ -114,9 +114,25 @@ impl PostgresStore {
         Ok(Some(rev))
     }
 
+    /// Runs the GC step `step` in batches of [`GC_BATCH_ROWS`], each its own transaction,
+    /// until one does nothing; returns the total.
+    fn drain(
+        &self,
+        step: impl Fn(&mut dyn WriteTxn, &PostgresDialect, usize) -> Result<u64, Error>,
+    ) -> Result<u64, Error> {
+        let mut total = 0;
+        loop {
+            let n = self.unversioned(|txn| step(txn, &self.dialect, GC_BATCH_ROWS))?;
+            total += n;
+            if n == 0 {
+                return Ok(total);
+            }
+        }
+    }
+
     /// Runs `f` in its own committed transaction, for the GC steps, which commit no
     /// revision.
-    fn unversioned<T>(
+    pub(crate) fn unversioned<T>(
         &self,
         f: impl FnOnce(&mut dyn WriteTxn) -> Result<T, Error>,
     ) -> Result<T, Error> {
@@ -170,9 +186,43 @@ impl WritableStore for PostgresStore {
     }
 
     /// Removes tuples whose delete batch maps to a revision at or below the stored
-    /// horizon. Pruning `pemba_pending` and the batch map is T5.7.
+    /// horizon.
     fn gc_batch(&self, max_rows: usize) -> Result<u64, Error> {
         self.unversioned(|txn| shared::gc_batch(txn, &self.dialect, max_rows))
+    }
+
+    /// `docs/10-postgres.md` §1.6.5: the horizon first, then deletes, as on every store;
+    /// then the rebase of rows created at or below the horizon to batch 0, the pruning of
+    /// `pemba_pending` and of the batch map below the horizon. Each batch of each step is
+    /// its own READ COMMITTED transaction of at most [`GC_BATCH_ROWS`] rows, outside any
+    /// app transaction. [`GcStats`] counts the delete step only, as on SQLite.
+    fn gc(&self, keep_from: Revision) -> Result<GcStats, Error> {
+        let horizon = self.raise_gc_horizon(keep_from)?;
+        let mut stats = GcStats {
+            rows_removed: 0,
+            horizon,
+            batches: 0,
+        };
+        loop {
+            let n = self.gc_batch(GC_BATCH_ROWS)?;
+            stats.rows_removed += n;
+            stats.batches += 1;
+            if n == 0 {
+                break;
+            }
+        }
+        let rebased = self.drain(|t, d, n| shared::compact_batch(t, d, n))?;
+        let pending = self.drain(|t, d, n| shared::prune_pending_batch(t, d, n))?;
+        let mapped = self.drain(|t, d, n| shared::prune_map_batch(t, d, n))?;
+        tracing::info!(
+            horizon = horizon.0,
+            rows_removed = stats.rows_removed,
+            rebased,
+            pending,
+            mapped,
+            "gc compacted batch ids and pruned the batch map"
+        );
+        Ok(stats)
     }
 
     /// `docs/10-postgres.md` §1.6.4: the batch map first; if the batch is not there,
@@ -203,8 +253,15 @@ impl WritableStore for PostgresStore {
                         return Ok(rev);
                     }
                 }
-                // Committed without the batch: the write was rolled back to a savepoint.
-                Err(Error::WriteRolledBack)
+                // Committed without the batch: rolled back to a savepoint, or, once GC has
+                // run, possibly pruned from the map below the horizon (OQ-053). Only the
+                // first can be claimed without GC.
+                let horizon = self.gc_horizon()?;
+                if horizon == Revision(0) {
+                    Err(Error::WriteRolledBack)
+                } else {
+                    Err(Error::PendingRevisionExpired { horizon })
+                }
             }
             // "aborted", or NULL: too old to know, so certainly not pending, and a
             // committed batch would still be in the map.
