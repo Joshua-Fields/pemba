@@ -152,7 +152,10 @@ fn explain_renders_the_trace_without_colour() {
 /// README runs it against a database; the fixture holds the same data).
 #[test]
 fn readme_explain_example_is_current() {
-    let readme = std::fs::read_to_string(root().join("README.md")).unwrap();
+    // A Windows checkout may have CRLF line endings.
+    let readme = std::fs::read_to_string(root().join("README.md"))
+        .unwrap()
+        .replace("\r\n", "\n");
     let command = "$ pemba check 'document:d#view@user:mallory' --db app.db --explain\n";
     let start = readme.find(command).expect("the README example") + command.len();
     let end = start + readme[start..].find("```").unwrap();
