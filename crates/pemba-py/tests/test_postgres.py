@@ -206,7 +206,7 @@ class SaConnection(Driver):
 def django_setup() -> Any:
     """Configures Django once per process for the server in ``PEMBA_PG_URL``."""
     django = pytest.importorskip("django")
-    from django.conf import settings  # type: ignore[import-untyped]
+    from django.conf import settings
 
     if not settings.configured:
         u = urlsplit(URL)
@@ -224,7 +224,7 @@ def django_setup() -> Any:
             USE_TZ=True,
         )
         django.setup()
-    from django.db import connection, transaction  # type: ignore[import-untyped]
+    from django.db import connection, transaction
 
     return connection, transaction
 

@@ -108,6 +108,9 @@ cargo doc --workspace --no-deps                       # no broken intra-doc link
 cd crates/pemba-py && maturin develop && pytest -q && mypy --strict tests
 ```
 
+Run the Python check in a venv with only the test tools listed above; extra packages in a
+shared venv hide CI failures.
+
 While iterating, run only what you touched: `cargo test -q -p <crate>` and
 `cargo clippy -p <crate> --all-targets`, plus the tests of crates that depend on it
 when the change is to a public API (pemba-core → pemba, pemba-testkit, pemba-py).

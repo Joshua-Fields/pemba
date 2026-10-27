@@ -53,3 +53,11 @@ testpaths = ["tests"]
 
 [tool.mypy]
 strict = true
+
+# tests/test_postgres.py imports Django, which ships no type information and is installed
+# only where the Postgres tests run. An override (not inline ignores) passes both with and
+# without it: an inline `import-untyped` ignore becomes `import-not-found` plus
+# `unused-ignore` where Django is absent.
+[[tool.mypy.overrides]]
+module = ["django", "django.*"]
+ignore_missing_imports = true
