@@ -310,7 +310,7 @@ AC (release gate — human signs off):
 1. `check_with_trace` (`04` §3.8) + `pemba check --explain` (T4.1).
 2. FastAPI helper (`06` §2.4).
 3. Batched arrow reads (`04` §4).
-4. Postgres store (requires resolving ADR-003/ADR-005 open questions).
+4. Postgres store: now milestone M5 (OQ-002, OQ-003 and OQ-045 resolved).
 5. Node bindings (napi-rs), WASM build.
 
 ---
@@ -348,3 +348,130 @@ AC:
   `.render()` (the `--explain` text without colour); stubs, docstrings, `mypy --strict`, and
   a test that `check_with_trace(..).allowed == check(..)` over every fixture.
 - README: a short "Debugging permissions" section with one rendered `--explain` example.
+
+---
+
+## M5 — Postgres store
+
+Design: `docs/10-postgres.md` (accepted 2026-10-27; OQ-002, OQ-003 and OQ-045 resolved).
+Each task ends green: the §5 checks of `CLAUDE.md`, plus the Postgres CI job once it exists.
+"First Postgres release" means the release that contains T5.0–T5.12.
+
+### T5.0 Accept the design (docs only)
+Refs: `10` §0.1, §1.6, §2; OQ-002, OQ-003, OQ-045.
+AC:
+- The maintainer records the OQ-002, OQ-003 and OQ-045 resolutions.
+- Add ADR-015 (Postgres revisions assigned at commit; `PendingRevision` on both stores).
+- Amend ADR-003 (sync; async adapters later), ADR-005 (consequences; skipped numbers)
+  and ADR-006 (Postgres drivers and placeholders).
+- Update `02` §4, `05` (§10, new §11), `06` (`PendingRevision`, `Engine.postgres`) and
+  README (`10` §1.6.3 wording, F5, the `SET CONSTRAINTS` warning, F13's "one write call,
+  one revision", and SERIALIZABLE retry-with-backoff guidance).
+- CHANGELOG "Breaking" entry with the `10` §1.6.4 migration table.
+- Remove Postgres from `CLAUDE.md` §6.
+
+### T5.1 `PendingRevision` on SQLite (the breaking change, shipped first)
+Refs: `10` §1.6.4; `06` §1, §2.1, §2.2; OQ-045.
+AC:
+- Core `PendingRevision` and `Engine::resolve`.
+- `write_in` and Python `write(conn=)` return it; `at_least=` accepts it.
+- The deprecated `__int__` / `__index__`, plus `.pyi`, docs and examples.
+- Done when the whole workspace and pytest are green with no Postgres code.
+
+### T5.2 Core: revision strategy in `pemba-core::write`
+Refs: `10` §1.6.1.
+AC:
+- `SqlDialect::revision_strategy()` is `AllocateNow` (SQLite) or `AssignAtCommit`.
+- Dialect-driven placeholder style; `RETURNING ctid` through `WriteTxn::query`.
+- SQLite behaviour unchanged; done when green.
+
+### T5.3 `pemba-store-postgres` skeleton and migrations
+Refs: `10` §2.1, §3.
+AC:
+- Crate, config, pool, rustls TLS feature.
+- Migration v1: tables, sequences, the batch-map trigger (one INSERT plus early-firing
+  detection), and batch 0 → revision 0.
+- `migrate` / `open` / `NotMigrated` / `StorageVersionTooNew`, version and `UTF8`
+  checks, schema qualification.
+- Postgres CI job (service container, 15 and 18).
+- Tests: idempotent and concurrent `migrate`, non-default schema, hostile `search_path`,
+  and the `spawn_blocking` check.
+
+### T5.4 Reads
+Refs: `10` §1.6.2; `05` §6.
+AC:
+- `ReadStore`, head/horizon (head = highest committed), the REPEATABLE READ
+  `snapshot()`, and the `05` §6 queries in two forms: `deleted_batch IS NULL` at head,
+  and the map join below head (`10` §1.6.2).
+- `COLLATE "C"` ordering.
+- The conformance read cases pass.
+
+### T5.5 Native writes
+Refs: `10` §1.6.1, §1.6.7, §4.1.
+AC:
+- `write`, `write_schema` and `delete_matching` through the commit trigger, the
+  post-commit lookup, and SQLSTATE mapping.
+- The full conformance suite passes (the `10` §4.1 additions included).
+- Store equivalence memory ≡ SQLite ≡ Postgres.
+- Early-firing detection: the `early` column, the WARNING, and the warning from
+  `resolve()` (`tracing` in Rust, `PembaWarning` in Python) (`10` §1.6.7).
+
+### T5.6 Permanent revision-order concurrency test
+Refs: `10` §4.4, §1.6.8.
+AC:
+- The `10` §4.4 test at all three isolation levels, plus the `SET CONSTRAINTS`
+  variants, the commit-cost check and the negative control.
+- SERIALIZABLE with backoff: assert 0 transactions failing all retries (`10` §1.6.8).
+
+### T5.7 GC
+Refs: `10` §1.6.3, §1.6.5; `05` §8.
+AC:
+- Horizon first, then deletes through the map in ctid batches, and pruning of pending
+  rows.
+- Map pruning: measure the rebase against keeping the map, then pick one (`10` §1.6.5).
+- The mid-GC reader test, and GC at skipped numbers.
+- GC compacts batch ids into rows outside the app transaction and prunes the batch map.
+- Property test: GC + compaction never changes an answer.
+- Real-engine bench of `at_exactly` reads (lookup paging) before and after compaction;
+  the design spike measured +34% at p50 for a 500-row lookup at an old revision using
+  SQL approximations only.
+
+### T5.8 Rust foreign mode
+Refs: `10` §1.6.4, §2.1.
+AC:
+- `PgTxn` over `postgres::Transaction`, `write_in` → `PendingRevision`, `resolve` with
+  `pg_xact_status`.
+- Same-database check, tested as an unprivileged role.
+
+### T5.9 Python native engine and sync foreign mode
+Refs: `10` §2.2, §2.3, §2.4.
+AC:
+- `Engine.postgres(...)` with the GIL released, and `.pyi`.
+- Adapters for psycopg 3, psycopg2, SQLAlchemy `Session` / `Connection`, and Django:
+  placeholders, error mapping, guard rails, `TypeError` for async connections.
+- Verify Django's `SET CONSTRAINTS` use and try the `run_sync` route (`10` §2.4).
+
+### T5.10 Wheels with Postgres support
+AC:
+- Wheels build with Postgres support (rustls, no OpenSSL).
+- A CI smoke test against the service container.
+
+### T5.11 Property tests and difftest on Postgres in CI
+AC:
+- `proptest.yml` and `difftest.yml` run a Postgres matrix entry.
+
+### T5.12 Benchmarks and documentation, then the first Postgres release
+Refs: `07` §7; `10` §0.1 (F12).
+AC:
+- Benchmarks: write throughput against SQLite, check latency, 1,000-tuple commit
+  cost, and the read cost below head through the map (F12), on the `07` §7 shapes.
+- README: a Postgres section, privileges, PgBouncer, autovacuum, 2PC, the
+  `SET CONSTRAINTS` warning, and SERIALIZABLE retry guidance.
+
+### T5.13 Async foreign mode (after the first Postgres release)
+Refs: `10` §2.4; OQ-003.
+AC:
+- `write_async` with the thread bridge (`10` §2.4) for psycopg `AsyncConnection`, asyncpg
+  and SQLAlchemy `AsyncSession`, and the `pemba.aio` read helpers.
+- Benchmark the per-statement hop, which decides whether the sans-IO follow-up is
+  needed.

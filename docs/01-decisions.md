@@ -28,7 +28,10 @@ CPU-bound graph walks over local storage.
 the GIL (`py.allow_threads`) around every engine call so Python threads run concurrently.
 An async facade can be added later (e.g. `spawn_blocking`) without changing the core.
 **Consequences.** A future async Postgres store must be wrapped behind a blocking adapter or
-use a sync driver (`postgres` crate). Revisit before Postgres work (logged as open question).
+use a sync driver (`postgres` crate). Resolved (OQ-002/OQ-003, 2026-10-27): the engine stays
+sync, Rust uses the sync `postgres` crate, the first Postgres release joins the app's sync
+transaction through psycopg 3, psycopg2, SQLAlchemy and Django adapters, and async adapters
+come later (T5.13). Design: `docs/10-postgres.md` §2.
 
 ## ADR-004 — Schema DSL is a strict subset of SpiceDB's
 
@@ -52,7 +55,10 @@ increasing in **commit order**. Tuples carry `created_rev` / `deleted_rev` (MVCC
 Reads take a `Consistency` and resolve it to a single revision before evaluating.
 **Consequences.** Read-after-write is easy (`AtLeast(rev_from_write)`). Historical reads up
 to the GC horizon are possible (`Exact(rev)`). Commit-order guarantee is trivial on SQLite
-(single writer) and needs care on Postgres (open question).
+(single writer). On Postgres it is resolved (OQ-002, 2026-10-27): the revision is assigned at
+commit by a deferred constraint trigger under an advisory lock, rows carry batch ids mapped to
+revisions, and numbers may be skipped. A foreign-mode write returns a `PendingRevision` on
+every store (OQ-045). Design: `docs/10-postgres.md` §1.
 
 ## ADR-006 — Transactional writes through the host's connection
 
@@ -153,3 +159,19 @@ differs, match SpiceDB and update this ADR). Everything else listed is rejected 
 pyo3 feature `abi3-py311`: 3.9 is end-of-life and 3.10 reaches it in October 2026; re-check
 the oldest supported CPython before each release) for Linux x86_64/aarch64
 (manylinux), macOS x86_64/arm64, Windows x86_64. Type stubs (`.pyi`) shipped.
+
+## ADR-015 — Postgres revisions assigned at commit; `PendingRevision` on every store
+
+**Context.** Postgres writers commit concurrently and in any order, so a revision drawn at
+write time breaks commit order unless every other writer is blocked or hidden while the
+writing transaction stays open (`docs/10-postgres.md` §1.1–1.2).
+**Decision.** (OQ-002) Each write call marks its rows with a batch id. A deferred
+constraint trigger draws the revision with `nextval()` under `pg_advisory_xact_lock` at
+commit and inserts batch → revision. Revisions stay `u64` in commit order; numbers may be
+skipped. (OQ-045) Foreign-mode writes (`Engine::write_in`, Python `write(conn=...)`) return
+`PendingRevision` on every store; it is resolved at return on SQLite and after commit on
+Postgres. There is no `assign_now`. Python's `int(pending)` works for one release with a
+`DeprecationWarning`, then is removed. (OQ-003) The engine stays sync (ADR-003).
+**Consequences.** Breaking change on the foreign-write path (T5.1). Reads below head on
+Postgres join the batch map. Full design, evidence and tasks: `docs/10-postgres.md`,
+milestone M5 in `docs/08-milestones.md`.

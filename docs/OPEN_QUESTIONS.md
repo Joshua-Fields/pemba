@@ -26,7 +26,11 @@ it is resolved.
 - Current choice: deferred; revisions must be strictly increasing in commit order, which is
   trivial on SQLite (single writer). Postgres store is out of scope until told otherwise
 - Resolve by: design work before the Postgres store
-- Resolution: (fill in)
+- Resolution: Resolved by the human, 2026-10-27: revisions are assigned at commit. A
+  deferred constraint trigger draws nextval() under pg_advisory_xact_lock; rows carry
+  a batch id, and the trigger inserts batch → revision (docs/10-postgres.md §1;
+  evidence on branch spike-pg-revisions, round 3). Revisions stay u64 in commit order;
+  gaps are allowed.
 
 ## OQ-003 — Async store story before Postgres
 - Raised in: T0.1 (`docs/01-decisions.md` ADR-003)
@@ -34,7 +38,9 @@ it is resolved.
 - Current choice: synchronous `Engine` and store traits; no async runtime in library crates.
   A future async Postgres store would sit behind a blocking adapter or use a sync driver
 - Resolve by: design work before the Postgres store
-- Resolution: (fill in)
+- Resolution: Resolved by the human, 2026-10-27: the engine stays sync (ADR-003). v1
+  supports psycopg 3, psycopg2, SQLAlchemy and Django sync connections; async adapters
+  are T5.13, after the first Postgres release.
 
 ## OQ-004 — `.all()` over zero related objects
 - Raised in: T0.1 (`docs/01-decisions.md` ADR-013)
@@ -1161,4 +1167,6 @@ it is resolved.
   would need a store check); `assign_now=True` (option (a) for that transaction); always
   assigning at write time (one long transaction stalls every relationship write).
 - Resolve by: maintainer
-- Resolution: (fill in)
+- Resolution: Resolved by the human, 2026-10-27: write(conn=...) / write_in return
+  PendingRevision on all stores; there is no assign_now. int(pending) works for one
+  release with a deprecation warning, then is removed.
