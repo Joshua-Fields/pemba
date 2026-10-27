@@ -558,10 +558,54 @@ pub trait WriteTxn {
     fn last_insert_id(&mut self) -> Result<i64, StoreError>;
 }
 
+/// How a SQL store numbers a write (ADR-015, `docs/10-postgres.md` §1.6.1).
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum RevisionStrategy {
+    /// The write inserts a `pemba_revisions` row whose id is the revision. Correct only
+    /// where one writer holds the write lock from that insert to commit (SQLite, `05` §5.1).
+    AllocateNow,
+    /// The write marks its rows with a batch id and queues a `pemba_pending` row; a commit
+    /// trigger maps the batch to the next revision, so revisions follow commit order with
+    /// concurrent writers (Postgres).
+    AssignAtCommit,
+}
+
+/// How a driver spells positional parameters.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum PlaceholderStyle {
+    /// `?`, bound in order: SQLite, Python `sqlite3` (qmark).
+    Question,
+    /// `$1`, `$2`, …: the Rust `postgres` crate, asyncpg.
+    Dollar,
+    /// `%s`, bound in order: psycopg, Django. Statement text must then contain no other
+    /// `%`, which the driver would read as a placeholder.
+    Format,
+}
+
+impl PlaceholderStyle {
+    /// The `n`th (1-based) placeholder in this style.
+    #[must_use]
+    pub fn placeholder(self, n: usize) -> String {
+        match self {
+            Self::Question => "?".to_owned(),
+            Self::Dollar => format!("${n}"),
+            Self::Format => "%s".to_owned(),
+        }
+    }
+}
+
 /// The SQL differences between databases that the shared statements depend on.
 pub trait SqlDialect: Send + Sync {
-    /// The `n`th (1-based) positional placeholder: `?` for SQLite, `$n` for Postgres.
-    fn placeholder(&self, n: usize) -> String;
+    /// How this dialect's driver spells parameters.
+    fn placeholder_style(&self) -> PlaceholderStyle;
+    /// The `n`th (1-based) positional placeholder, in [`placeholder_style`](Self::placeholder_style).
+    fn placeholder(&self, n: usize) -> String {
+        self.placeholder_style().placeholder(n)
+    }
+    /// How writes get their revision.
+    fn revision_strategy(&self) -> RevisionStrategy;
     /// A table name with the table prefix and optional schema applied.
     fn table(&self, name: &str) -> String;
     /// The column naming a physical row, for batched deletes and updates

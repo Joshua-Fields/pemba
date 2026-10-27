@@ -36,6 +36,7 @@ use pemba_core::store::{
     DeleteResult, ReadStore, SchemaCheck, SqlDialect, SqlStore, StoreError, StoredSchema,
     WritableStore, WriteTxn,
 };
+use pemba_core::write::Applied;
 use pemba_sqlite_common::{SqliteDialect, canonical_main_file};
 use rusqlite::{Connection, ErrorCode, OpenFlags, TransactionBehavior};
 
@@ -219,6 +220,7 @@ impl WritableStore for SqliteStore {
     fn write(&self, req: &WriteRequest, schema_version: Option<u64>) -> Result<Revision, Error> {
         let rev = self.with_write_txn(&mut |txn| {
             pemba_core::write::write(txn, &SqliteDialect, req, schema_version)
+                .and_then(Applied::into_revision)
         })?;
         self.cache.observe_head(rev);
         Ok(rev)
