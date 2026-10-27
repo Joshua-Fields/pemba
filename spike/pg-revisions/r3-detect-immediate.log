@@ -1,0 +1,1 @@
+{"at_commit": "COMMIT", "set_constraints_after_write": "SET CONSTRAINTS ALL IMMEDIATE", "set_constraints_before_write": "INSERT INTO batchmap.pending VALUES ($1)", "set_constraints_named": "SET CONSTRAINTS batchmap.assign_rev IMMEDIATE", "end_statement": "END"}

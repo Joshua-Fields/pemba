@@ -1,0 +1,88 @@
+[
+  {
+    "scheme": "committid",
+    "committed_txns": 8785,
+    "writes_per_s": 439.2,
+    "observations": 44377,
+    "violations": 0,
+    "head_regressions": 0,
+    "write_order_vs_commit_order_inversions": 17245,
+    "rev_order_vs_commit_order_inversions": 0,
+    "visibility_lag_ms": {
+      "p50": 0.4,
+      "p99": 1.5,
+      "max": 7.7
+    },
+    "writer_blocked_ms": {
+      "p50": 3.8,
+      "p99": 6.3,
+      "max": 33.1
+    },
+    "long_txns": 0,
+    "errors": {
+      "40001": 288,
+      "40001:commit:short:attempt1": 60,
+      "40001:write:short:attempt1": 3,
+      "40001:commit:short:attempt2": 45,
+      "40001:commit:short:attempt3": 178,
+      "40001:write:short:attempt3": 2
+    },
+    "dangling_provisional_rows": 0,
+    "retry": {
+      "txns_needing_retry": 54,
+      "max_attempts": 11,
+      "gave_up": 9
+    },
+    "config": {
+      "writers": 8,
+      "readers": 4,
+      "duration_s": 20.0,
+      "hold_ms": 30,
+      "long_every_s": null,
+      "long_s": 3,
+      "isolation": "SERIALIZABLE"
+    }
+  },
+  {
+    "scheme": "batchmap",
+    "committed_txns": 10680,
+    "writes_per_s": 534.0,
+    "observations": 44971,
+    "violations": 0,
+    "head_regressions": 0,
+    "write_order_vs_commit_order_inversions": 25229,
+    "rev_order_vs_commit_order_inversions": 0,
+    "visibility_lag_ms": {
+      "p50": 0.3,
+      "p99": 1.6,
+      "max": 4.8
+    },
+    "writer_blocked_ms": {
+      "p50": 3.6,
+      "p99": 6.2,
+      "max": 16.2
+    },
+    "long_txns": 0,
+    "errors": {
+      "40001": 198,
+      "40001:commit:short:attempt1": 61,
+      "40001:commit:short:attempt2": 38,
+      "40001:commit:short:attempt3": 99
+    },
+    "dangling_provisional_rows": 0,
+    "retry": {
+      "txns_needing_retry": 60,
+      "max_attempts": 11,
+      "gave_up": 1
+    },
+    "config": {
+      "writers": 8,
+      "readers": 4,
+      "duration_s": 20.0,
+      "hold_ms": 30,
+      "long_every_s": null,
+      "long_s": 3,
+      "isolation": "SERIALIZABLE"
+    }
+  }
+]

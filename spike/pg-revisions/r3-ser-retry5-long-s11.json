@@ -1,0 +1,86 @@
+[
+  {
+    "scheme": "batchmap",
+    "committed_txns": 22038,
+    "writes_per_s": 734.6,
+    "observations": 54146,
+    "violations": 0,
+    "head_regressions": 0,
+    "write_order_vs_commit_order_inversions": 76266,
+    "rev_order_vs_commit_order_inversions": 0,
+    "visibility_lag_ms": {
+      "p50": 0.4,
+      "p99": 1.8,
+      "max": 9.2
+    },
+    "writer_blocked_ms": {
+      "p50": 3.5,
+      "p99": 6.1,
+      "max": 14.2
+    },
+    "long_txns": 4,
+    "errors": {
+      "40001": 107,
+      "40001:commit:short:attempt1": 48,
+      "40001:commit:short:attempt2": 27,
+      "40001:commit:short:attempt3": 32
+    },
+    "dangling_provisional_rows": 0,
+    "retry": {
+      "txns_needing_retry": 42,
+      "max_attempts": 5,
+      "gave_up": 6
+    },
+    "config": {
+      "writers": 8,
+      "readers": 4,
+      "duration_s": 30.0,
+      "hold_ms": 30,
+      "long_every_s": 4.0,
+      "long_s": 3.0,
+      "isolation": "SERIALIZABLE"
+    }
+  },
+  {
+    "scheme": "watermark",
+    "committed_txns": 18415,
+    "writes_per_s": 613.8,
+    "observations": 22663,
+    "violations": 0,
+    "head_regressions": 0,
+    "write_order_vs_commit_order_inversions": 55279,
+    "rev_order_vs_commit_order_inversions": 55279,
+    "visibility_lag_ms": {
+      "p50": 18.9,
+      "p99": 2906.9,
+      "max": 2996.5
+    },
+    "writer_blocked_ms": {
+      "p50": 6.3,
+      "p99": 10.2,
+      "max": 15.2
+    },
+    "long_txns": 4,
+    "errors": {
+      "40001": 116,
+      "40001:commit:short:attempt1": 46,
+      "40001:commit:short:attempt2": 28,
+      "40001:commit:short:attempt3": 42
+    },
+    "dangling_provisional_rows": 0,
+    "retry": {
+      "txns_needing_retry": 41,
+      "max_attempts": 6,
+      "gave_up": 5
+    },
+    "config": {
+      "writers": 8,
+      "readers": 4,
+      "duration_s": 30.0,
+      "hold_ms": 30,
+      "long_every_s": 4.0,
+      "long_s": 3.0,
+      "isolation": "SERIALIZABLE"
+    }
+  }
+]

@@ -12,6 +12,7 @@ Scheme: committid (spike.py). Throwaway; prints one JSON object per check.
 from __future__ import annotations
 
 import json
+import sys
 import statistics
 import threading
 import time
@@ -19,9 +20,10 @@ import time
 import psycopg
 
 import spike
-from spike import DSN, FINGERPRINT, Reader, ddl, resolve_committed, write
+from spike import DSN, Reader, ddl, fp_sql, resolve_committed, write
 
-S = "committid"
+# Scheme under test: `python review_checks.py [committid|batchmap]` (round 3 added batchmap).
+S = sys.argv[1] if len(sys.argv) > 1 else "committid"
 
 
 def fresh(scheme: str = S) -> None:
@@ -31,7 +33,7 @@ def fresh(scheme: str = S) -> None:
 
 def fp(conn, r, scheme=S):
     with conn.transaction():
-        return tuple(conn.execute(FINGERPRINT.format(s=scheme), {"r": r}).fetchone())
+        return tuple(conn.execute(fp_sql(scheme), {"r": r}).fetchone())
 
 
 def immediate(position: str) -> dict:
@@ -116,7 +118,10 @@ def skipped() -> dict:
     out["exact_3_equals_exact_1"] = fps[3] == fps[1]
     # GC with keep_from = a skipped number: nothing a readable revision needs may go.
     for keep_from in (3, 4):
-        n = c.execute(f"DELETE FROM {S}.rels WHERE deleted_rev > 0 AND deleted_rev <= %s", (keep_from,)).rowcount
+        gc = (f"DELETE FROM {S}.rels WHERE deleted_rev > 0 AND deleted_rev <= %s" if S != "batchmap" else
+              "DELETE FROM batchmap.rels r USING batchmap.revisions d"
+              " WHERE d.batch_id = r.deleted_batch AND d.rev <= %s")
+        n = c.execute(gc, (keep_from,)).rowcount
         c.commit()
         out[f"gc_keep_from_{keep_from}"] = {
             "rows_removed": n,
@@ -131,7 +136,7 @@ def bulk(n_rows: int = 1000, reps: int = 10) -> dict:
     """Trigger firings per transaction, and commit cost of n-row creates and deletes,
     committid vs counter (revision allocated at write time, no rewrite at commit)."""
     out: dict = {"rows": n_rows, "reps": reps}
-    for scheme in ("counter", "committid"):
+    for scheme in ("counter", "committid", "batchmap"):
         fresh(scheme)
         c = psycopg.connect(DSN)
         c.execute("SET track_functions = 'pl'"); c.commit()
@@ -150,7 +155,7 @@ def bulk(n_rows: int = 1000, reps: int = 10) -> dict:
         r = {k: round(statistics.median(v), 2) for k, v in times.items()}
         r["revisions"] = c.execute(f"SELECT count(*) FROM {scheme}.revisions").fetchone()[0]
         c.commit()
-        if scheme == "committid":
+        if scheme in ("committid", "batchmap"):
             c.execute("SELECT pg_stat_force_next_flush()"); c.commit()
             time.sleep(0.5)
             with psycopg.connect(DSN, autocommit=True) as o:
@@ -158,7 +163,7 @@ def bulk(n_rows: int = 1000, reps: int = 10) -> dict:
                 r["trigger_calls"] = o.execute(
                     "SELECT calls FROM pg_stat_user_functions WHERE schemaname = %s AND funcname = 'assign_rev'",
                     (scheme,)).fetchone()[0]
-            r["provisional_left"] = c.execute(
+            r["provisional_left"] = 0 if scheme == "batchmap" else c.execute(
                 f"SELECT count(*) FROM {scheme}.rels WHERE created_rev < 0 OR deleted_rev < 0").fetchone()[0]
             # Two write calls in one transaction: two firings, two revisions.
             c.execute("SELECT 1")

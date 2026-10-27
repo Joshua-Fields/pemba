@@ -23,7 +23,8 @@ python spike.py --writers 16 --hold-ms 0 --long-every 0    # throughput, no hold
 | `counter` | `nextval` at write | store-wide advisory xact lock held from write to commit (option a) |
 | `watermark` | `nextval` at write | per-revision advisory xact lock; head = below oldest in-flight (option b) |
 | `committime` | at COMMIT | deferred constraint trigger takes a store-wide lock, `nextval`, rewrites rows by predicate |
-| `committid` | at COMMIT | as `committime`, but rewrites the writer's recorded ctids, predicate fallback (option d, recommended) |
+| `committid` | at COMMIT | as `committime`, but rewrites the writer's recorded ctids, predicate fallback (round-2 recommendation; hypothesis A alone) |
+| `batchmap` | at COMMIT | hypothesis A+B: rows carry batch ids, no rewrite; the trigger only inserts `batch_id -> rev` (round-3 recommendation) |
 
 ## What the harness checks
 
@@ -61,3 +62,18 @@ Results: `results-*.json`, `runs*.log`, `review_checks.log`, `ssi_probe.log`; su
 `docs/10-postgres.md` §1.5 and §1.5.1.
 Environment: Postgres 17.11 in Docker Desktop on Windows 11, Python 3.12, psycopg 3.3.6.
 Absolute numbers are machine-specific; compare schemes against each other.
+
+## Round 3 (SERIALIZABLE give-ups, `docs/10-postgres.md` §1.5.2)
+
+- `spike.py` now resolves a commit-time revision on a separate autocommit connection, as
+  the design does; `--resolve-on-writer` restores the rounds 1-2 behaviour (a new
+  SERIALIZABLE transaction on the writer's connection), which inflated 40001 rates.
+- `batchmap`: rows store `created_batch` / `deleted_batch`; reads at head use
+  `deleted_batch IS NULL` (no join), reads at an older revision join the batch map.
+- `bench_reads.py`: read-path cost, revision columns vs batch map, emulating the store
+  reads of each `docs/07-testing.md` §7 bench shape (the Rust benches cannot run on
+  Postgres yet).
+- `detect_immediate.py`: `current_query()` inside the trigger tells COMMIT from
+  SET CONSTRAINTS ... IMMEDIATE.
+- `summarize.py`: one line per scheme for results files.
+- Results: `r3-*.json`, `r3-*.log`, `runs7-9.log`.

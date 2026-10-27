@@ -1,0 +1,88 @@
+[
+  {
+    "scheme": "batchmap",
+    "committed_txns": 20848,
+    "writes_per_s": 694.9,
+    "observations": 56344,
+    "violations": 0,
+    "head_regressions": 0,
+    "write_order_vs_commit_order_inversions": 59686,
+    "rev_order_vs_commit_order_inversions": 0,
+    "visibility_lag_ms": {
+      "p50": 0.4,
+      "p99": 1.8,
+      "max": 5.7
+    },
+    "writer_blocked_ms": {
+      "p50": 3.3,
+      "p99": 5.5,
+      "max": 13.2
+    },
+    "long_txns": 0,
+    "errors": {
+      "40001": 58,
+      "40001:commit:short:attempt1": 32,
+      "40001:commit:short:attempt2": 12,
+      "40001:commit:short:attempt3": 14
+    },
+    "dangling_provisional_rows": 0,
+    "retry": {
+      "txns_needing_retry": 32,
+      "max_attempts": 7,
+      "gave_up": 0
+    },
+    "config": {
+      "writers": 8,
+      "readers": 4,
+      "duration_s": 30.0,
+      "hold_ms": 30,
+      "long_every_s": null,
+      "long_s": 3,
+      "isolation": "SERIALIZABLE"
+    }
+  },
+  {
+    "scheme": "committid",
+    "committed_txns": 19656,
+    "writes_per_s": 655.2,
+    "observations": 56314,
+    "violations": 0,
+    "head_regressions": 0,
+    "write_order_vs_commit_order_inversions": 54137,
+    "rev_order_vs_commit_order_inversions": 0,
+    "visibility_lag_ms": {
+      "p50": 0.4,
+      "p99": 2.0,
+      "max": 7.0
+    },
+    "writer_blocked_ms": {
+      "p50": 3.4,
+      "p99": 5.5,
+      "max": 10.8
+    },
+    "long_txns": 0,
+    "errors": {
+      "40001": 168,
+      "40001:write:short:attempt1": 5,
+      "40001:commit:short:attempt1": 51,
+      "40001:commit:short:attempt2": 36,
+      "40001:write:short:attempt3": 5,
+      "40001:commit:short:attempt3": 71
+    },
+    "dangling_provisional_rows": 0,
+    "retry": {
+      "txns_needing_retry": 56,
+      "max_attempts": 10,
+      "gave_up": 0
+    },
+    "config": {
+      "writers": 8,
+      "readers": 4,
+      "duration_s": 30.0,
+      "hold_ms": 30,
+      "long_every_s": null,
+      "long_s": 3,
+      "isolation": "SERIALIZABLE"
+    }
+  }
+]

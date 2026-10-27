@@ -1,0 +1,35 @@
+[
+  {
+    "scheme": "batchmap",
+    "committed_txns": 7673,
+    "writes_per_s": 767.3,
+    "observations": 23496,
+    "violations": 0,
+    "head_regressions": 0,
+    "write_order_vs_commit_order_inversions": 27146,
+    "rev_order_vs_commit_order_inversions": 0,
+    "visibility_lag_ms": {
+      "p50": 0.3,
+      "p99": 1.3,
+      "max": 2.2
+    },
+    "writer_blocked_ms": {
+      "p50": 3.4,
+      "p99": 5.5,
+      "max": 7.6
+    },
+    "long_txns": 2,
+    "errors": {},
+    "dangling_provisional_rows": 0,
+    "retry": null,
+    "config": {
+      "writers": 8,
+      "readers": 4,
+      "duration_s": 10.0,
+      "hold_ms": 30,
+      "long_every_s": 4.0,
+      "long_s": 3.0,
+      "isolation": "REPEATABLE_READ"
+    }
+  }
+]

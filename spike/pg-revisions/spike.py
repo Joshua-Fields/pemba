@@ -41,11 +41,49 @@ RETRY = 0
 BACKOFF = False   # exponential backoff with full jitter between retries (10 ms * 2^n, cap 1 s)
 
 NS = {"counter": 70001, "watermark_alloc": 70002, "watermark_rev": 70003, "committime": 70004,
-      "committid": 70005}
+      "committid": 70005, "batchmap": 70006}
+
+# Round 3: resolve PendingRevision on a separate autocommit (READ COMMITTED) connection, as
+# the design does (an engine connection), instead of in a new transaction on the writer's
+# connection. --resolve-on-writer restores the rounds 1-2 behaviour for comparison.
+RESOLVE_ON_WRITER = False
+_side = threading.local()
 
 
 def ddl(scheme: str) -> str:
     s = scheme
+    if scheme == "batchmap":
+        # Hypothesis B: no commit-time row rewrite. Rows carry the batch id written during
+        # the write; the commit trigger only maps batch -> revision (one INSERT). Reads at
+        # R < head resolve through the map; reads at head need no join (see fp_sql).
+        return f"""
+    DROP SCHEMA IF EXISTS {s} CASCADE;
+    CREATE SCHEMA {s};
+    CREATE SEQUENCE {s}.rev_seq;
+    CREATE SEQUENCE {s}.batch_seq;
+    CREATE TABLE {s}.revisions (
+        batch_id     bigint PRIMARY KEY,
+        rev          bigint NOT NULL UNIQUE,
+        committed_at timestamptz NOT NULL DEFAULT clock_timestamp()
+    );
+    CREATE TABLE {s}.rels (
+        resource_id   text COLLATE "C" NOT NULL,
+        subject_id    text COLLATE "C" NOT NULL,
+        created_batch bigint NOT NULL,
+        deleted_batch bigint
+    );
+    CREATE UNIQUE INDEX ON {s}.rels (resource_id, subject_id) WHERE deleted_batch IS NULL;
+    CREATE TABLE {s}.pending (batch_id bigint PRIMARY KEY);
+    CREATE FUNCTION {s}.assign_rev() RETURNS trigger LANGUAGE plpgsql
+        SET search_path = pg_catalog, pg_temp AS $$
+    BEGIN
+        PERFORM pg_advisory_xact_lock({NS['batchmap']}, 0);
+        INSERT INTO {s}.revisions (batch_id, rev) VALUES (NEW.batch_id, nextval('{s}.rev_seq'));
+        RETURN NULL;
+    END $$;
+    CREATE CONSTRAINT TRIGGER assign_rev AFTER INSERT ON {s}.pending
+        DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION {s}.assign_rev();
+    """
     common = f"""
     DROP SCHEMA IF EXISTS {s} CASCADE;
     CREATE SCHEMA {s};
@@ -142,6 +180,15 @@ def write(scheme: str, conn: psycopg.Connection, creates: list[tuple[str, str]],
             x("SELECT pg_advisory_xact_lock(%s, %s)", (NS["watermark_rev"], rev))
         finally:
             x("SELECT pg_advisory_unlock(%s, 0)", (NS["watermark_alloc"],))
+    elif scheme == "batchmap":
+        batch = x(f"SELECT nextval('{s}.batch_seq')").fetchone()[0]
+        for r, sub in creates:
+            x(f"INSERT INTO {s}.rels VALUES (%s, %s, %s, NULL)", (r, sub, batch))
+        for r, sub in deletes:
+            x(f"UPDATE {s}.rels SET deleted_batch = %s WHERE resource_id = %s AND subject_id = %s"
+              " AND deleted_batch IS NULL", (batch, r, sub))
+        x(f"INSERT INTO {s}.pending VALUES (%s)", (batch,))
+        return batch
     elif scheme == "committid":
         batch = x(f"SELECT nextval('{s}.batch_seq')").fetchone()[0]
         tag = -batch
@@ -177,9 +224,14 @@ def write(scheme: str, conn: psycopg.Connection, creates: list[tuple[str, str]],
 
 
 def resolve_committed(scheme: str, conn: psycopg.Connection, token: int) -> int | None:
-    """committime: the 'PendingRevision.revision()' lookup after commit."""
-    if scheme not in ("committime", "committid"):
+    """Commit-time schemes: the 'PendingRevision.revision()' lookup after commit."""
+    if scheme not in ("committime", "committid", "batchmap"):
         return token
+    if not RESOLVE_ON_WRITER:
+        side = getattr(_side, "conn", None)
+        if side is None:
+            side = _side.conn = psycopg.connect(DSN, autocommit=True)
+        conn = side
     row = conn.execute(f"SELECT rev FROM {scheme}.revisions WHERE batch_id = %s", (token,)).fetchone()
     return row[0] if row else None
 
@@ -191,6 +243,28 @@ SELECT count(*), coalesce(sum(hashtext(resource_id || '|' || subject_id)::bigint
 FROM {s}.rels
 WHERE created_rev > 0 AND created_rev <= %(r)s AND (deleted_rev IS NULL OR deleted_rev > %(r)s)
 """
+
+
+FINGERPRINT_BATCHMAP_AT = """
+SELECT count(*), coalesce(sum(hashtext(r.resource_id || '|' || r.subject_id)::bigint), 0)
+FROM batchmap.rels r
+JOIN batchmap.revisions c ON c.batch_id = r.created_batch
+LEFT JOIN batchmap.revisions d ON d.batch_id = r.deleted_batch
+WHERE c.rev <= %(r)s AND (d.rev IS NULL OR d.rev > %(r)s)
+"""
+
+# At head, inside the snapshot head was read in: every batch visible in the snapshot is
+# committed with rev <= head, so visibility is just "not deleted" -- no join.
+FINGERPRINT_BATCHMAP_HEAD = """
+SELECT count(*), coalesce(sum(hashtext(resource_id || '|' || subject_id)::bigint), 0)
+FROM batchmap.rels WHERE deleted_batch IS NULL AND %(r)s::bigint IS NOT NULL
+"""
+
+
+def fp_sql(scheme: str, at_head: bool = False) -> str:
+    if scheme == "batchmap":
+        return FINGERPRINT_BATCHMAP_HEAD if at_head else FINGERPRINT_BATCHMAP_AT
+    return FINGERPRINT.format(s=scheme)
 
 
 class Reader:
@@ -225,7 +299,7 @@ class Reader:
         else:
             with self.snap.transaction():
                 head = self.snap.execute(f"SELECT coalesce(max(rev), 0) FROM {s}.revisions").fetchone()[0]
-                n, h = self.snap.execute(FINGERPRINT.format(s=s), {"r": head}).fetchone()
+                n, h = self.snap.execute(fp_sql(s, at_head=True), {"r": head}).fetchone()
         return head, n, h
 
 
@@ -359,7 +433,7 @@ def forced_inversion(scheme: str) -> dict:
     b.commit()
     out.update(rev_a=rev_a, rev_b=rev_b, head_observed_while_a_open=head_before)
     with rd.snap.transaction():
-        n_after, h_after = rd.snap.execute(FINGERPRINT.format(s=scheme), {"r": head_before}).fetchone()
+        n_after, h_after = rd.snap.execute(fp_sql(scheme), {"r": head_before}).fetchone()
     out["violation"] = (n_after, h_after) != (n_before, h_before)
     for c in (a, b, rd.snap):
         c.close()
@@ -377,8 +451,15 @@ def analyse(scheme: str, res: Results, duration: float) -> dict:
     with psycopg.connect(DSN) as c:
         final = {}
         for head in sorted({o[2] for o in res.observations}):
-            final[head] = c.execute(FINGERPRINT.format(s=scheme), {"r": head}).fetchone()
-        dangling = c.execute(f"SELECT count(*) FROM {scheme}.rels WHERE created_rev < 0 OR deleted_rev < 0").fetchone()[0]
+            final[head] = c.execute(fp_sql(scheme), {"r": head}).fetchone()
+        if scheme == "batchmap":
+            # A committed row whose batch has no revision would be corruption.
+            dangling = c.execute("""SELECT count(*) FROM batchmap.rels r WHERE NOT EXISTS
+                (SELECT 1 FROM batchmap.revisions v WHERE v.batch_id = r.created_batch)
+                OR (r.deleted_batch IS NOT NULL AND NOT EXISTS
+                (SELECT 1 FROM batchmap.revisions v WHERE v.batch_id = r.deleted_batch))""").fetchone()[0]
+        else:
+            dangling = c.execute(f"SELECT count(*) FROM {scheme}.rels WHERE created_rev < 0 OR deleted_rev < 0").fetchone()[0]
     violations = [o for o in res.observations if final[o[2]] != (o[3], o[4])]
     # Head must never go backwards in real time across all readers.
     obs = sorted(res.observations, key=lambda o: o[0])
@@ -480,7 +561,7 @@ def savepoint_checks(s: str = "committime") -> dict:
         write(s, c, [("doc:rb", "user:z")], [])
         c.rollback()
         out["rows_after_rollback"] = c.execute(f"SELECT count(*) FROM {s}.rels").fetchone()[0]
-        out["provisional_left"] = c.execute(
+        out["provisional_left"] = 0 if s == "batchmap" else c.execute(
             f"SELECT count(*) FROM {s}.rels WHERE created_rev < 0 OR deleted_rev < 0").fetchone()[0]
         out["rev_seq_last_value"] = c.execute(f"SELECT last_value FROM {s}.rev_seq").fetchone()[0]
         c.commit()
@@ -498,7 +579,9 @@ def savepoint_checks(s: str = "committime") -> dict:
         write(s, c, [], [("doc:cd", "user:v")])
         c.commit()
         out["create_then_delete_same_txn"] = c.execute(
-            f"SELECT created_rev, deleted_rev FROM {s}.rels WHERE resource_id = 'doc:cd'").fetchall()
+            f"SELECT created_rev, deleted_rev FROM {s}.rels WHERE resource_id = 'doc:cd'" if s != "batchmap" else
+            "SELECT cv.rev, dv.rev FROM batchmap.rels r JOIN batchmap.revisions cv ON cv.batch_id = r.created_batch"
+            " LEFT JOIN batchmap.revisions dv ON dv.batch_id = r.deleted_batch WHERE r.resource_id = 'doc:cd'").fetchall()
         c.commit()
     return out
 
@@ -518,11 +601,13 @@ def main():
     ap.add_argument("--immediate", default="none", choices=["none", "long", "all"])
     ap.add_argument("--retry", type=int, default=0)
     ap.add_argument("--backoff", action="store_true")
+    ap.add_argument("--resolve-on-writer", action="store_true",
+                    help="rounds 1-2 behaviour: resolve the revision in a new txn on the writer's connection")
     ap.add_argument("--extras", action="store_true", help="forced-inversion + savepoint checks")
     a = ap.parse_args()
     iso = psycopg.IsolationLevel[a.isolation]
-    global IMMEDIATE, RETRY, BACKOFF
-    IMMEDIATE, RETRY, BACKOFF = a.immediate, a.retry, a.backoff
+    global IMMEDIATE, RETRY, BACKOFF, RESOLVE_ON_WRITER
+    IMMEDIATE, RETRY, BACKOFF, RESOLVE_ON_WRITER = a.immediate, a.retry, a.backoff, a.resolve_on_writer
     results = []
     for scheme in a.schemes.split(","):
         r = run(scheme, a.writers, a.readers, a.duration, a.hold_ms,
@@ -538,7 +623,7 @@ def main():
                          | ({"forced": r["forced_inversion"]} if a.extras else {})))
         results.append(r)
     if a.extras:
-        for sch in ("committime", "committid"):
+        for sch in ("committime", "committid", "batchmap"):
             sp = savepoint_checks(sch)
             print(json.dumps({"savepoint_checks": sp}))
             results.append({"savepoint_checks": sp})
