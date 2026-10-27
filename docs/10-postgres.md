@@ -646,10 +646,13 @@ engine.check("document:readme", "view", "user:anne", at_least=pending)
 | Annotations `-> Revision` on the `conn=` path | `-> PendingRevision` |
 | Rust `let rev = engine.write_in(&mut SqliteTxn::new(&tx), req)?;` | `let p = engine.write_in(...)?; tx.commit()?; let rev = engine.resolve(&p)?;`. On SQLite `p.resolved()` is already `Some(rev)`. |
 
-- **Python transition aid, for one minor release:** `PendingRevision.__int__` and
-  `__index__` return `revision()` with a `DeprecationWarning`. Code that did arithmetic or
-  comparisons on the returned value then keeps working on SQLite and warns. On Postgres
-  before commit, those calls raise `RevisionPending` instead of returning a wrong number.
+- **Python transition aid, for one release:** only `int(pending)` and
+  `operator.index(pending)` (`__int__` / `__index__`) still work; they return
+  `revision()` with a `DeprecationWarning`. `PendingRevision` has no comparison or
+  arithmetic operators, so `pending == 3` is `False` and `pending + 1` raises `TypeError`:
+  code that compared or did arithmetic on the returned value must call `revision()`. On
+  Postgres before commit, `int()` raises `RevisionPending` instead of returning a wrong
+  number.
 - **Rust** has no transition aid: the type changes, and the compiler points at every call
   site.
 - **The version bump** follows the project's pre-1.0 rule for breaking changes (T5.0).
@@ -710,8 +713,10 @@ to surface constraint errors early. Django's `check_constraints()` is believed t
 
 **Behaviour:**
 - **Issued after a pemba write:** the queued trigger event fires at that statement (the
-  docs call this retroactive). The revision is drawn, the rows are rewritten, and the
-  store-wide lock is taken at that moment and held until the transaction ends.
+  docs call this retroactive). The store-wide lock is taken, the revision is drawn and the
+  batch → revision row is inserted into the map (`pemba_revisions`) at that moment; the
+  rows keep their batch ids and nothing is rewritten. The lock is held until the
+  transaction ends.
 - **Issued before a pemba write:** the trigger fires at the end of the write's
   `INSERT INTO pemba_pending`. The result is the same.
 - **A later `SET CONSTRAINTS ALL DEFERRED`:** later pemba writes defer again. The lock

@@ -394,22 +394,3 @@ fn write_in_accepts_another_spelling_of_the_same_path() {
     tx.commit().unwrap();
     assert!(check(&e, Consistency::AtLeast(rev)).unwrap());
 }
-
-/// The deprecated 0.1.0-alpha signature still returns the revision directly.
-#[test]
-#[allow(deprecated)]
-fn deprecated_write_in_revision_returns_the_revision() {
-    let dir = TempDir::new();
-    let (e, mut app) = setup(&dir);
-    let head = e.head_revision().unwrap();
-    let tx = immediate(&mut app);
-    let rev = e
-        .write_in_revision(
-            &mut SqliteTxn::new(&tx),
-            touch(&["document:readme#viewer@user:anne"]),
-        )
-        .unwrap();
-    tx.commit().unwrap();
-    assert_eq!(rev, Revision(head.0 + 1));
-    assert!(check(&e, Consistency::AtLeast(rev)).unwrap());
-}

@@ -467,28 +467,6 @@ impl<S: WritableStore> Engine<S> {
         Ok(PendingRevision::resolved_at(rev))
     }
 
-    /// [`write_in`](Self::write_in) followed by [`resolve`](Self::resolve): the 0.1.0-alpha
-    /// signature, kept for one release so existing callers compile.
-    ///
-    /// # Errors
-    ///
-    /// As [`write_in`](Self::write_in) and [`resolve`](Self::resolve).
-    #[deprecated(
-        since = "0.1.0-alpha.3",
-        note = "use `write_in`, commit, then `resolve` the returned `PendingRevision` (ADR-015)"
-    )]
-    pub fn write_in_revision<T: WriteTxn>(
-        &self,
-        txn: &mut T,
-        req: WriteRequest,
-    ) -> Result<Revision, Error>
-    where
-        S: SqlStore,
-    {
-        let pending = self.write_in(txn, req)?;
-        self.resolve(&pending)
-    }
-
     /// The revision a [`write_in`](Self::write_in) committed at. Call it after the caller's
     /// transaction commits.
     ///

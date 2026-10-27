@@ -17,8 +17,8 @@ The Rust crates and the Python package share one version: `0.1.0-alpha.2` on cra
   Native writes still return `Revision`. On SQLite it is resolved at once.
   Migration: pass it as `at_least=pending`, or call `pending.revision()` after commit
   (Python); in Rust, `tx.commit()?` then `engine.resolve(&pending)?`.
-  `int(pending)` keeps working for one release with a `DeprecationWarning`, and the
-  deprecated `Engine::write_in_revision` keeps the old Rust signature for one release.
+  `int(pending)` and `operator.index(pending)` keep working for one release with a
+  `DeprecationWarning`; comparisons and arithmetic do not. Rust has no transition aid.
 
 ### Added
 

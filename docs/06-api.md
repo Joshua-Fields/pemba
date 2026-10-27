@@ -24,8 +24,6 @@ impl<S: WritableStore> Engine<S> {
     pub fn write_in<T: WriteTxn>(&self, txn: &mut T, req: WriteRequest)
         -> Result<PendingRevision, Error> where S: SqlStore; // SQL stores only (05 §2, §10)
     pub fn resolve(&self, pending: &PendingRevision) -> Result<Revision, Error>; // ADR-015
-    #[deprecated] pub fn write_in_revision<T: WriteTxn>(&self, txn: &mut T, req: WriteRequest)
-        -> Result<Revision, Error> where S: SqlStore;      // write_in + resolve; one release
     pub fn delete_relationships(&self, filter: RelationshipFilter, limit: Option<usize>)
         -> Result<DeleteResult, Error>;                      // T2.6, 02 §5
 
@@ -408,7 +406,8 @@ class PendingRevision:                 # what write(..., conn=) returns (ADR-015
     def revision(self) -> Revision: ...  # the number; call after commit
     @property
     def resolved(self) -> bool: ...      # True once known (always, on SQLite)
-    # int(p) / operator.index(p): deprecated, DeprecationWarning; removed next release
+    # int(p) / operator.index(p): deprecated, DeprecationWarning; removed next release.
+    # No comparison or arithmetic operators: p == 3 is False, p + 1 raises TypeError.
 
 class Engine:
     @staticmethod
