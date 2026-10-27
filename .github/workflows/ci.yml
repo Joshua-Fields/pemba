@@ -185,6 +185,23 @@ jobs:
         with:
           command: check
 
+  fuzz-check:
+    # fuzz/ is its own workspace (cargo-fuzz runs it on nightly, fuzz.yml / OQ-039), so no
+    # job above builds it and a broken fuzz target would go unnoticed until someone fuzzes.
+    # `cargo check` needs no nightly: libfuzzer-sys builds on the pinned stable toolchain
+    # (rust-toolchain.toml, found from fuzz/ too); only `cargo fuzz run` needs nightly.
+    # `--locked`: fuzz/Cargo.lock must keep up with the workspace versions.
+    name: fuzz targets build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: Swatinem/rust-cache@v2
+        with:
+          # Its own cache, apart from the main workspace's target/.
+          workspaces: "fuzz -> target"
+          key: fuzz
+      - run: cd fuzz && cargo check --all-targets --locked
+
   doc:
     name: rustdoc
     runs-on: ubuntu-latest

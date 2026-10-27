@@ -100,6 +100,9 @@ cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace --all-features
 cargo test --workspace --all-features -- --ignored   # slow/property tests, when touched
 cargo doc --workspace --no-deps                       # no broken intra-doc links
+# fuzz/ is its own workspace, so `--all` / `--workspace` above do not reach it:
+(cd fuzz && cargo fmt -- --check)
+(cd fuzz && cargo check --all-targets)
 # Python (in a virtualenv with maturin, pytest and mypy installed):
 cd crates/pemba-py && maturin develop && pytest -q && mypy --strict tests
 ```
