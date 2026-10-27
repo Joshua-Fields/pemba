@@ -19,6 +19,7 @@ __all__ = [
     "LookupResult",
     "NoSchemaError",
     "OrphanReport",
+    "PendingRevision",
     "Precondition",
     "Relationship",
     "Revision",
@@ -38,6 +39,19 @@ MIN_SQLITE_VERSION: str
 """Oldest SQLite (as ``sqlite3.sqlite_version`` reports it) ``Engine.sqlite()`` accepts."""
 
 class Revision(int): ...
+
+@final
+class PendingRevision:
+    """The revision a write(..., conn=) commits at (ADR-015). Resolve it after commit, or pass it as at_least=."""
+    def revision(self) -> Revision:
+        """The committed revision."""
+    @property
+    def resolved(self) -> bool:
+        """Whether the number is known (always True on SQLite)."""
+    def __int__(self) -> int:
+        """Deprecated (DeprecationWarning): use revision()."""
+    def __index__(self) -> int:
+        """Deprecated (DeprecationWarning): use revision()."""
 
 # ---- results and arguments (frozen) ----
 
@@ -302,6 +316,7 @@ class Engine:
     @staticmethod
     def validate_schema(source: str) -> list[Diagnostic]:
         """Compiles source without a store; returns errors and warnings, never raises."""
+    @overload
     def write(
         self,
         *,
@@ -309,10 +324,21 @@ class Engine:
         create: Iterable[str | Relationship] = (),
         delete: Iterable[str | Relationship] = (),
         preconditions: Iterable[Precondition] = (),
-        conn: Any | None = None,
-        allow_autocommit: bool = False,
+        conn: None = None,
     ) -> Revision:
-        """Applies a batch at one new revision and returns it. With conn=, runs inside that sqlite3 transaction; readable only after the caller commits."""
+        """Applies a batch at one new revision and returns it."""
+    @overload
+    def write(
+        self,
+        *,
+        touch: Iterable[str | Relationship] = (),
+        create: Iterable[str | Relationship] = (),
+        delete: Iterable[str | Relationship] = (),
+        preconditions: Iterable[Precondition] = (),
+        conn: Any,
+        allow_autocommit: bool = False,
+    ) -> PendingRevision:
+        """Runs the batch inside conn's open sqlite3 transaction; the returned PendingRevision is readable only after the caller commits."""
     def delete_relationships(
         self,
         *,
@@ -327,7 +353,7 @@ class Engine:
         """Deletes up to limit matching relationships at one new revision; call again while result.more."""
     @overload
     def check(
-        self, tuple_str: str, /, *, at_least: int | None = None, at_exactly: int | None = None
+        self, tuple_str: str, /, *, at_least: int | PendingRevision | None = None, at_exactly: int | None = None
     ) -> bool:
         """Whether subject has permission on resource. Raises PembaError rather than answering False on any evaluation problem (fails closed)."""
     @overload
@@ -338,7 +364,7 @@ class Engine:
         subject: str,
         /,
         *,
-        at_least: int | None = None,
+        at_least: int | PendingRevision | None = None,
         at_exactly: int | None = None,
     ) -> bool:
         """Whether subject has permission on resource. Raises PembaError rather than answering False on any evaluation problem (fails closed)."""
@@ -349,7 +375,7 @@ class Engine:
         subject: str,
         /,
         *,
-        at_least: int | None = None,
+        at_least: int | PendingRevision | None = None,
         at_exactly: int | None = None,
     ) -> CheckResult:
         """check, returning the revision used and evaluation statistics."""
@@ -359,7 +385,7 @@ class Engine:
         tuple_str: str,
         /,
         *,
-        at_least: int | None = None,
+        at_least: int | PendingRevision | None = None,
         at_exactly: int | None = None,
         max_trace_nodes: int = 10_000,
     ) -> CheckTrace:
@@ -372,7 +398,7 @@ class Engine:
         subject: str,
         /,
         *,
-        at_least: int | None = None,
+        at_least: int | PendingRevision | None = None,
         at_exactly: int | None = None,
         max_trace_nodes: int = 10_000,
     ) -> CheckTrace:
@@ -382,7 +408,7 @@ class Engine:
         items: Sequence[tuple[str, str, str]],
         /,
         *,
-        at_least: int | None = None,
+        at_least: int | PendingRevision | None = None,
         at_exactly: int | None = None,
     ) -> list[bool | PembaError]:
         """Checks many items at one revision; each entry is a bool or that item's PembaError."""
@@ -395,7 +421,7 @@ class Engine:
         *,
         limit: int | None = None,
         cursor: str | None = None,
-        at_least: int | None = None,
+        at_least: int | PendingRevision | None = None,
         at_exactly: int | None = None,
     ) -> LookupResult:
         """One page of resource ids, ascending. Next page: cursor=r.cursor, at_exactly=r.revision; stop when cursor is None."""
@@ -406,7 +432,7 @@ class Engine:
         subject: str,
         /,
         *,
-        at_least: int | None = None,
+        at_least: int | PendingRevision | None = None,
         at_exactly: int | None = None,
     ) -> Iterator[str]:
         """Every id lookup_resources would return, fetched lazily at the first page's revision."""
@@ -417,7 +443,7 @@ class Engine:
         subject_type: str,
         /,
         *,
-        at_least: int | None = None,
+        at_least: int | PendingRevision | None = None,
         at_exactly: int | None = None,
     ) -> SubjectsResult:
         """The subject_type objects with permission on resource (ids, or wildcard minus excluded)."""
@@ -430,7 +456,7 @@ class Engine:
         subject_type: str | None = None,
         subject_id: str | None = None,
         subject_relation: str | None = None,
-        at_least: int | None = None,
+        at_least: int | PendingRevision | None = None,
         at_exactly: int | None = None,
     ) -> list[Relationship]:
         """Every stored relationship matching the filter, at one revision."""

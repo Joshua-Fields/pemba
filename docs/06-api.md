@@ -21,8 +21,9 @@ impl<S: WritableStore> Engine<S> {
 
     // ---- writes ----
     pub fn write(&self, req: WriteRequest) -> Result<Revision, Error>;
-    pub fn write_in<T: WriteTxn>(&self, txn: &mut T, req: WriteRequest) -> Result<Revision, Error>
-        where S: SqlStore;                                   // SQL stores only (05 §2, §10)
+    pub fn write_in<T: WriteTxn>(&self, txn: &mut T, req: WriteRequest)
+        -> Result<PendingRevision, Error> where S: SqlStore; // SQL stores only (05 §2, §10)
+    pub fn resolve(&self, pending: &PendingRevision) -> Result<Revision, Error>; // ADR-015
     pub fn delete_relationships(&self, filter: RelationshipFilter, limit: Option<usize>)
         -> Result<DeleteResult, Error>;                      // T2.6, 02 §5
 
@@ -254,10 +255,14 @@ if the schema keeps changing for 3 attempts.
 `write_in` (T2.2) runs the same checks and the same store write algorithm (`05` §5) inside a
 transaction the caller owns, after verifying it is on the store's database
 (`SqlStore::check_same_database`, else `ForeignConnectionMismatch`). It never commits or
-rolls back, and changes no engine or store state in memory. The returned revision exists
-only once the caller commits: until then reads at it fail with `RevisionNotYetAvailable`,
-and **if the caller rolls back, the revision is void** — the next write may be given the
-same number, so never keep a revision from a rolled-back transaction. On error the batch's
+rolls back, and changes no engine or store state in memory. It returns a
+`PendingRevision` (ADR-015): `resolve` turns it into the `Revision` after the caller
+commits, and `PendingRevision::resolved()` is `Some` when the number is already known
+without I/O (always, on SQLite, where it is allocated inside the write). The revision
+exists only once the caller commits: until then reads at it fail with
+`RevisionNotYetAvailable`, and **if the caller rolls back, the revision is void** — on
+SQLite the next write may be given the same number, so never keep a revision from a
+rolled-back transaction. On error the batch's
 own statements are undone to a savepoint, but the caller should roll back anyway. With
 SQLite, wrap the caller's transaction in `SqliteTxn` and open it with `BEGIN IMMEDIATE`: a
 deferred transaction that read before another connection committed cannot take the write
@@ -274,8 +279,9 @@ fails the same way.
 ```rust
 let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
 tx.execute("INSERT INTO documents (id) VALUES (?1)", ["readme"])?;
-let rev = engine.write_in(&mut SqliteTxn::new(&tx), req)?;
-tx.commit()?;                       // only now is `rev` real
+let pending = engine.write_in(&mut SqliteTxn::new(&tx), req)?;
+tx.commit()?;                       // only now is the revision real
+let rev = engine.resolve(&pending)?;
 ```
 
 Ergonomic helpers (thin wrappers; **not yet implemented**, OQ-044. Python has the
@@ -384,8 +390,9 @@ conn = sqlite3.connect("app.db", isolation_level=None)
 conn.execute("CREATE TABLE IF NOT EXISTS documents (id TEXT PRIMARY KEY, title TEXT NOT NULL)")
 conn.execute("BEGIN IMMEDIATE")
 conn.execute("INSERT INTO documents(id, title) VALUES (?, ?)", ("readme", "Readme"))
-rev = engine.write(touch=["document:readme#owner@user:anne"], conn=conn)
+pending = engine.write(touch=["document:readme#owner@user:anne"], conn=conn)
 conn.execute("COMMIT")
+engine.check("document:readme#view@user:anne", at_least=pending)  # True
 ```
 
 ### 2.2 Signatures (ship as `pemba/__init__.pyi`)
@@ -394,6 +401,13 @@ conn.execute("COMMIT")
 MIN_SQLITE_VERSION: str   # "3.26.0": oldest sqlite3.sqlite_version Engine.sqlite() accepts
 
 class Revision(int): ...
+
+class PendingRevision:                 # what write(..., conn=) returns (ADR-015)
+    def revision(self) -> Revision: ...  # the number; call after commit
+    @property
+    def resolved(self) -> bool: ...      # True once known (always, on SQLite)
+    # int(p) / operator.index(p): deprecated, DeprecationWarning; removed next release.
+    # No comparison or arithmetic operators: p == 3 is False, p + 1 raises TypeError.
 
 class Engine:
     @staticmethod
@@ -412,7 +426,8 @@ class Engine:
               create: Iterable[str | Relationship] = (),
               delete: Iterable[str | Relationship] = (),
               preconditions: Iterable["Precondition"] = (),
-              conn: Any | None = None, allow_autocommit: bool = False) -> Revision: ...  # 05 §10
+              conn: Any | None = None, allow_autocommit: bool = False
+              ) -> Revision | PendingRevision: ...  # PendingRevision iff conn= (05 §10)
     def delete_relationships(self, *, resource_type: str, resource_id: str | None = None,
                              relation: str | None = None, subject_type: str | None = None,
                              subject_id: str | None = None,
@@ -420,38 +435,38 @@ class Engine:
                              limit: int | None = None) -> "DeleteResult": ...
 
     @overload
-    def check(self, tuple_str: str, /, *, at_least: int | None = None,
+    def check(self, tuple_str: str, /, *, at_least: int | PendingRevision | None = None,
               at_exactly: int | None = None) -> bool: ...
     @overload
     def check(self, resource: str, permission: str, subject: str, /, *,
-              at_least: int | None = None, at_exactly: int | None = None) -> bool: ...
+              at_least: int | PendingRevision | None = None, at_exactly: int | None = None) -> bool: ...
     def check_detailed(self, resource: str, permission: str, subject: str, /, *,
-                       at_least: int | None = None, at_exactly: int | None = None) -> "CheckResult": ...
+                       at_least: int | PendingRevision | None = None, at_exactly: int | None = None) -> "CheckResult": ...
     @overload
-    def check_with_trace(self, tuple_str: str, /, *, at_least: int | None = None,
+    def check_with_trace(self, tuple_str: str, /, *, at_least: int | PendingRevision | None = None,
                          at_exactly: int | None = None,
                          max_trace_nodes: int = 10_000) -> "CheckTrace": ...   # T4.1
     @overload
     def check_with_trace(self, resource: str, permission: str, subject: str, /, *,
-                         at_least: int | None = None, at_exactly: int | None = None,
+                         at_least: int | PendingRevision | None = None, at_exactly: int | None = None,
                          max_trace_nodes: int = 10_000) -> "CheckTrace": ...
     # max_trace_nodes < 1 -> ValueError; past it .truncated is True, the answer complete
     def check_bulk(self, items: Sequence[tuple[str, str, str]], /, *,
-                   at_least: int | None = None, at_exactly: int | None = None
+                   at_least: int | PendingRevision | None = None, at_exactly: int | None = None
                    ) -> list[bool | "PembaError"]: ...
 
     def lookup_resources(self, resource_type: str, permission: str, subject: str, /, *,
                          limit: int | None = None, cursor: str | None = None,
-                         at_least: int | None = None, at_exactly: int | None = None) -> "LookupResult": ...
+                         at_least: int | PendingRevision | None = None, at_exactly: int | None = None) -> "LookupResult": ...
     def iter_resources(self, resource_type: str, permission: str, subject: str, /, *,
-                       at_least: int | None = None, at_exactly: int | None = None
+                       at_least: int | PendingRevision | None = None, at_exactly: int | None = None
                        ) -> Iterator[str]: ...                       # pages internally at one revision
     def lookup_subjects(self, resource: str, permission: str, subject_type: str, /, *,
-                        at_least: int | None = None, at_exactly: int | None = None) -> "SubjectsResult": ...
+                        at_least: int | PendingRevision | None = None, at_exactly: int | None = None) -> "SubjectsResult": ...
     def read_relationships(self, *, resource_type: str, resource_id: str | None = None,
                            relation: str | None = None, subject_type: str | None = None,
                            subject_id: str | None = None, subject_relation: str | None = None,
-                           at_least: int | None = None, at_exactly: int | None = None
+                           at_least: int | PendingRevision | None = None, at_exactly: int | None = None
                            ) -> list["Relationship"]: ...            # every page, at one revision
     def head_revision(self) -> Revision: ...
     def gc(self, keep_from: int) -> "GcStats": ...
@@ -509,7 +524,8 @@ Rules:
 - `write(..., conn=c)` runs the batch inside `c`'s open transaction (`05` §10): `c` is a
   `sqlite3.Connection` on the engine's database file (else `TypeError`, or
   `StorageError` `FOREIGN_CONNECTION_MISMATCH` for another file); the caller commits or
-  rolls back, and the returned revision is readable only after commit. No open
+  rolls back, and the returned `PendingRevision` is readable only after commit. Pass it
+  as `at_least=` or call `.revision()` after commit; `at_exactly=` takes only a revision. No open
   transaction → `ValueError` unless `allow_autocommit=True`. Memory engine → `ValueError`.
 - `Engine` is thread-safe; share one instance per process. Not fork-safe: create it after
   forking (document for gunicorn `--preload` users).

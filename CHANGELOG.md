@@ -10,7 +10,20 @@ The Rust crates and the Python package share one version: `0.1.0-alpha.2` on cra
 
 ## [Unreleased]
 
+### Breaking
+
+- A write inside your own transaction returns a `PendingRevision` instead of a
+  `Revision` (ADR-015): Python `engine.write(..., conn=)` and Rust `Engine::write_in`.
+  Native writes still return `Revision`. On SQLite it is resolved at once.
+  Migration: pass it as `at_least=pending`, or call `pending.revision()` after commit
+  (Python); in Rust, `tx.commit()?` then `engine.resolve(&pending)?`.
+  `int(pending)` and `operator.index(pending)` keep working for one release with a
+  `DeprecationWarning`; comparisons and arithmetic do not. Rust has no transition aid.
+
 ### Added
+
+- `PendingRevision` (Rust and Python) and `Engine::resolve`. Python's `at_least=`
+  accepts a `PendingRevision`.
 
 - `pemba check --color <auto|always|never>`. `auto`, the default, is the previous
   behaviour: colour only on a terminal, and not when `NO_COLOR` is set. `always` colours

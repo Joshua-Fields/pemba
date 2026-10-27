@@ -33,7 +33,8 @@ use pyo3::types::{PyInt, PyString, PyTuple};
 use crate::errors::{IntoPy, parse_err};
 use crate::types::{
     CheckResult, CheckTrace, DeleteResult, Diagnostic, GcStats, LookupResult, OrphanReport,
-    Precondition, Relationship, SubjectsResult, TraceNode, filter, revision,
+    Precondition, Relationship, SubjectsResult, TraceNode, filter, pending_revision,
+    pending_revision_type, revision,
 };
 
 /// The engine over whichever store it was opened with.
@@ -84,6 +85,10 @@ fn parse<T: std::str::FromStr<Err = pemba::model::ParseError>>(s: &str) -> PyRes
 /// A revision argument: `TypeError` if not an `int`, `ValueError` if negative or too big.
 fn rev_arg(name: &str, v: &Bound<'_, PyAny>) -> PyResult<Revision> {
     if !v.is_instance_of::<PyInt>() {
+        if name == "at_least" && v.is_instance(pending_revision_type(v.py())?)? {
+            // `revision()`, not `int()`: no deprecation warning on the supported route.
+            return rev_arg(name, &v.call_method0("revision")?);
+        }
         return Err(PyTypeError::new_err(format!("{name} must be an int")));
     }
     v.extract::<u64>()
@@ -300,8 +305,9 @@ impl Engine {
     ///
     /// With `conn` (a `sqlite3.Connection` to this engine's database file, inside a
     /// transaction the application controls), the batch runs in that transaction and is
-    /// neither committed nor rolled back here: the revision becomes readable only when the
-    /// application commits, and is void if it rolls back (`docs/05-storage.md` §10).
+    /// neither committed nor rolled back here, and the result is a `PendingRevision`
+    /// (ADR-015): readable only when the application commits, and void if it rolls back
+    /// (`docs/05-storage.md` §10).
     /// Without an open transaction this raises `ValueError` unless `allow_autocommit=True`.
     #[pyo3(signature = (*, touch=None, create=None, delete=None, preconditions=None, conn=None, allow_autocommit=false))]
     #[allow(clippy::too_many_arguments)]
@@ -343,16 +349,21 @@ impl Engine {
                 req.preconditions.push(p.get().inner.clone());
             }
         }
-        let rev = match (&foreign, &*self.inner) {
-            (Some(conn), Inner::Sqlite(s)) => py
-                .detach(|| {
-                    let _one = s.serial.lock().unwrap_or_else(PoisonError::into_inner);
-                    Python::attach(|_| s.engine.write_in(&mut PyTxn::foreign(conn), req))
-                })
-                .py(py)?,
-            _ => run!(py, self.inner, e => e.write(req)).py(py)?,
-        };
-        revision(py, rev)
+        match (&foreign, &*self.inner) {
+            (Some(conn), Inner::Sqlite(s)) => {
+                let rev = py
+                    .detach(|| {
+                        let _one = s.serial.lock().unwrap_or_else(PoisonError::into_inner);
+                        Python::attach(|_| {
+                            let pending = s.engine.write_in(&mut PyTxn::foreign(conn), req)?;
+                            s.engine.resolve(&pending)
+                        })
+                    })
+                    .py(py)?;
+                pending_revision(py, rev)
+            }
+            _ => revision(py, run!(py, self.inner, e => e.write(req)).py(py)?),
+        }
     }
 
     /// Deletes up to `limit` live relationships matching the filter, at one new revision.

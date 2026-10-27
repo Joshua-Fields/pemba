@@ -110,14 +110,17 @@ fn committed_write_in_is_visible_with_the_app_row() {
     let tx = immediate(&mut app);
     tx.execute("INSERT INTO documents (id) VALUES ('readme')", [])
         .unwrap();
-    let rev = e
+    let pending = e
         .write_in(
             &mut SqliteTxn::new(&tx),
             touch(&["document:readme#viewer@user:anne"]),
         )
         .unwrap();
-    assert_eq!(rev, Revision(head.0 + 1));
+    // SQLite allocates the number inside the write.
+    assert_eq!(pending.resolved(), Some(Revision(head.0 + 1)));
     tx.commit().unwrap();
+    let rev = e.resolve(&pending).unwrap();
+    assert_eq!(rev, Revision(head.0 + 1));
     assert_eq!(documents(&app), 1);
     assert_eq!(e.head_revision().unwrap(), rev);
     assert!(check(&e, Consistency::AtLeast(rev)).unwrap());
@@ -139,6 +142,7 @@ fn rolled_back_write_in_leaves_no_trace() {
             touch(&["document:readme#viewer@user:anne"]),
         )
         .unwrap();
+    let rev = e.resolve(&rev).unwrap();
     tx.rollback().unwrap();
 
     assert_eq!(documents(&app), 0);
@@ -172,6 +176,7 @@ fn rolled_back_revision_is_reused() {
             touch(&["document:readme#viewer@user:anne"]),
         )
         .unwrap();
+    let void = e.resolve(&void).unwrap();
     tx.rollback().unwrap();
     let rev = e
         .write(touch(&["document:readme#viewer@user:bob"]))
@@ -198,6 +203,7 @@ fn uncommitted_write_in_is_invisible_to_other_connections() {
             ]),
         )
         .unwrap();
+    let rev = e.resolve(&rev).unwrap();
 
     for c in [Consistency::Exact(rev), Consistency::AtLeast(rev)] {
         let err = check(&e, c).unwrap_err();
@@ -384,6 +390,7 @@ fn write_in_accepts_another_spelling_of_the_same_path() {
             touch(&["document:readme#viewer@user:anne"]),
         )
         .unwrap();
+    let rev = e.resolve(&rev).unwrap();
     tx.commit().unwrap();
     assert!(check(&e, Consistency::AtLeast(rev)).unwrap());
 }

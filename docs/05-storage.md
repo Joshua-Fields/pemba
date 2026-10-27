@@ -594,7 +594,8 @@ reads outside `gc_horizon..=head` failing. Cases drive the store only through
      error → `StoreError::Foreign { message }` (OQ-034 (d)).
 2. Runs `Engine::write_in`, i.e. the shared write algorithm (§5), with the GIL **held**
    and the engine's request lock taken, like every SQLite-engine request (§4.4).
-3. Does **not** commit or roll back. Returns the revision.
+3. Does **not** commit or roll back. Returns a `PendingRevision` (ADR-015), already resolved
+   on SQLite because the number is allocated inside the write (§5, step 4).
 4. The caller commits. Until then, readers (engine connections) do not see the revision;
    `AtLeast(rev)` before commit → `Err(RevisionNotYetAvailable)` (`ConsistencyError`).
    After a rollback the revision is void and a later write may be given the same number.

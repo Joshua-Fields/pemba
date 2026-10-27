@@ -21,8 +21,9 @@ use crate::store_err;
 /// let mut conn = Connection::open("app.db")?;
 /// let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
 /// tx.execute("INSERT INTO documents (id) VALUES ('readme')", [])?;
-/// let rev = engine.write_in(&mut SqliteTxn::new(&tx), req)?;
-/// tx.commit()?; // only now is `rev` visible; a rollback voids it
+/// let pending = engine.write_in(&mut SqliteTxn::new(&tx), req)?;
+/// tx.commit()?; // only now is the revision visible; a rollback voids it
+/// let rev = engine.resolve(&pending)?;
 /// # let _ = rev; Ok(()) }
 /// ```
 ///

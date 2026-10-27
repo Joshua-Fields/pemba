@@ -12,6 +12,60 @@ use super::error::{Component, Fail, ParseError, ParseErrorReason};
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Default)]
 pub struct Revision(pub u64);
 
+/// The revision a write inside the caller's transaction commits at
+/// ([`Engine::write_in`](crate::Engine::write_in), ADR-015).
+///
+/// Some stores cannot know the number before the caller commits, so a foreign-mode write
+/// returns this instead of a [`Revision`]. Resolve it with
+/// [`Engine::resolve`](crate::Engine::resolve) **after** the commit. On SQLite it is
+/// already resolved when returned: the number is allocated inside the write, and it
+/// becomes readable once the caller commits. If the caller rolls back, the number is void
+/// and SQLite may give it to a later write, which this value cannot detect.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub struct PendingRevision {
+    state: PendingState,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+enum PendingState {
+    Resolved(Revision),
+}
+
+impl PendingRevision {
+    /// A pending revision whose number is already known, as on SQLite.
+    #[must_use]
+    pub(crate) const fn resolved_at(revision: Revision) -> Self {
+        Self {
+            state: PendingState::Resolved(revision),
+        }
+    }
+
+    /// The number, for `Engine::resolve`. A state that must ask the store breaks this
+    /// match on purpose, so `resolve` has to handle it.
+    pub(crate) const fn known(&self) -> Revision {
+        match self.state {
+            PendingState::Resolved(r) => r,
+        }
+    }
+
+    /// The revision, if it is already known without asking the store.
+    #[must_use]
+    pub const fn resolved(&self) -> Option<Revision> {
+        match self.state {
+            PendingState::Resolved(r) => Some(r),
+        }
+    }
+}
+
+impl fmt::Display for PendingRevision {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.state {
+            PendingState::Resolved(r) => write!(f, "pending {r} (resolved)"),
+        }
+    }
+}
+
 /// Which revision a read evaluates at; resolved once per request.
 ///
 /// `Display` (`latest`, `at_least 7`, `exact 7`) is for logs and debugging only: it is not
