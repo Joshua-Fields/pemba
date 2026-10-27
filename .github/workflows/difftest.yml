@@ -35,9 +35,30 @@ env:
 
 jobs:
   difftest:
-    name: pemba vs SpiceDB
+    # pemba's side on the memory store, and on Postgres (docs/10-postgres.md §4 item 3,
+    # T5.11). SpiceDB stays on serve-testing: its datastore does not change the semantics
+    # being compared.
+    name: pemba (${{ matrix.store }}) vs SpiceDB
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    # On Postgres every engine gets a fresh schema and every read is a round trip: the
+    # 500 cases took 61 minutes locally (Docker on Windows).
+    timeout-minutes: ${{ matrix.store == 'postgres' && 120 || 60 }}
+    strategy:
+      fail-fast: false
+      matrix:
+        store: [memory, postgres]
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 30
     steps:
       - uses: actions/checkout@v5
       - uses: Swatinem/rust-cache@v2
@@ -61,6 +82,8 @@ jobs:
           PEMBA_SPICEDB_KEY: difftest
           PEMBA_DIFFTEST_REQUIRED: "1"
           PEMBA_DIFFTEST_CASES: ${{ inputs.cases || '500' }}
+          PEMBA_DIFFTEST_STORE: ${{ matrix.store }}
+          PEMBA_PG_URL: postgres://postgres:postgres@localhost:5432/postgres
         # One test at a time: two at once more than double SpiceDB's memory.
         run: cargo test -p pemba-difftest --test difftest -- --ignored --nocapture --test-threads=1
       - name: SpiceDB log on failure

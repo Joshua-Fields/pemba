@@ -10,6 +10,9 @@ on:
       cases:
         description: "PROPTEST_CASES (above ci.yml's 1000)"
         default: "10000"
+      postgres_cases:
+        description: "PROPTEST_CASES for the Postgres entry (exact; each read is a round trip)"
+        default: "200"
 
 permissions:
   contents: read
@@ -49,3 +52,35 @@ jobs:
           cargo test -p pemba-core --lib trace::
         env:
           PROPTEST_CASES: ${{ inputs.cases || '10000' }}
+
+  postgres:
+    # Properties 1–4 and 7 (engine vs reference) with every case also on a Postgres store
+    # (docs/10-postgres.md §4 item 2, T5.11). Fewer cases: every read is a round trip, so
+    # with PEMBA_PROPTEST_STORE=postgres, PROPTEST_CASES is the count exactly.
+    name: properties on Postgres ${{ matrix.pg }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        pg: ["15", "18"]
+    services:
+      postgres:
+        image: postgres:${{ matrix.pg }}
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --release -p pemba-testkit --test properties -- --include-ignored prop1 prop2 prop3 prop4 trace::
+        env:
+          PEMBA_PROPTEST_STORE: postgres
+          PEMBA_PG_URL: postgres://postgres:postgres@localhost:5432/postgres
+          PROPTEST_CASES: ${{ inputs.postgres_cases || '200' }}
