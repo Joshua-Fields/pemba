@@ -1,8 +1,10 @@
 # 10 — Postgres store (design)
 
-Status: **proposal**. Resolves OQ-002 (revision ordering) and OQ-003 (sync vs async) once a
-human approves the decisions in §0. No production code exists yet. The Postgres store stays
-out of scope (CLAUDE.md §6) until this document is accepted and §6 is updated.
+Status: **accepted with changes** (design review, 2026-10-27). The review accepted option
+(d). It also decided that `PendingRevision` is returned on both stores and that there is no
+`assign_now`, and it deferred the async adapters to a phase after the first Postgres release.
+The maintainer records the resolutions of OQ-002, OQ-003 and OQ-045. No production code
+exists yet. The Postgres store stays out of scope (CLAUDE.md §6) until T5.0 lands.
 
 Evidence: a throwaway concurrency spike on the unmerged branch `spike-pg-revisions`,
 `spike/pg-revisions/` (Python + psycopg 3 against Postgres 17.11 in Docker). §1.5 has its
@@ -26,31 +28,34 @@ and PR/issue descriptions. No SpiceDB code was read (golden rule 2).
      commit-ordered revisions that doesn't block other writers or delay their visibility.
 2. **Sync vs async (OQ-003): keep the engine and stores synchronous (ADR-003 stands).**
    - Rust uses the sync `postgres` crate.
-   - Python joins the app's sync transaction through a driver adapter (psycopg 3, psycopg2,
-     SQLAlchemy `Session`, Django).
-   - Python joins an async transaction (psycopg `AsyncConnection`, asyncpg, SQLAlchemy
-     `AsyncSession`) through a thread bridge. No async Rust is involved.
-
-**Human decision needed (D1, logged as OQ-045):** what a foreign-mode write returns on
-Postgres. Proposed: `PendingRevision`, which resolves to a `Revision` after commit (§1.6.4).
-The alternative is `assign_now=True` everywhere, which turns into option (a) and its convoy
-problem. Each option changes public API: the change is either a different return type for
-the `conn=` / `write_in` path, or a new parameter.
+   - The first Postgres release joins the app's **sync** transaction through driver
+     adapters: psycopg 3, psycopg2, SQLAlchemy `Session` / `Connection`, and Django.
+   - Async connections (psycopg `AsyncConnection`, asyncpg, SQLAlchemy `AsyncSession`)
+     come later, in T5.13 after the first Postgres release, through the thread bridge of
+     §2.4. No async Rust either way.
+3. **Foreign-mode return type (D1, OQ-045), decided in review.**
+   - `engine.write(..., conn=)` and `Engine::write_in` return a `PendingRevision` on
+     **both** stores. On SQLite it is already resolved when returned; on Postgres it
+     resolves after commit.
+   - Portable code never checks which store it runs on.
+   - There is no `assign_now`.
+   - This is a breaking change on SQLite; §1.6.4 has the migration.
 
 ### 0.1 Flags: public API, on-disk format, README guarantees
 
 | # | Kind | Change | Where |
 |---|---|---|---|
-| F1 | Public API | Foreign-mode writes on Postgres return `PendingRevision`, not `Revision`. Affects Python `engine.write(..., conn=)` and Rust `Engine::write_in`. `at_least=` also accepts a `PendingRevision`. SQLite is unchanged. | §1.6.4, `06` §1, §2.2 |
-| F2 | Public API (additive) | `Engine.postgres(...)`, `PostgresStore` / `PostgresConfig`, `engine.write_async(..., conn=)`, `assign_now=`, the `pemba.aio` read helpers, and new errors `WriteRolledBack` and `RevisionPending`. | §1.6.4, §2 |
+| F1 | Public API, **breaking** | `engine.write(..., conn=)` (Python) and `Engine::write_in` (Rust) return `PendingRevision` instead of `Revision` on **both** stores. It is resolved at return on SQLite and after commit on Postgres. `at_least=` accepts a `PendingRevision`. Native writes still return `Revision`. Migration in §1.6.4. | §1.6.4, `06` §1, §2.1–2.2, README |
+| F2 | Public API (additive) | `Engine.postgres(...)`, `PostgresStore` / `PostgresConfig`, `Engine::resolve`, and new errors `WriteRolledBack` and `RevisionPending`. Later (T5.13): `engine.write_async(..., conn=)` and `pemba.aio`. | §1.6.4, §2 |
 | F3 | On-disk format | New Postgres layout. It is not the SQLite layout: `pemba_revisions` gains `batch_id`, plus a new `pemba_pending` table, two sequences, a trigger function, and negative "provisional" revisions that exist only inside uncommitted transactions. SQLite is unchanged. | §3 |
-| F4 | README guarantee | "One counter per store, starting at 1" stays true, but on Postgres **numbers can be skipped**. A revision drawn by the commit trigger is lost if the commit then fails. `05` §10's "a later write may be given the same number" after a rollback does not apply: Postgres never reuses a number. | §1.6.3 |
-| F5 | README guarantee | "The returned revision becomes readable when you commit" becomes "the revision is *known* when you commit" for Postgres foreign mode. | §1.6.4 |
+| F4 | README guarantee | "One counter per store, starting at 1" stays true, but on Postgres **numbers can be skipped**. A revision drawn by the commit trigger is lost if the commit then fails. `05` §10's "a later write may be given the same number" after a rollback does not apply: Postgres never reuses a number. The exact wording changes are in §1.6.3. | §1.6.3 |
+| F5 | README guarantee | "The returned revision becomes readable when you commit" becomes "the returned `PendingRevision` resolves, and becomes readable, when you commit". On SQLite it is resolved immediately, as today. | §1.6.4 |
 | F6 | README guarantee | "In one process `Latest` already sees it" is **preserved** by the proposal. Option (b) would have broken it. | §1.3 |
-| F7 | Behaviour | Callers in SERIALIZABLE transactions see more retryable `Conflict`s: about 3% of commits in the spike, against about 0.5% without pemba's commit step. | §1.5 |
+| F7 | Behaviour | SERIALIZABLE callers see more retryable `Conflict`s. Spike: 1.2% of transactions hit at least one 40001, against 0.3% without pemba's commit step. With exponential backoff, up to 0.08% still failed 11 attempts in a row (baseline: none). The root cause is only partly known (T5.6). | §1.6.8 |
 | F8 | Behaviour | A prepared (2PC) transaction holds the revision lock from `PREPARE TRANSACTION` until `COMMIT PREPARED`. | §1.6.6 |
 | F9 | ADR text | ADR-005's consequence line gets an amendment, ADR-006 needs a Postgres amendment (several drivers and param styles), and ADR-003's open question is closed. | §5 T5.0 |
 | F10 | Dependencies | `postgres` (0.19.14) plus a TLS connector. | §2.1 |
+| F11 | Behaviour | `SET CONSTRAINTS ALL IMMEDIATE` in the app's transaction, or naming pemba's trigger, draws the revision at that statement. It then holds the store-wide lock until the transaction ends, so that transaction behaves like option (a). | §1.6.7 |
 
 ---
 
@@ -264,7 +269,7 @@ the rows with each other, not as absolute numbers):
   | (b) | 0.5% |
   | naive | 0.4% |
   | (d) predicate rewrite | **45–58% of attempts**, plus 522 `53200` (out of shared memory, from the predicate-lock table) |
-  | (d) ctid rewrite | **2.7–3.4%** |
+  | (d) ctid rewrite | **2.7–3.4%** of commits (failed attempts ÷ commits; per-transaction rates with retries in §1.6.8) |
 
   The predicate `UPDATE ... WHERE created_rev = -batch` at commit takes SIREAD locks on
   index pages that every concurrent writer inserts into. Hence the ctid variant.
@@ -278,8 +283,24 @@ the rows with each other, not as absolute numbers):
 | A write rolled back to `SAVEPOINT pemba_write` | Leaves no revision, no provisional row, and no sequence draw. Its deferred-trigger event is discarded with the subtransaction. |
 | A rolled-back transaction | Leaves nothing. |
 | Two writes in one transaction | Get two consecutive revisions. |
-| `SET CONSTRAINTS <trigger> IMMEDIATE` | Assigns the revision before commit (`assign_now`, §1.6.4). |
+| `SET CONSTRAINTS ALL IMMEDIATE` | Assigns the revision at that statement (§1.6.7). |
 | Create a tuple, then delete it in a second write of the same transaction | **Found a bug in the first ctid variant:** the second write moved the tuple, the TID update missed it, and `created_rev = -6` was left behind. Fixed by the predicate fallback in §1.6.1; the spike re-checked it. |
+
+### 1.5.1 Review checks (second round)
+
+The design review asked for more evidence. It is on the same branch, collected by
+`review_checks.py` and new options in `spike.py` (`--immediate`, `--retry`, `--backoff`),
+with the diagnostic `ssi_probe.py`. Results:
+
+| Check | Result | Section |
+|---|---|---|
+| `SET CONSTRAINTS ALL IMMEDIATE`, deterministic | B's commit waited 1.01 s (A's remaining time). rev(A) < rev(B). The observation stayed stable. | §1.6.7 |
+| `SET CONSTRAINTS ALL IMMEDIATE` on the 3 s long transaction, concurrent | 0 violations, max writer wait 3.02 s, 371 writes/s against 686 without it | §1.6.7 |
+| `SET CONSTRAINTS ALL IMMEDIATE` in every transaction | 0 violations, 120 writes/s, writer wait p99 126 ms: the profile of option (a) | §1.6.7 |
+| Skipped revisions | Two skips produced (early trigger then rollback; app constraint failing after pemba's trigger). `Exact` at a skipped number equals the revision before it. GC at and around the gap stayed correct. | §1.6.3 |
+| Trigger firings, 1,000-tuple writes | 20 writes fired it 20 times and drew 20 revisions. Two writes in one transaction drew 2. | §1.6.1 |
+| Commit cost, 1,000-tuple batch | 7.6 ms (creates) and 3.4 ms (deletes), against 1.0 ms with no commit-time rewrite | §1.6.1 |
+| SERIALIZABLE with app retries | 0 violations. 1.2% of transactions hit 40001, against 0.3% baseline. Some failures are sticky. | §1.6.8 |
 
 ### 1.6 Recommended design in detail
 
@@ -325,6 +346,28 @@ How the pieces work:
   batch's trigger.
 - **Firing order.** Postgres fires deferred triggers in event order, so the batches of one
   transaction get increasing revisions.
+- **Once per write call, not per tuple.** The trigger is `FOR EACH ROW` on
+  `pemba_pending`, which gets one row per write call (batch), however many tuples that
+  batch touches. So the lock is requested and a number drawn once per write call.
+  - Spike: twenty 1,000-tuple writes fired it 20 times (`pg_stat_user_functions.calls`)
+    and drew 20 revisions.
+  - A transaction with k write calls fires it k times and gets k consecutive revisions,
+    the same as SQLite's k revisions. Advisory locks are re-entrant within a transaction,
+    so the second and later requests are granted at once.
+  - Folding all of a transaction's batches into one revision would change the README's
+    "every write commits at a new revision", so it is not proposed.
+- **Commit cost grows with the batch.** The rewrite touches every tuple of the batch under
+  the lock. Spike, medians of 10, 1,000-tuple batches:
+
+  | Batch | Commit | Write | Same batch, revision allocated at write time (commit / write) |
+  |---|---|---|---|
+  | Creates | 7.6 ms | 246 ms | 1.0 ms / 203 ms |
+  | Deletes | 3.4 ms | 256 ms | 1.0 ms / 208 ms |
+
+  The writes issue one statement per tuple; `RETURNING ctid` and the pending partial
+  indexes add about 20%. The lock is held for about 7 µs per created tuple, so a
+  10,000-tuple `delete_matching` batch holds it for tens of milliseconds. Its `limit`
+  bounds this; document that large deletes should use moderate limits.
 - **Lock key.** The key derives from the table's oid, looked up at run time through
   `regclass`, so it survives dump/restore and differs per store when several pemba
   stores share a database (§3.3).
@@ -358,54 +401,124 @@ is safe.
   - `AtLeast(r)` fails with `RevisionNotYetAvailable` if head < r.
   - `Exact(r)` fails if `r` is above head or below the horizon.
 
-#### 1.6.3 Gaps
+#### 1.6.3 Skipped revisions
 
-The trigger draws `r` before the commit record is written. If the commit then fails
-afterwards, `r` is skipped forever: a SERIALIZABLE failure at commit (Postgres checks for
-it after deferred triggers), a later deferred constraint of the app failing, or a crash.
-Sequences also skip values after a crash.
+**How a number is skipped.** The trigger draws `r` before the commit record is written,
+and `r` is lost if the transaction does not then commit. That happens when:
+- the app ran `SET CONSTRAINTS ALL IMMEDIATE`, so the trigger fired there (§1.6.7), and
+  then rolled back;
+- one of the app's deferred constraints that fires after pemba's fails the commit. The
+  spike used an app constraint trigger raising `P0001`;
+- a SERIALIZABLE failure is detected at commit; Postgres checks for it after deferred
+  triggers;
+- the server crashes. Sequences also skip values after a crash.
 
-A gap is harmless. `Exact(gap)` is valid whenever the gap is inside `horizon..=head`, and
-it reads the same state as the revision before it, which is what the visibility predicate
-already computes. The memory and SQLite stores never skip numbers, so store-equivalence
-tests must compare revisions only in runs that cannot fail at commit (§4.2). Flag F4.
+A write that is rolled back before commit (to its savepoint, or the whole transaction)
+draws nothing (§1.5). Native writes run at READ COMMITTED with no deferred app
+constraints, so they skip only on a crash. Postgres never reuses a number. SQLite never
+skips, but it may reuse an uncommitted number (`05` §10).
 
-#### 1.6.4 Foreign mode and `PendingRevision` (decision D1)
+**Reads.**
+- **Spike:** revisions 1 and 4 committed; 2 and 3 skipped. `Exact(2)` and `Exact(3)`
+  returned the same tuples as `Exact(1)`.
+- **No new code path.** The visibility predicate already computes "the state as of the
+  last commit at or below `R`".
+- **`Exact(r)`** is valid for any `r` in `horizon..=head`, committed or skipped.
+  **`AtLeast(r)`** for a skipped `r` is met by any head ≥ `r`.
+- **A `PendingRevision` never resolves to a skipped number.** It resolves only to a
+  committed one, or raises `WriteRolledBack`.
 
-`engine.write(..., conn=pg_conn)` returns a `PendingRevision`. It holds `batch_id` and the
-writer's top-level `xid`, plus a reference to the engine.
+**GC.**
+- **`keep_from` may name a skipped number.** Spike: `keep_from = 3` (skipped) removed
+  nothing revisions 3–4 need.
+- **`keep_from = 4`** removed the tuple deleted at 4 and left revision 4's answer
+  unchanged. It changed the answers at 1–3, which is why the horizon (committed first,
+  `05` §8) makes them `RevisionExpired`.
+- **Head is the highest committed revision**, not `pemba_rev_seq.last_value`. Pruning
+  `pemba_revisions` keeps its newest row, so head stays defined when the newest numbers
+  were skipped. `gc(keep_from > head)` stays `InvalidRequest`.
 
-- **`pending.revision()`, or `engine.resolve(pending)`:** looks the batch up with
-  `SELECT rev FROM pemba_revisions WHERE batch_id = $1` on an engine connection. If no row
-  is found, it calls `pg_xact_status(xid)`:
-  - `in progress`: raises `RevisionPending` (a `ConsistencyError`): the caller has not
-    committed yet.
-  - `aborted`, or `NULL` with no row: raises `WriteRolledBack`.
-  - `committed`: retries the lookup a few times. The commit log can say "committed" an
-    instant before the transaction becomes visible to new snapshots.
+**Wording changes (made in T5.0):**
+- **README, "Consistency guide":** "Every write commits at a new **revision**: one counter
+  per store, starting at 1." becomes "Every write commits at a new **revision**: one
+  counter per store that only goes up, starting at 1. On Postgres it can skip numbers (a
+  revision is drawn at commit and lost if the commit then fails). Reading at a skipped
+  number gives the state of the revision before it."
+- **README `at_exactly` row** ("fails if it is in the future or below the GC horizon"):
+  unchanged. A skipped number is neither.
+- **`05` §10, item 4:** append "(SQLite). On Postgres no number is ever reused, and a
+  rolled-back write's `PendingRevision` raises `WriteRolledBack`."
+- **`02` §4 (revisions):** "strictly increasing" stays; add "not necessarily contiguous".
+- **Store equivalence:** memory and SQLite never skip, so tests compare revision numbers
+  only in runs that cannot fail at commit (§4.2).
 
-  Python caches the result on the object.
-- **`at_least=pending`** is accepted by every read and resolves first. This keeps
-  read-your-writes a one-liner:
+#### 1.6.4 `PendingRevision` on both stores (D1, decided in review)
 
-  ```python
-  with psycopg.connect(dsn) as conn:          # psycopg 3: commits at block exit
-      conn.execute("INSERT INTO documents ...")
-      pending = engine.write(touch=[...], conn=conn)
-  engine.check("document:readme", "view", "user:anne", at_least=pending)
-  ```
+Foreign-mode writes return a `PendingRevision` on every store: Python's
+`engine.write(..., conn=)` and Rust's `Engine::write_in`. Native writes (`engine.write(...)`
+without `conn`, Rust `Engine::write`) keep returning `Revision`, because the engine commits
+them itself and knows the number.
 
-- **`assign_now=True`** runs `SET CONSTRAINTS <schema>.pemba_assign_revision IMMEDIATE`
-  after the write and returns a `Revision` straight away. The cost: the store-wide lock is
-  then held until the caller commits, which is option (a) for that transaction. Document
-  it as "for short transactions that must log the revision before commit".
-- **Rust:** `Engine::write_in(&mut PgTxn::new(&mut tx), req) -> Result<PendingRevision>`,
-  then `engine.resolve(&pending)`. For SQLite, `write_in` keeps returning `Revision`.
-  - Option D1-a: a store-generic `WriteReceipt` enum (`Committed(Revision) | Pending(..)`).
-  - Option D1-b: two methods.
+```python
+class PendingRevision:
+    def revision(self) -> Revision: ...  # raises RevisionPending / WriteRolledBack
+    @property
+    def resolved(self) -> bool: ...      # True once the number is known (cached)
+# every read's at_least= accepts Revision | PendingRevision
+```
 
-  Proposal: D1-b. A `write_in` that is generic over the store can't stay source-compatible
-  anyway, and `PgTxn` exists only in `pemba-store-postgres`.
+```rust
+#[non_exhaustive]
+pub struct PendingRevision { /* store-specific */ }
+impl PendingRevision { pub fn resolved(&self) -> Option<Revision>; }
+impl Engine { pub fn resolve(&self, p: &PendingRevision) -> Result<Revision, Error>; }
+```
+
+**SQLite.**
+- The number is allocated inside the write, as today, so the `PendingRevision` is created
+  resolved. `revision()` and `resolve()` return it with no I/O, even before the caller
+  commits. It is readable once the caller commits; before that, `at_least=pending` fails
+  with `RevisionNotYetAvailable`, as `at_least=rev` does now.
+- After a rollback the number is void and may be reused (`05` §10), and `revision()`
+  cannot tell. This difference from Postgres is documented. Portable code resolves only
+  after a successful commit.
+
+**Postgres.**
+- `revision()` / `resolve()` look the batch up:
+  `SELECT rev FROM pemba_revisions WHERE batch_id = $1`, on an engine connection.
+- If no row is found, they call `pg_xact_status(xid)`:
+  - `in progress`: raise `RevisionPending` (a `ConsistencyError`).
+  - `aborted`, or `NULL` with no row: raise `WriteRolledBack`.
+  - `committed`: retry the lookup briefly. The commit log can say "committed" an instant
+    before the transaction becomes visible to new snapshots.
+- The result is cached.
+
+**Portable read-your-writes:**
+
+```python
+with psycopg.connect(dsn) as conn:          # or sqlite3 with BEGIN ... COMMIT
+    conn.execute("INSERT INTO documents ...")
+    pending = engine.write(touch=[...], conn=conn)
+engine.check("document:readme", "view", "user:anne", at_least=pending)
+```
+
+**Breaking change and migration** (CHANGELOG "Breaking"; release notes; `06` §1, §2.1,
+§2.2; README "Transactional writes"):
+
+| Code today (SQLite) | After |
+|---|---|
+| `rev = engine.write(..., conn=c)`, then `at_least=rev` | `pending = engine.write(..., conn=c)`, then `at_least=pending`. No other change. |
+| Storing, logging or comparing the number | `pending.revision()` after commit (an `int` subclass, as before) |
+| Annotations `-> Revision` on the `conn=` path | `-> PendingRevision` |
+| Rust `let rev = engine.write_in(&mut SqliteTxn::new(&tx), req)?;` | `let p = engine.write_in(...)?; tx.commit()?; let rev = engine.resolve(&p)?;`. On SQLite `p.resolved()` is already `Some(rev)`. |
+
+- **Python transition aid, for one minor release:** `PendingRevision.__int__` and
+  `__index__` return `revision()` with a `DeprecationWarning`. Code that did arithmetic or
+  comparisons on the returned value then keeps working on SQLite and warns. On Postgres
+  before commit, those calls raise `RevisionPending` instead of returning a wrong number.
+- **Rust** has no transition aid: the type changes, and the compiler points at every call
+  site.
+- **The version bump** follows the project's pre-1.0 rule for breaking changes (T5.0).
 
 #### 1.6.5 GC
 
@@ -435,6 +548,77 @@ writer's top-level `xid`, plus a reference to the engine.
 | 2PC | Deferred triggers fire at `PREPARE TRANSACTION`, and a prepared transaction keeps its locks. So all pemba commits wait until `COMMIT PREPARED` or `ROLLBACK PREPARED` (F8). Transaction-level advisory locks are allowed in prepared transactions; mixing session-level and transaction-level locks on the same key is not, and pemba uses no session-level locks. |
 | PgBouncer, transaction mode | Supported: the design keeps no session state. The engine's own connections use prepared statements, which need PgBouncer ≥ 1.21 with `max_prepared_statements` set, or the unnamed-statement mode. |
 | Hot standby replicas | Commit records reach the WAL in revision order, so a replaying standby always shows a prefix of revisions. Not in scope; noted for later. |
+
+#### 1.6.7 `SET CONSTRAINTS ALL IMMEDIATE` in the app's transaction
+
+A transaction can switch deferred constraints to immediate with
+`SET CONSTRAINTS ALL IMMEDIATE`, or by naming pemba's trigger. Apps and frameworks do this
+to surface constraint errors early. Django's `check_constraints()` is believed to issue
+`SET CONSTRAINTS ALL IMMEDIATE` followed by `... DEFERRED`; T5.9 verifies this.
+
+**Behaviour:**
+- **Issued after a pemba write:** the queued trigger event fires at that statement (the
+  docs call this retroactive). The revision is drawn, the rows are rewritten, and the
+  store-wide lock is taken at that moment and held until the transaction ends.
+- **Issued before a pemba write:** the trigger fires at the end of the write's
+  `INSERT INTO pemba_pending`. The result is the same.
+- **A later `SET CONSTRAINTS ALL DEFERRED`:** later pemba writes defer again. The lock
+  already taken stays held.
+
+**Correctness is unaffected.** The lock still orders revisions by commit. Spike:
+- **Deterministic test, IMMEDIATE before or after the write:** A writes, sets IMMEDIATE
+  and stays open 1 s. B's commit waited 1.01 s, rev(A) = 1 < rev(B) = 2, and a reader's
+  observation taken while A was open stayed unchanged.
+- **Concurrent harness, the 3 s long transaction sets IMMEDIATE:** 0 violations, max
+  writer wait 3.02 s, 371 writes/s against 686 without it. Every writer that tries to
+  commit during the window waits. Writer wait p99 stays at 7.8 ms only because few
+  transactions fall into a window.
+- **Every transaction sets IMMEDIATE:** 0 violations, 120 writes/s, writer wait p99
+  126 ms. That is option (a)'s profile.
+
+**Cost.** For the rest of that transaction it *is* option (a): every other pemba commit
+waits for it. The README states this plainly: "Don't run `SET CONSTRAINTS ALL IMMEDIATE`
+in a long transaction that writes relationships; name your own constraints instead." A
+`PendingRevision` still resolves after commit as usual. The trigger could emit a
+`NOTICE` when it fires outside COMMIT (detectable through `pg_trigger_depth()` and
+transaction state), so apps can find the statement. T5.4 checks whether that is cheap.
+
+#### 1.6.8 SERIALIZABLE callers
+
+Native writes use READ COMMITTED, so this concerns only foreign mode inside SERIALIZABLE
+app transactions. Every failure seen is SQLSTATE 40001, which pemba maps to the retryable
+`Conflict`. SERIALIZABLE apps must already retry on it.
+
+Spike: 8 writers, 20 s; the app retries the whole transaction on 40001.
+
+| Scheme and retry policy | Transactions hitting ≥ 1 × 40001 | Gave up | Writes/s |
+|---|---|---|---|
+| Baseline (watermark, no commit step), immediate retry ≤ 5 | 36 of 12,010 (0.3%) | 0 | 600 |
+| (d), immediate retry ≤ 5 | 142 of 12,030 (1.2%) | 74 (0.6%) | 598 |
+| (d), exponential backoff with full jitter (10 ms × 2ⁿ, cap 1 s), retry ≤ 10 | 65 of 9,205 (0.7%) | 7 (0.08%) | 460 |
+| (d), the same backoff, plus a 3 s SERIALIZABLE transaction every 4 s (2 seeds) | 67–68 of 9.3–9.8k (0.7%) | 3–6 (≤ 0.06%) | 467–492 |
+| Baseline, the same backoff, long transactions | 23 of 11,915 (0.2%) | 0 | 596 |
+
+The 40001 figures count transactions, not attempts. Throughput with backoff includes
+writers sleeping between retries. No run had a G2 violation.
+
+**What this means:**
+- **Added failure rate:** about 1 percentage point of transactions see at least one
+  `Conflict` (0.3% → 1.2%).
+- **Retries handle almost all of it, but not quite all.**
+  - With immediate retries, 0.6% of transactions failed six times running.
+  - With backoff and jitter, 0.03–0.08% still failed 11 times running. The baseline had
+    none.
+  - These are *sticky* conflicts: a retried transaction keeps colliding with the same
+    partners until they finish.
+- **Partial diagnosis (`ssi_probe.py`).** Removing the store-wide lock changes nothing.
+  Removing the commit-time row rewrite or the revision-row insert each halves the sticky
+  failures (70 → 36 transactions); neither alone explains them. Both are writes at commit
+  that SSI must check against concurrent transactions' read sets.
+- **Guidance:** SERIALIZABLE callers retry with exponential backoff and jitter. T5.6
+  root-causes the sticky conflicts before the first Postgres release. Target: in the
+  harness, no transaction exhausts a 10-retry backoff loop. If that target is missed,
+  this table goes into the README.
 
 ---
 
@@ -476,7 +660,8 @@ client and the app's psycopg cannot interfere with each other.
 
 pemba never owns the foreign connection. It runs the shared Rust write algorithm (§1.6.1),
 whose `WriteTxn` calls are forwarded to the app's connection inside the open transaction.
-That is the ADR-006 pattern. Per driver:
+That is the ADR-006 pattern. The first Postgres release ships the sync rows; the async rows
+are T5.13. Per driver:
 
 | App holds | pemba accepts | Placeholders | "In a transaction?" | SQLSTATE from |
 |---|---|---|---|---|
@@ -484,9 +669,9 @@ That is the ADR-006 pattern. Per driver:
 | psycopg2 connection | the connection | `%s` (client-side binding) | `conn.info.transaction_status` (psycopg2 ≥ 2.8) | `e.pgcode` |
 | SQLAlchemy 2 `Session` / `Connection` | either one | `%s` (on the raw psycopg connection) | `session.in_transaction()` | as the driver |
 | Django | `django.db.connection` | `%s` via `connection.cursor()` | `not connection.get_autocommit()` (true inside `atomic()`) | as the driver |
-| psycopg 3 `AsyncConnection` | via `write_async` | `%s` | `conn.info.transaction_status` | `e.sqlstate` |
-| asyncpg `Connection` | via `write_async` | `$n` | `conn.is_in_transaction()` | `e.sqlstate` |
-| SQLAlchemy `AsyncSession` / `AsyncConnection` | via `write_async` | `$n` (raw asyncpg) or `%s` (raw psycopg) | `session.in_transaction()` | as the driver |
+| psycopg 3 `AsyncConnection` | later: `write_async` (T5.13) | `%s` | `conn.info.transaction_status` | `e.sqlstate` |
+| asyncpg `Connection` | later: `write_async` (T5.13) | `$n` | `conn.is_in_transaction()` | `e.sqlstate` |
+| SQLAlchemy `AsyncSession` / `AsyncConnection` | later: `write_async` (T5.13) | `$n` (raw asyncpg) or `%s` (raw psycopg) | `session.in_transaction()` | as the driver |
 
 SQLAlchemy specifics: `session.connection()` returns the connection in the session's
 current transaction (and begins one). Its `.connection.driver_connection` is the raw
@@ -517,7 +702,21 @@ Common rules:
     trip.
 - **Search path.** It is irrelevant, because every statement is schema-qualified (§3.3).
 
-### 2.4 Async callers and what it costs them
+### 2.4 Async callers (later phase: T5.13, after the first Postgres release)
+
+**Until T5.13**, async apps can do these things:
+- read through `asyncio.to_thread(engine.check, ...)`, since the Rust side releases the
+  GIL;
+- write relationships on a native engine connection (not atomic with app data);
+- use foreign mode through a *sync* connection held by a worker thread.
+
+Passing an async connection to `write(conn=)` raises `TypeError` with a pointer to this
+section. One candidate is unverified: `AsyncSession.run_sync`, which hands a function a
+greenlet-adapted sync `Session`. pemba's adapter would call the adapted connection from
+Rust inside that greenlet. T5.9 tries it; if it works, it becomes the documented interim
+route.
+
+The plan for T5.13:
 
 `await engine.write_async(..., conn=async_conn)` runs the synchronous Rust write in a
 worker thread (`asyncio.to_thread`). Each `WriteTxn` call inside it schedules
@@ -689,9 +888,14 @@ server and drop their schema on success.
      - write rolled back to a savepoint;
      - two writes in one transaction get two revisions;
      - create then delete in one transaction (the spike's bug);
-     - `assign_now`;
-     - `PendingRevision` while pending, committed and rolled back;
-     - an `Exact` read at a gap.
+     - `PendingRevision` on every store: resolved at return on SQLite and memory; pending,
+       committed and rolled back on Postgres;
+     - `SET CONSTRAINTS ALL IMMEDIATE` before and after a write, and followed by
+       `ALL DEFERRED`: revisions correct and no provisional rows left;
+     - skipped revisions made both ways (§1.6.3): `Exact` at the gap equals the revision
+       before it, `AtLeast(gap)`, `gc(keep_from = gap)`, and head when the newest numbers
+       were skipped;
+     - a 1,000-tuple batch: one trigger firing, one revision, no provisional rows left.
 2. **Store equivalence (property 5).**
    - Generalise `store_equivalence` from pairs to N stores: memory ≡ SQLite ≡ Postgres.
    - Sequential ops never fail at commit, so revision numbers match exactly. Add an
@@ -714,8 +918,14 @@ server and drop their schema on success.
      that head; head monotonic in real time; revision order == commit order for every
      pair where one commit finished before the other started.
    - **Variants:** READ COMMITTED, REPEATABLE READ, and SERIALIZABLE. SERIALIZABLE writers
-     retry on `Conflict`; the test asserts 0 violations and reports the conflict rate
-     without asserting it.
+     retry on `Conflict` with backoff; the test asserts 0 violations and reports the
+     conflict and give-up rates. The give-up rate becomes an assertion once T5.6 meets
+     its target.
+   - **`SET CONSTRAINTS ALL IMMEDIATE` variants:** the long transaction runs it; then every
+     transaction does. Assert 0 violations. Writer wait is reported (it is expected to
+     reach the long transaction's duration) and not asserted.
+   - **Commit cost:** 1,000-tuple create and delete batches. Report the commit duration
+     (which is the lock hold) and fail above a generous bound (100 ms).
    - **Deterministic forced-inversion test:** rev(A) > rev(B), and the observation taken
      between the two commits is unchanged afterwards.
    - **Negative control:** an in-test raw-SQL "allocate at write" scheme on the same
@@ -729,9 +939,12 @@ server and drop their schema on success.
    answer or `RevisionExpired`, never a partial one.
 6. **Python** (`pytest`, Postgres service):
    - **Drivers.** Foreign-mode commit, rollback, no transaction, wrong database, failed
-     transaction, and `assign_now`, for each of: psycopg 3 sync, psycopg2, a SQLAlchemy
-     sync `Session`, Django (minimal settings), and psycopg async / asyncpg / SQLAlchemy
-     `AsyncSession` via `write_async`.
+     transaction, and `PendingRevision` resolution, for each of: psycopg 3 sync,
+     psycopg2, a SQLAlchemy sync `Session`, and Django (minimal settings). The async
+     drivers, through `write_async`, are added in T5.13.
+   - **Async rejected.** An async connection passed to `write(conn=)` raises `TypeError`.
+   - **SQLite.** `PendingRevision` is returned and resolved; `at_least=pending` works; the
+     deprecated `int(pending)` warns.
    - **Search path.** A hostile `search_path` on the foreign connection has no effect.
    - **Typing.** `mypy --strict` over the new `.pyi`.
 7. **Fail closed.** A connection killed mid-request (`pg_terminate_backend`) and a
@@ -740,62 +953,78 @@ server and drop their schema on success.
 
 ---
 
-## 5. Task breakdown (proposed M5, for `docs/08-milestones.md`)
+## 5. Task breakdown (M5, for `docs/08-milestones.md`)
 
 Each task ends green: the §5 checks of CLAUDE.md, plus the Postgres CI job once it exists.
+"First Postgres release" means the release that contains T5.0–T5.12.
 
 - **T5.0 — Accept the design (docs only).**
-  - Human decision on D1 (OQ-045).
-  - Add ADR-015 (Postgres revisions assigned at commit).
-  - Amend ADR-003 (async bridge in Python), ADR-005 (consequences) and ADR-006 (Postgres
-    drivers and placeholders).
-  - Resolve OQ-002 and OQ-003.
-  - Update `05` (new §11), `06` (`PendingRevision`, `Engine.postgres`, `write_async`,
-    `assign_now`) and README (F4, F5).
+  - The maintainer records the OQ-002, OQ-003 and OQ-045 resolutions.
+  - Add ADR-015 (Postgres revisions assigned at commit; `PendingRevision` on both stores).
+  - Amend ADR-003 (sync; async adapters later), ADR-005 (consequences; skipped numbers)
+    and ADR-006 (Postgres drivers and placeholders).
+  - Update `02` §4, `05` (§10, new §11), `06` (`PendingRevision`, `Engine.postgres`) and
+    README (§1.6.3 wording, F5, the `SET CONSTRAINTS` warning).
+  - CHANGELOG "Breaking" entry with the §1.6.4 migration table.
   - Remove Postgres from CLAUDE.md §6.
-- **T5.1 — Core: revision strategy in `pemba-core::write`.**
+- **T5.1 — `PendingRevision` on SQLite (the breaking change, shipped first).**
+  - Core `PendingRevision` and `Engine::resolve`.
+  - `write_in` and Python `write(conn=)` return it; `at_least=` accepts it.
+  - The deprecated `__int__` / `__index__`, plus `.pyi`, docs and examples.
+  - Done when the whole workspace and pytest are green with no Postgres code.
+- **T5.2 — Core: revision strategy in `pemba-core::write`.**
   - `SqlDialect::revision_strategy()` is `AllocateNow` (SQLite) or `AssignAtCommit`.
-  - The write function returns `WriteOutcome::{Committed(Revision), Pending(PendingRevision)}`.
-  - Dialect-driven placeholder style; `RETURNING ctid` support in `WriteTxn::query`.
-  - SQLite behaviour and tests unchanged.
-  - Done when the whole workspace is green with no Postgres code yet.
-- **T5.2 — `pemba-store-postgres` skeleton and migrations.**
-  - Crate, config, pool, rustls TLS feature, migration v1 (tables, sequences, trigger),
-    `migrate` / `open` / `NotMigrated` / `StorageVersionTooNew`, version and `UTF8`
+  - Dialect-driven placeholder style; `RETURNING ctid` through `WriteTxn::query`.
+  - SQLite behaviour unchanged; done when green.
+- **T5.3 — `pemba-store-postgres` skeleton and migrations.**
+  - Crate, config, pool, rustls TLS feature.
+  - Migration v1: tables, sequences, and the trigger with its ctid path and predicate
+    fallback.
+  - `migrate` / `open` / `NotMigrated` / `StorageVersionTooNew`, version and `UTF8`
     checks, schema qualification.
   - Postgres CI job (service container, 15 and 18).
   - Tests: idempotent and concurrent `migrate`, non-default schema, hostile `search_path`,
-    and the `spawn_blocking` / inside-a-runtime check.
-- **T5.3 — Reads.**
-  - `ReadStore`, head/horizon, the REPEATABLE READ `snapshot()`, every `05` §6 query in
-    the dialect, and `COLLATE "C"` ordering.
-  - The conformance suite's read and visibility cases pass.
-- **T5.4 — Native writes.**
+    and the `spawn_blocking` check.
+- **T5.4 — Reads.** `ReadStore`, head/horizon (head = highest committed), the REPEATABLE
+  READ `snapshot()`, the `05` §6 queries, and `COLLATE "C"` ordering. The conformance
+  read cases pass.
+- **T5.5 — Native writes.**
   - `write`, `write_schema` and `delete_matching` through the commit trigger, the
-    post-commit revision lookup, and SQLSTATE mapping.
-  - The full conformance suite passes, with memory ≡ SQLite ≡ Postgres equivalence.
-- **T5.5 — GC.** Horizon first, ctid batches, pruning of pending and revision rows, and
-  the mid-GC reader test.
+    post-commit lookup, and SQLSTATE mapping.
+  - The full conformance suite passes (the §4.1 additions included).
+  - Store equivalence memory ≡ SQLite ≡ Postgres.
+  - Evaluate the out-of-COMMIT `NOTICE` (§1.6.7).
 - **T5.6 — Permanent revision-order concurrency test (§4.4)** at all three isolation
-  levels, with the negative control.
-- **T5.7 — Rust foreign mode.**
-  - `PgTxn` over `postgres::Transaction`, `write_in` → `PendingRevision`, `resolve`,
-    `assign_now`.
+  levels, plus the `SET CONSTRAINTS` variants, the commit-cost check and the negative
+  control.
+  - **Root-cause the sticky SERIALIZABLE conflicts (§1.6.8)** and meet the target (no
+    transaction exhausts a 10-retry backoff loop), or document the measured rate in the
+    README.
+- **T5.7 — GC.** Horizon first, ctid batches, pruning of pending and revision rows, the
+  mid-GC reader test, and GC at skipped numbers.
+- **T5.8 — Rust foreign mode.**
+  - `PgTxn` over `postgres::Transaction`, `write_in` → `PendingRevision`, `resolve` with
+    `pg_xact_status`.
   - Same-database check, tested as an unprivileged role.
-- **T5.8 — Python native engine.** `Engine.postgres(...)`, GIL released around every
-  call, `.pyi`, and the wheels build with Postgres support (no OpenSSL).
-- **T5.9 — Python sync foreign mode.**
-  - Adapters for psycopg 3, psycopg2, SQLAlchemy `Session`/`Connection`, and Django.
-  - Placeholders, error mapping, guard rails, `PendingRevision`, `at_least=pending`.
-- **T5.10 — Python async.** `write_async` with the thread bridge for psycopg async,
-  asyncpg and SQLAlchemy `AsyncSession`; the `pemba.aio` read helpers; a benchmark of the
-  per-statement hop (decides whether the sans-IO follow-up is needed).
+- **T5.9 — Python native engine and sync foreign mode.**
+  - `Engine.postgres(...)` with the GIL released, and `.pyi`.
+  - Adapters for psycopg 3, psycopg2, SQLAlchemy `Session` / `Connection`, and Django:
+    placeholders, error mapping, guard rails, `TypeError` for async connections.
+  - Verify Django's `SET CONSTRAINTS` use and try the `run_sync` route (§2.4).
+- **T5.10 — Wheels with Postgres support** (rustls, no OpenSSL) and a CI smoke test
+  against the service container.
 - **T5.11 — Property tests and difftest on Postgres in CI** (`proptest.yml`,
   `difftest.yml` matrix).
-- **T5.12 — Benchmarks and documentation.**
-  - Benchmarks: write throughput against SQLite, and check latency.
-  - README: a Postgres section, consistency-guide notes, privileges, PgBouncer, autovacuum,
-    2PC.
+- **T5.12 — Benchmarks and documentation, then the first Postgres release.**
+  - Benchmarks: write throughput against SQLite, check latency, and 1,000-tuple commit
+    cost.
+  - README: a Postgres section, privileges, PgBouncer, autovacuum, 2PC, the
+    `SET CONSTRAINTS` warning, and SERIALIZABLE retry guidance.
+- **T5.13 — Async foreign mode (after the first Postgres release).**
+  - `write_async` with the thread bridge (§2.4) for psycopg `AsyncConnection`, asyncpg
+    and SQLAlchemy `AsyncSession`, and the `pemba.aio` read helpers.
+  - Benchmark the per-statement hop, which decides whether the sans-IO follow-up is
+    needed.
 
 ---
 
