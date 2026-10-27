@@ -275,6 +275,23 @@ may be out of date. Roll the whole transaction back and run it again from the st
 re-reading what it depends on; retrying only the `write_in` call inside the same transaction
 fails the same way.
 
+Which database errors are `Conflict` (T5.5), so an app can tell "retry with backoff" from
+"fail" by `is_retryable()` or the code `TRANSACTION_CONFLICT` alone:
+
+| Store | Retryable `StoreError::Conflict` | Everything else |
+|---|---|---|
+| SQLite | `SQLITE_BUSY`, `SQLITE_LOCKED`, `SQLITE_BUSY_SNAPSHOT` | `Backend`, not retryable |
+| Postgres | SQLSTATE `40001` (serialization failure) and `40P01` (deadlock detected) | `Backend`, not retryable (a unique violation is `UniqueViolation`, which the write algorithm turns into `AlreadyExists`) |
+
+On Postgres, retry with **exponential backoff and jitter**, not at once: a transaction
+retried immediately meets the same concurrent partners again (`10` §1.6.8). The spike's
+policy, which lost no transaction: up to 10 attempts, sleeping a random
+0 .. min(1 s, 10 ms × 2ⁿ) before attempt n. Native writes run in READ COMMITTED and rarely
+see either code; SERIALIZABLE app transactions in foreign mode (T5.8) are where 40001
+shows up. If the connection fails after `COMMIT` was sent, the outcome is unknown and the
+error is `Backend`: the write may have committed, so a retried `Create` can fail with
+`AlreadyExists`, while `Touch` and `Delete` are safe to repeat.
+
 
 ```rust
 let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;

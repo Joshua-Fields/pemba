@@ -95,6 +95,9 @@ where
     reject_duplicates(req)?;
     in_savepoint(txn, |txn| {
         if let Some(expected) = schema_version {
+            // Before reading the version, so no schema write can commit between this
+            // check and the batch's own commit (OQ-049).
+            lock_schema(txn, dialect, false)?;
             let found = self::schema_version(txn, dialect)?;
             if found != expected {
                 return Err(Error::Store(StoreError::SchemaChanged { expected, found }));
@@ -135,10 +138,11 @@ where
         &format!(
             "SELECT resource_type, relation, subject_type, subject_relation, \
              CASE WHEN subject_id = '*' THEN 1 ELSE 0 END AS wildcard, COUNT(*) FROM {} \
-             WHERE deleted_rev IS NULL \
+             WHERE {} IS NULL \
              GROUP BY resource_type, relation, subject_type, subject_relation, wildcard \
              ORDER BY resource_type, relation, subject_type, subject_relation, wildcard",
-            dialect.table(RELATIONSHIPS)
+            dialect.table(RELATIONSHIPS),
+            Marks::of(dialect).deleted,
         ),
         &[],
     )?;
@@ -172,8 +176,77 @@ where
         .collect()
 }
 
+/// What a [`delete_matching`] left in the caller's transaction.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub struct Deleted {
+    /// Live tuples marked deleted.
+    pub deleted: u64,
+    /// Whether live tuples matching the filter remain (the limit cut the delete short).
+    pub more: bool,
+    /// The revision, or the batch the commit maps to one.
+    pub applied: Applied,
+}
+
+impl Deleted {
+    /// The outcome once its revision is known.
+    #[must_use]
+    pub fn at(self, revision: Revision) -> DeleteResult {
+        DeleteResult {
+            deleted: self.deleted,
+            more: self.more,
+            revision,
+        }
+    }
+
+    /// The outcome, for callers that drive only [`RevisionStrategy::AllocateNow`] stores.
+    ///
+    /// # Errors
+    ///
+    /// As [`Applied::into_revision`].
+    pub fn into_result(self) -> Result<DeleteResult, Error> {
+        Ok(self.at(self.applied.into_revision()?))
+    }
+}
+
+/// What a [`write_schema`] left in the caller's transaction.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub struct SchemaWritten {
+    /// The new version: one above the highest stored.
+    pub version: u64,
+    /// The revision, or the batch the commit maps to one.
+    pub applied: Applied,
+}
+
+impl SchemaWritten {
+    /// The stored schema once its revision is known.
+    #[must_use]
+    pub fn at(self, source: &str, hash: &str, created_rev: Revision) -> StoredSchema {
+        StoredSchema {
+            version: self.version,
+            source: source.to_owned(),
+            hash: hash.to_owned(),
+            created_rev,
+        }
+    }
+
+    /// The stored schema, for callers that drive only [`RevisionStrategy::AllocateNow`]
+    /// stores.
+    ///
+    /// # Errors
+    ///
+    /// As [`Applied::into_revision`].
+    pub fn into_stored(self, source: &str, hash: &str) -> Result<StoredSchema, Error> {
+        let rev = self.applied.into_revision()?;
+        Ok(self.at(source, hash, rev))
+    }
+}
+
 /// Marks at most `limit` live tuples matching `filter` deleted, in storage order, at one
 /// new revision (kind `'delete_filter'`) inside `txn`, and reports whether more remain.
+/// With [`RevisionStrategy::AssignAtCommit`] the rows carry a batch id instead, mapped at
+/// commit like a [`write()`]'s (`docs/10-postgres.md` §1.6.1).
 ///
 /// # Errors
 ///
@@ -183,23 +256,23 @@ pub fn delete_matching<T, D>(
     dialect: &D,
     filter: &RelationshipFilter,
     limit: usize,
-) -> Result<DeleteResult, Error>
+) -> Result<Deleted, Error>
 where
     T: WriteTxn + ?Sized,
     D: SqlDialect + ?Sized,
 {
-    allocate_now_only(dialect, "delete_relationships")?;
-    let rev = allocate_revision(txn, dialect, "delete_filter")?;
+    let (mark, value) = mark(txn, dialect, "delete_filter")?;
+    let Marks { deleted: col, .. } = Marks::of(dialect);
     let table = dialect.table(RELATIONSHIPS);
     let row_id = dialect.row_id();
-    let mut params = vec![revision_value(rev)?];
+    let mut params = vec![value.clone()];
     let (filter_sql, filter_params) = filter_where(dialect, filter, 2);
     params.extend(filter_params);
     params.push(SqlValue::Integer(i64::try_from(limit).unwrap_or(i64::MAX)));
     let deleted = txn.execute(
         &format!(
-            "UPDATE {table} SET deleted_rev = {} WHERE {row_id} IN (SELECT {row_id} FROM {table} \
-             WHERE {filter_sql} AND deleted_rev IS NULL ORDER BY resource_type, resource_id, \
+            "UPDATE {table} SET {col} = {} WHERE {row_id} IN (SELECT {row_id} FROM {table} \
+             WHERE {filter_sql} AND {col} IS NULL ORDER BY resource_type, resource_id, \
              relation, subject_type, subject_id, subject_relation LIMIT {})",
             dialect.placeholder(1),
             dialect.placeholder(params.len()),
@@ -209,19 +282,22 @@ where
     let (filter_sql, filter_params) = filter_where(dialect, filter, 1);
     let more = !txn
         .query(
-            &format!("SELECT 1 FROM {table} WHERE {filter_sql} AND deleted_rev IS NULL LIMIT 1"),
+            &format!("SELECT 1 FROM {table} WHERE {filter_sql} AND {col} IS NULL LIMIT 1"),
             &filter_params,
         )?
         .is_empty();
-    Ok(DeleteResult {
+    Ok(Deleted {
         deleted,
         more,
-        revision: rev,
+        applied: finish(txn, dialect, mark, value, "delete_filter")?,
     })
 }
 
 /// Stores a new schema version at a new revision (kind `'schema'`) inside `txn`, after
-/// `check` accepted the live tuple counts at head (`docs/05-storage.md` §7).
+/// `check` accepted the live tuple counts at head (`docs/05-storage.md` §7). With
+/// [`RevisionStrategy::AssignAtCommit`] it first takes the exclusive schema lock
+/// ([`SqlDialect::schema_lock`]), so concurrent schema writes serialise and no
+/// version-checked write is in flight while the counts are read.
 ///
 /// # Errors
 ///
@@ -232,34 +308,57 @@ pub fn write_schema<T, D>(
     source: &str,
     hash: &str,
     check: SchemaCheck<'_>,
-) -> Result<StoredSchema, Error>
+) -> Result<SchemaWritten, Error>
 where
     T: WriteTxn + ?Sized,
     D: SqlDialect + ?Sized,
 {
-    allocate_now_only(dialect, "write_schema")?;
+    lock_schema(txn, dialect, true)?;
     check(&count_live(txn, dialect)?)?;
-    let created_rev = allocate_revision(txn, dialect, "schema")?;
-    txn.execute(
-        &format!(
-            "INSERT INTO {} (source, hash, created_rev) VALUES ({}, {}, {})",
-            dialect.table(SCHEMA),
-            dialect.placeholder(1),
-            dialect.placeholder(2),
-            dialect.placeholder(3),
-        ),
-        &[
-            SqlValue::Text(source.to_owned()),
-            SqlValue::Text(hash.to_owned()),
-            revision_value(created_rev)?,
-        ],
-    )?;
-    let version = non_negative(txn.last_insert_id()?, "schema version")?;
-    Ok(StoredSchema {
+    let (mark, value) = mark(txn, dialect, "schema")?;
+    let table = dialect.table(SCHEMA);
+    let (p1, p2, p3) = (
+        dialect.placeholder(1),
+        dialect.placeholder(2),
+        dialect.placeholder(3),
+    );
+    let params = [
+        SqlValue::Text(source.to_owned()),
+        SqlValue::Text(hash.to_owned()),
+        value.clone(),
+    ];
+    let version = match dialect.revision_strategy() {
+        RevisionStrategy::AllocateNow => {
+            txn.execute(
+                &format!(
+                    "INSERT INTO {table} (source, hash, created_rev) VALUES ({p1}, {p2}, {p3})"
+                ),
+                &params,
+            )?;
+            non_negative(txn.last_insert_id()?, "schema version")?
+        }
+        // No autoincrement: the version is max + 1, safe under the exclusive schema lock.
+        RevisionStrategy::AssignAtCommit => {
+            let rows = txn.query(
+                &format!(
+                    "INSERT INTO {table} (version, source, hash, created_batch) \
+                     SELECT COALESCE(MAX(version), 0) + 1, {p1}, {p2}, {p3} FROM {table} \
+                     RETURNING version"
+                ),
+                &params,
+            )?;
+            match rows.as_slice() {
+                [row] => match row.as_slice() {
+                    [SqlValue::Integer(n)] => non_negative(*n, "schema version")?,
+                    _ => return Err(corrupt("schema insert returned a non-integer version")),
+                },
+                _ => return Err(corrupt("schema insert did not return one row")),
+            }
+        }
+    };
+    Ok(SchemaWritten {
         version,
-        source: source.to_owned(),
-        hash: hash.to_owned(),
-        created_rev,
+        applied: finish(txn, dialect, mark, value, "schema")?,
     })
 }
 
@@ -315,11 +414,23 @@ where
     let horizon = gc_horizon(txn, dialect)?;
     let table = dialect.table(RELATIONSHIPS);
     let row_id = dialect.row_id();
+    let collectable = match dialect.revision_strategy() {
+        RevisionStrategy::AllocateNow => format!(
+            "SELECT {row_id} FROM {table} WHERE deleted_rev IS NOT NULL AND deleted_rev <= {}",
+            dialect.placeholder(1)
+        ),
+        // Through the batch map: a batch not in it (pending, or rolled back) is never
+        // collected. Pruning pending rows and the map itself is T5.7.
+        RevisionStrategy::AssignAtCommit => format!(
+            "SELECT r.{row_id} FROM {table} r JOIN {} m ON m.batch_id = r.deleted_batch \
+             WHERE m.rev <= {}",
+            dialect.table(REVISIONS),
+            dialect.placeholder(1)
+        ),
+    };
     Ok(txn.execute(
         &format!(
-            "DELETE FROM {table} WHERE {row_id} IN (SELECT {row_id} FROM {table} \
-             WHERE deleted_rev IS NOT NULL AND deleted_rev <= {} LIMIT {})",
-            dialect.placeholder(1),
+            "DELETE FROM {table} WHERE {row_id} IN ({collectable} LIMIT {})",
             dialect.placeholder(2),
         ),
         &[
@@ -438,18 +549,7 @@ where
         }
     }
 
-    // AllocateNow marks rows with the revision; AssignAtCommit with a batch id that the
-    // commit trigger maps to one.
-    let (applied, mark) = match dialect.revision_strategy() {
-        RevisionStrategy::AllocateNow => {
-            let rev = allocate_revision(txn, dialect, "write")?;
-            (Mark::Revision(rev), revision_value(rev)?)
-        }
-        RevisionStrategy::AssignAtCommit => {
-            let batch = next_batch(txn, dialect)?;
-            (Mark::Batch(batch), integer_value(batch, "batch id")?)
-        }
-    };
+    let (applied, mark) = self::mark(txn, dialect, "write")?;
     let Marks { created, deleted } = Marks::of(dialect);
     let table = dialect.table(RELATIONSHIPS);
     let columns = format!(
@@ -497,19 +597,67 @@ where
             }
         }
     }
-    match applied {
+    finish(txn, dialect, applied, mark, "write")
+}
+
+/// What a write's rows are marked with.
+#[derive(Copy, Clone)]
+enum Mark {
+    Revision(Revision),
+    Batch(u64),
+}
+
+/// `AllocateNow` marks rows with a new revision; `AssignAtCommit` with a batch id that the
+/// commit trigger maps to one. Returns the mark and its column value.
+fn mark<T, D>(txn: &mut T, dialect: &D, kind: &str) -> Result<(Mark, SqlValue), Error>
+where
+    T: WriteTxn + ?Sized,
+    D: SqlDialect + ?Sized,
+{
+    match dialect.revision_strategy() {
+        RevisionStrategy::AllocateNow => {
+            let rev = allocate_revision(txn, dialect, kind)?;
+            Ok((Mark::Revision(rev), revision_value(rev)?))
+        }
+        RevisionStrategy::AssignAtCommit => {
+            let batch = next_batch(txn, dialect)?;
+            Ok((Mark::Batch(batch), integer_value(batch, "batch id")?))
+        }
+    }
+}
+
+/// After the rows are marked: a batch queues the commit trigger (§1.6.1 step 6).
+fn finish<T, D>(
+    txn: &mut T,
+    dialect: &D,
+    mark: Mark,
+    value: SqlValue,
+    kind: &str,
+) -> Result<Applied, Error>
+where
+    T: WriteTxn + ?Sized,
+    D: SqlDialect + ?Sized,
+{
+    match mark {
         Mark::Revision(rev) => Ok(Applied::At(rev)),
         Mark::Batch(batch) => {
-            let xid = queue_pending(txn, dialect, mark, "write")?;
+            let xid = queue_pending(txn, dialect, value, kind)?;
             Ok(Applied::Pending { batch, xid })
         }
     }
 }
 
-/// What a write's rows are marked with.
-enum Mark {
-    Revision(Revision),
-    Batch(u64),
+/// Takes the dialect's schema lock, if it has one.
+fn lock_schema<T, D>(txn: &mut T, dialect: &D, exclusive: bool) -> Result<(), Error>
+where
+    T: WriteTxn + ?Sized,
+    D: SqlDialect + ?Sized,
+{
+    if let Some(sql) = dialect.schema_lock(exclusive) {
+        // `execute`: the lock function returns `void`, which no result type can hold.
+        txn.execute(&sql, &[])?;
+    }
+    Ok(())
 }
 
 /// The columns that say when a row was created and deleted: revisions, or batch ids.
@@ -530,17 +678,6 @@ impl Marks {
                 deleted: "deleted_batch",
             },
         }
-    }
-}
-
-/// Fails closed for the writes not yet ported to [`RevisionStrategy::AssignAtCommit`]
-/// (M5, T5.5), rather than writing revision columns that store does not have.
-fn allocate_now_only<D: SqlDialect + ?Sized>(dialect: &D, what: &str) -> Result<(), Error> {
-    match dialect.revision_strategy() {
-        RevisionStrategy::AllocateNow => Ok(()),
-        RevisionStrategy::AssignAtCommit => Err(Error::Store(StoreError::Backend {
-            message: format!("{what} does not support revisions assigned at commit yet"),
-        })),
     }
 }
 
@@ -757,8 +894,7 @@ fn civil_from_days(days: i64) -> (i64, u32, u32) {
 
 #[cfg(test)]
 mod tests {
-    use super::{Applied, civil_from_days, delete_matching, write, write_schema};
-    use crate::error::Error;
+    use super::{Applied, civil_from_days, delete_matching, gc_batch, write, write_schema};
     use crate::model::{Precondition, RelationshipFilter, WriteOp, WriteRequest};
     use crate::store::{
         PlaceholderStyle, RevisionStrategy, SqlDialect, SqlValue, StoreError, WriteTxn,
@@ -792,6 +928,7 @@ mod tests {
     const BATCH: i64 = 41;
     const XID: i64 = 7;
     const REVISION: i64 = 5;
+    const SCHEMA_VERSION: i64 = 3;
 
     /// Records every statement and answers the few queries the write algorithm reads.
     #[derive(Default)]
@@ -811,6 +948,10 @@ mod tests {
             let one = |n| Ok(vec![vec![SqlValue::Integer(n)]]);
             if sql.starts_with("SELECT nextval") {
                 one(BATCH)
+            } else if sql.contains("'gc_horizon'") {
+                Ok(vec![vec![SqlValue::Text("0".into())]])
+            } else if sql.contains("RETURNING version") {
+                one(SCHEMA_VERSION)
             } else if sql.contains("RETURNING") {
                 one(XID)
             } else if sql.contains("MAX(version)") {
@@ -928,11 +1069,10 @@ mod tests {
             let mut txn = Recorder::default();
             let d = Dialect(PlaceholderStyle::Format, strategy);
             write(&mut txn, &d, &request(), Some(0)).unwrap();
-            if strategy == RevisionStrategy::AllocateNow {
-                let filter = RelationshipFilter::new("document".parse().unwrap());
-                delete_matching(&mut txn, &d, &filter, 10).unwrap();
-                write_schema(&mut txn, &d, "definition user {}", "h", &|_| Ok(())).unwrap();
-            }
+            let filter = RelationshipFilter::new("document".parse().unwrap());
+            delete_matching(&mut txn, &d, &filter, 10).unwrap();
+            write_schema(&mut txn, &d, "definition user {}", "h", &|_| Ok(())).unwrap();
+            gc_batch(&mut txn, &d, 10).unwrap();
             for (sql, params) in &txn.0 {
                 assert_eq!(
                     sql.matches('%').count(),
@@ -948,23 +1088,87 @@ mod tests {
         }
     }
 
-    /// The writes T5.5 has not ported yet refuse a commit-assigned store rather than write
-    /// revision columns it does not have.
+    /// `delete_matching` and `write_schema` mark with a batch and queue the trigger, as a
+    /// write does (`docs/10-postgres.md` §1.6.1), and never touch a revision column.
     #[test]
-    fn unported_writes_fail_closed_at_commit_assignment() {
+    fn delete_and_schema_writes_assign_at_commit() {
         let d = Dialect(PlaceholderStyle::Dollar, RevisionStrategy::AssignAtCommit);
         let mut txn = Recorder::default();
         let filter = RelationshipFilter::new("document".parse().unwrap());
-        let err = delete_matching(&mut txn, &d, &filter, 10).unwrap_err();
+        let deleted = delete_matching(&mut txn, &d, &filter, 10).unwrap();
+        assert_eq!(deleted.applied, Applied::Pending { batch: 41, xid: 7 });
+        assert!(deleted.into_result().is_err());
+        let r = crate::model::Revision(9);
+        assert_eq!(deleted.at(r).revision, r);
+
+        let schema = write_schema(&mut txn, &d, "definition user {}", "h", &|_| Ok(())).unwrap();
+        assert_eq!(schema.version, 3);
+        assert_eq!(schema.applied, Applied::Pending { batch: 41, xid: 7 });
+        assert!(schema.clone().into_stored("s", "h").is_err());
+        assert_eq!(schema.at("s", "h", r).created_rev, r);
+
+        let sql: Vec<&str> = txn.0.iter().map(|(s, _)| s.as_str()).collect();
         assert!(
-            matches!(err, Error::Store(StoreError::Backend { .. })),
-            "{err:?}"
+            !sql.iter()
+                .any(|s| s.contains("pemba_revisions") || s.contains("_rev"))
         );
-        let err = write_schema(&mut txn, &d, "definition user {}", "h", &|_| Ok(())).unwrap_err();
-        assert!(
-            matches!(err, Error::Store(StoreError::Backend { .. })),
-            "{err:?}"
+        let kinds: Vec<&SqlValue> = txn
+            .0
+            .iter()
+            .filter(|(s, _)| s.starts_with("INSERT INTO app.pemba_pending"))
+            .map(|(_, p)| &p[1])
+            .collect();
+        assert_eq!(
+            kinds,
+            [
+                &SqlValue::Text("delete_filter".into()),
+                &SqlValue::Text("schema".into())
+            ]
         );
-        assert_eq!(txn.0, Vec::new());
+    }
+
+    /// The schema lock: exclusive before a schema write's counts, shared before a write's
+    /// version check, and nothing where the dialect has none (OQ-049).
+    #[test]
+    fn schema_lock_orders_schema_writes_against_checked_writes() {
+        struct Locking;
+        impl SqlDialect for Locking {
+            fn placeholder_style(&self) -> PlaceholderStyle {
+                PlaceholderStyle::Dollar
+            }
+            fn revision_strategy(&self) -> RevisionStrategy {
+                RevisionStrategy::AssignAtCommit
+            }
+            fn table(&self, name: &str) -> String {
+                name.to_owned()
+            }
+            fn row_id(&self) -> &'static str {
+                "ctid"
+            }
+            fn schema_lock(&self, exclusive: bool) -> Option<String> {
+                Some(format!("LOCK exclusive={exclusive}"))
+            }
+        }
+        let mut txn = Recorder::default();
+        write(&mut txn, &Locking, &request(), Some(0)).unwrap();
+        write(&mut txn, &Locking, &request(), None).unwrap();
+        write_schema(&mut txn, &Locking, "s", "h", &|_| Ok(())).unwrap();
+        let sql: Vec<&str> = txn.0.iter().map(|(s, _)| s.as_str()).collect();
+        let locks: Vec<&str> = sql
+            .iter()
+            .copied()
+            .filter(|s| s.starts_with("LOCK"))
+            .collect();
+        assert_eq!(locks, ["LOCK exclusive=false", "LOCK exclusive=true"]);
+        let first_lock = sql.iter().position(|s| s.starts_with("LOCK")).unwrap();
+        assert!(sql[first_lock + 1].contains("MAX(version)"));
+        let second_lock = sql.iter().rposition(|s| s.starts_with("LOCK")).unwrap();
+        assert!(sql[second_lock + 1].contains("COUNT(*)"));
+
+        let mut txn = Recorder::default();
+        let d = Dialect(PlaceholderStyle::Dollar, RevisionStrategy::AssignAtCommit);
+        write(&mut txn, &d, &request(), Some(0)).unwrap();
+        write_schema(&mut txn, &d, "s", "h", &|_| Ok(())).unwrap();
+        assert!(!txn.0.iter().any(|(s, _)| s.starts_with("LOCK")));
     }
 }

@@ -585,7 +585,8 @@ impl WritableStore for PySqliteStore {
         check: SchemaCheck<'_>,
     ) -> Result<StoredSchema, Error> {
         let stored = self.with_write_txn(&mut |txn| {
-            pemba_core::write::write_schema(txn, &SqliteDialect, source, hash, check)
+            pemba_core::write::write_schema(txn, &SqliteDialect, source, hash, check)?
+                .into_stored(source, hash)
         })?;
         self.cache
             .head
@@ -599,7 +600,7 @@ impl WritableStore for PySqliteStore {
         limit: usize,
     ) -> Result<DeleteResult, Error> {
         let result = self.with_write_txn(&mut |txn| {
-            pemba_core::write::delete_matching(txn, &SqliteDialect, filter, limit)
+            pemba_core::write::delete_matching(txn, &SqliteDialect, filter, limit)?.into_result()
         })?;
         self.cache
             .head

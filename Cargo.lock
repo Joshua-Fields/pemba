@@ -1223,8 +1223,11 @@ name = "pemba-store-postgres"
 version = "0.1.0-alpha.2"
 dependencies = [
  "pemba-core",
+ "pemba-store-memory",
+ "pemba-store-sqlite",
  "pemba-testkit",
  "postgres",
+ "proptest",
  "rustls",
  "rustls-native-certs",
  "tokio",

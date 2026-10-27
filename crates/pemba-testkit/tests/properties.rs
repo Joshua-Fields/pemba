@@ -362,7 +362,10 @@ mod prop5 {
     fn equivalent(ops: &[StoreOp]) -> Result<(), TestCaseError> {
         let memory = MemoryStore::new();
         let sqlite = TempSqlite::new();
-        pemba_testkit::store_equivalence::equivalent(&memory, sqlite.store.as_ref().unwrap(), ops)
+        pemba_testkit::store_equivalence::equivalent(
+            &[&memory, sqlite.store.as_ref().unwrap()],
+            ops,
+        )
     }
 
     /// A SQLite store in a fresh directory, removed on drop (store first).
