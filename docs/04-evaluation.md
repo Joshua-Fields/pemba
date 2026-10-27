@@ -445,7 +445,8 @@ that is `false` because the subtracted side removed a granted base by **both** s
 reader sees where the permission was granted and where it was removed; every other node
 by all its evaluated children. The top of each evaluated branch off the path is marked
 `(not needed)`. `render_ansi()` is the same text with ANSI styling and nothing else
-(removing the escapes gives `render()`): the path bold, with green `✓` and red `✗`;
+(removing the escapes gives `render()`): a `denied:` header red; each line on the path
+bold and wholly green (`✓`) or red (`✗`, so the root of a denial is red);
 evaluated nodes off it in the terminal's normal colour, `false` or not; dim only for lines
 that show no evaluation of their own, skipped nodes and memo hits off the path.
 

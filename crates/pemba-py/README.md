@@ -299,7 +299,8 @@ banned, and the ban wins. `←` shows the stored relationship that matched, `via
 subject set that was followed, `·` a branch never evaluated because a sibling had already
 decided. When an exclusion denies, both sides are on the path that decided the answer:
 where the permission was granted (`base:`) and where it was removed (`subtracted:`). On a
-terminal that path is bold, other evaluated steps are in the normal colour, and only
+terminal that path is bold and coloured (green where granted, red where denied), a
+denial's header is red, other evaluated steps are in the normal colour, and only
 skipped steps and reused results are dimmed. `--color never` (or `NO_COLOR`) turns colour
 off; `--color always` keeps it when piping into a pager such as `less -R`.
 

@@ -608,7 +608,8 @@ the stored tuple that matched after `←`, subject sets as `via <stored tuple>`,
 and cycle hits as `(see above)`, cycle heads with their pass count, and evaluated
 branches that did not decide the answer marked `(not needed)`. An exclusion denied by its
 subtracted side has both sides on the granting path: the base's grant and what removed it.
-In colour the granting path is bold, evaluated nodes off it are in the normal colour, and
+In colour a `denied:` header is red, granting-path lines are bold and wholly green (`✓`)
+or red (`✗`), evaluated nodes off the path are in the normal colour, and
 only skipped nodes and memo hits off the path are dimmed; without the escapes the text is
 the same (`04` §3.8). `--json` prints `CheckTrace::to_json()` on one line (§3.1);
 `--explain` and `--json` are mutually exclusive. Errors go to stderr as

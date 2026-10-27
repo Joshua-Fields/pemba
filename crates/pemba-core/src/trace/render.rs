@@ -10,9 +10,10 @@
 //! stored tuple that matched instead of its point queries, so the tree reads as a chain of
 //! members.
 //!
-//! Colour only styles the same text (`docs/04-evaluation.md` §3.8): the path bold, its
-//! glyphs green or red; evaluated nodes off it in the terminal's normal colour; dim only
-//! for lines that show no evaluation of their own, skipped nodes and memo references.
+//! Colour only styles the same text (`docs/04-evaluation.md` §3.8): a `denied:` header red;
+//! path lines bold and wholly green (`✓`) or red (`✗`); evaluated nodes off it in the
+//! terminal's normal colour; dim only for lines that show no evaluation of their own,
+//! skipped nodes and memo references.
 
 use std::fmt::Write as _;
 
@@ -38,9 +39,14 @@ enum Path {
 pub(super) fn render(trace: &CheckTrace, color: bool) -> String {
     let mut out = String::new();
     let verdict = if trace.allowed { "allowed" } else { "denied" };
+    let (on, off) = if color && !trace.allowed {
+        (RED, RESET)
+    } else {
+        ("", "")
+    };
     let _ = writeln!(
         out,
-        "{verdict}: {}#{}@{} (revision {})",
+        "{on}{verdict}: {}#{}@{} (revision {}){off}",
         trace.resource, trace.permission, trace.subject, trace.revision
     );
     if trace.truncated {
@@ -109,7 +115,7 @@ impl Renderer {
         match path {
             Path::On => {
                 let c = if n.result == Some(true) { GREEN } else { RED };
-                let _ = writeln!(out, "{BOLD}{c}{glyph}{RESET}{BOLD} {text}{RESET}");
+                let _ = writeln!(out, "{BOLD}{c}{glyph} {text}{RESET}");
             }
             Path::Leaves | Path::Off if is_reference(n) || is_reference(shown) => {
                 let _ = writeln!(out, "{DIM}{glyph} {text}{RESET}");

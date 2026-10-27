@@ -3,13 +3,14 @@
 //!
 //! Every node is checked on its own in both orders (fresh memo each) and in one
 //! `check_bulk` call per order (shared memo). `check_bulk` reports stats only on its
-//! span, so every test here records spans; a test binary of its own, because a test without
-//! a subscriber can make `tracing` cache "never" for the engine's callsites
-//! (see `crates/pemba/tests/check_tracing.rs`).
+//! span, which is read from [`Recorder`], the global subscriber of this test binary
+//! (installed before any engine is built; see its doc for why it is not scoped to the test,
+//! as in `crates/pemba/tests/lookup.rs`, #42).
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use std::sync::{Arc, Mutex};
+use std::sync::{Mutex, Once, PoisonError};
+use std::thread::{self, ThreadId};
 
 use pemba_core::model::{Consistency, Relationship, SubjectRef, WriteOp, WriteRequest};
 use pemba_core::{CheckItem, CheckRequest, Engine};
@@ -30,6 +31,7 @@ const SUBJECT: &str = "user:anne";
 
 fn run(case: &Case) {
     let tuples: Vec<Relationship> = case.tuples.iter().map(|t| t.parse().unwrap()).collect();
+    install_recorder();
     let engine = Engine::builder().store(MemoryStore::new()).build().unwrap();
     engine.write_schema(case.schema).unwrap();
     engine
@@ -88,15 +90,12 @@ fn run(case: &Case) {
                 subject: subject.clone(),
             })
             .collect();
-        let rec = Recorder::default();
-        let results = tracing::subscriber::with_default(rec.clone(), || {
-            tracing::callsite::rebuild_interest_cache();
-            engine.check_bulk(items, Consistency::Latest).unwrap()
-        });
+        let start = spans().len();
+        let results = engine.check_bulk(items, Consistency::Latest).unwrap();
         for (&&(resource, member, want, _), got) in order.iter().zip(results) {
             assert_eq!(got.unwrap(), want, "check_bulk item {resource}#{member}");
         }
-        assert_eq!(rec.bulk_field("cycle_passes"), want_passes.to_string());
+        assert_eq!(bulk_field(start, "cycle_passes"), want_passes.to_string());
     }
 }
 
@@ -263,23 +262,44 @@ definition group {
 
 type Fields = Vec<(String, String)>;
 
-/// Records every span's name and fields, including values recorded after creation.
-#[derive(Clone, Default)]
-struct Recorder(Arc<Mutex<Vec<(String, Fields)>>>);
+/// Every span created in this binary, by any thread: the thread, the span's name and its
+/// fields, including values recorded after creation. A span's id is its index + 1.
+static SPANS: Mutex<Vec<(ThreadId, String, Fields)>> = Mutex::new(Vec::new());
 
-impl Recorder {
-    fn bulk_field(&self, name: &str) -> String {
-        let spans = self.0.lock().unwrap();
-        let (_, fields) = spans
-            .iter()
-            .find(|(n, _)| n == "check_bulk")
-            .expect("a `check_bulk` span");
-        fields.iter().rev().find(|(n, _)| n == name).map_or_else(
-            || panic!("span has no field {name}: {fields:?}"),
-            |(_, v)| v.clone(),
-        )
-    }
+fn spans() -> std::sync::MutexGuard<'static, Vec<(ThreadId, String, Fields)>> {
+    // A panicking test never holds the lock, but don't let one poison the rest.
+    SPANS.lock().unwrap_or_else(PoisonError::into_inner)
 }
+
+/// The last value of `name` on the first `check_bulk` span this thread created at or after
+/// index `start`.
+fn bulk_field(start: usize, name: &str) -> String {
+    let me = thread::current().id();
+    let spans = spans();
+    let (_, _, fields) = spans[start..]
+        .iter()
+        .find(|(t, n, _)| *t == me && n == "check_bulk")
+        .expect("a `check_bulk` span");
+    fields.iter().rev().find(|(n, _)| n == name).map_or_else(
+        || panic!("span has no field {name}: {fields:?}"),
+        |(_, v)| v.clone(),
+    )
+}
+
+/// Installs [`Recorder`] as the global default subscriber, once, before the first engine.
+///
+/// Not a per-test `with_default` (#42): `tracing` caches each callsite's interest process
+/// wide, and a test checking with no subscriber on another thread could cache "never" for a
+/// callsite while a capturing test was installing its recorder, which then saw nothing. With
+/// one always-enabled global subscriber, every interest is "always", and it is in place
+/// before any engine exists, so before any thread reaches a callsite.
+fn install_recorder() {
+    static INSTALL: Once = Once::new();
+    INSTALL.call_once(|| tracing::subscriber::set_global_default(Recorder).unwrap());
+}
+
+/// Records every span into [`SPANS`].
+struct Recorder;
 
 struct FieldVisitor<'a>(&'a mut Fields);
 
@@ -294,16 +314,17 @@ impl tracing::Subscriber for Recorder {
         true
     }
     fn new_span(&self, attrs: &tracing::span::Attributes<'_>) -> tracing::span::Id {
-        let mut spans = self.0.lock().unwrap();
         let mut fields = Vec::new();
         attrs.record(&mut FieldVisitor(&mut fields));
-        spans.push((attrs.metadata().name().to_owned(), fields));
+        let mut spans = spans();
+        let name = attrs.metadata().name().to_owned();
+        spans.push((thread::current().id(), name, fields));
         tracing::span::Id::from_u64(spans.len() as u64)
     }
     fn record(&self, id: &tracing::span::Id, values: &tracing::span::Record<'_>) {
-        let mut spans = self.0.lock().unwrap();
+        let mut spans = spans();
         let i = usize::try_from(id.into_u64() - 1).unwrap();
-        values.record(&mut FieldVisitor(&mut spans[i].1));
+        values.record(&mut FieldVisitor(&mut spans[i].2));
     }
     fn record_follows_from(&self, _: &tracing::span::Id, _: &tracing::span::Id) {}
     fn event(&self, _: &tracing::Event<'_>) {}
