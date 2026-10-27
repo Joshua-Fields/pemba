@@ -867,7 +867,7 @@ fn gc_at_a_skipped_revision() {
 }
 
 /// OQ-053: once GC may have pruned a batch from the map, resolving it cannot claim
-/// "rolled back"; it fails closed with a store error that says why.
+/// "rolled back"; it fails like an expired revision, with a message about `keep_from`.
 #[test]
 fn resolving_a_batch_gc_pruned_fails_closed() {
     let Some(url) = pg_url() else { return };
@@ -883,9 +883,11 @@ fn resolving_a_batch_gc_pruned_fails_closed() {
     s.gc(r3).unwrap();
     let err = s.store.resolve_batch(batch, xid).unwrap_err();
     assert!(
-        matches!(&err, Error::Store(StoreError::Backend { message }) if message.contains("GC pruned")),
+        matches!(err, Error::PendingRevisionExpired { horizon } if horizon == r3),
         "{err:?}"
     );
+    assert_eq!(err.code(), "REVISION_EXPIRED");
+    assert!(err.to_string().contains("keep_from"), "{err}");
 }
 
 // ---- SQLSTATE mapping ----

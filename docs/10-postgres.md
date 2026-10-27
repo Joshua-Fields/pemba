@@ -742,8 +742,10 @@ million writes at GC time. As built:
 - The AC reads "measure, then pick one" and also "GC compacts batch ids … and prunes the
   map"; the measurements above support the second.
 - Resolving a `PendingRevision` whose batch GC has pruned cannot tell "committed, then
-  pruned" from "rolled back to a savepoint": it fails closed with a store error saying
-  so (OQ-053).
+  pruned" from "rolled back to a savepoint": it fails with
+  `Error::PendingRevisionExpired { horizon }`, code `REVISION_EXPIRED` (the same contract;
+  Python `ConsistencyError`), whose message says to resolve before `gc` with a
+  `keep_from` above the write (OQ-053, decided).
 - Reads below head cost about 9× a head read here (87 ms vs 9 ms for 500 tuples), more
   than the spike's +34%: OQ-054, for T5.12's benchmarks.
 

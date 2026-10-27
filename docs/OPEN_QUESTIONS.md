@@ -1284,6 +1284,9 @@ it is resolved.
 - Options considered: fold it into the version read via a dialect hook; cache per
   connection (a `PgTxn` cannot identify its connection across calls).
 - Resolve by: T5.12's benchmarks, if foreign-mode write latency matters.
+- Resolution: Resolved by the human, 2026-10-27: defer to T5.12. The check stays a
+  separate query on the caller's transaction until the benchmarks show whether the round
+  trip matters.
 
 ## OQ-050 — Which `10` §4.1 cases T5.5 covers
 - Raised in: T5.5 (AC: "the full conformance suite passes (the `10` §4.1 additions
@@ -1327,6 +1330,9 @@ it is resolved.
   stale version check (one more query, or the setting read in the same statement); (c)
   revisit after T5.12's benchmarks.
 - Resolve by: maintainer.
+- Resolution: Resolved by the human, 2026-10-27: (a) keep `FOR SHARE` at every isolation
+  level, one code path. SERIALIZABLE retries rise from about 0.5% to about 1.1%, with 0
+  give-ups in T5.6's harness; revisit in T5.12 with the benchmarks.
 
 ## OQ-053 — Resolving a `PendingRevision` after GC pruned its batch
 - Raised in: T5.7 (`docs/10-postgres.md` §1.6.4, §1.6.5)
@@ -1345,6 +1351,13 @@ it is resolved.
   and keep a "pruned up to" mark (xids are not in commit order, so not exact).
 - Resolve by: maintainer; probably fine as is, since resolving happens right after
   commit in practice.
+- Resolution: Resolved by the human, 2026-10-27: `resolve()` after GC pruned the batch
+  raises a clear error with the same contract as `REVISION_EXPIRED`, and its message says
+  to resolve before `gc` and names `keep_from`. Implemented as
+  `Error::PendingRevisionExpired { horizon }`, whose `code()` is `REVISION_EXPIRED` (so
+  `Error::CODES` and the Python class, `ConsistencyError`, are unchanged); with
+  `gc_horizon = 0` the answer stays `WriteRolledBack`. Tested by
+  `resolving_a_batch_gc_pruned_fails_closed`.
 
 ## OQ-054 — Reads below head cost about 9× a head read
 - Raised in: T5.7 (`tests/gc_measure.rs`)

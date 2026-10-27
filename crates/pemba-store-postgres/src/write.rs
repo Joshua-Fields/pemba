@@ -256,16 +256,11 @@ impl WritableStore for PostgresStore {
                 // Committed without the batch: rolled back to a savepoint, or, once GC has
                 // run, possibly pruned from the map below the horizon (OQ-053). Only the
                 // first can be claimed without GC.
-                if self.gc_horizon()? == Revision(0) {
+                let horizon = self.gc_horizon()?;
+                if horizon == Revision(0) {
                     Err(Error::WriteRolledBack)
                 } else {
-                    Err(Error::Store(StoreError::Backend {
-                        message: format!(
-                            "batch {batch} committed but is not in the batch map: it was \
-                             rolled back to a savepoint, or GC pruned it below the horizon; \
-                             resolve a PendingRevision right after its commit"
-                        ),
-                    }))
+                    Err(Error::PendingRevisionExpired { horizon })
                 }
             }
             // "aborted", or NULL: too old to know, so certainly not pending, and a

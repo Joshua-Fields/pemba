@@ -78,6 +78,20 @@ pub enum Error {
     /// the transaction committed (`docs/10-postgres.md` §1.6.4).
     #[error("the write was rolled back, so it has no revision")]
     WriteRolledBack,
+    /// [`Engine::resolve`](crate::Engine::resolve) on a write whose batch is no longer in
+    /// the store's batch map after GC ran: it committed below the horizon and `gc` pruned
+    /// it, or it was rolled back to a savepoint; the two cannot be told apart any more
+    /// (OQ-053). Same code and contract as [`Error::RevisionExpired`].
+    #[error(
+        "the write's revision can no longer be resolved: its batch is not in the batch map, \
+         so it committed below the GC horizon {horizon} and gc(keep_from) pruned it, or it \
+         was rolled back to a savepoint; resolve a PendingRevision right after its commit, \
+         before running gc with a keep_from above it"
+    )]
+    PendingRevisionExpired {
+        /// The GC horizon when `resolve` ran.
+        horizon: Revision,
+    },
     /// The requested revision is below the GC horizon, so its history is gone.
     #[error("revision {requested} has expired (GC horizon is {horizon})")]
     RevisionExpired {
@@ -253,7 +267,9 @@ impl Error {
             Self::RevisionNotYetAvailable { .. } => "REVISION_NOT_YET_AVAILABLE",
             Self::RevisionPending => "REVISION_PENDING",
             Self::WriteRolledBack => "WRITE_ROLLED_BACK",
-            Self::RevisionExpired { .. } => "REVISION_EXPIRED",
+            Self::PendingRevisionExpired { .. } | Self::RevisionExpired { .. } => {
+                "REVISION_EXPIRED"
+            }
             Self::MaxDepthExceeded { .. } => "MAX_DEPTH_EXCEEDED",
             Self::NonMonotonicCycle { .. } => "NON_MONOTONIC_CYCLE",
             Self::FanoutExceeded { .. } => "FANOUT_EXCEEDED",
@@ -293,6 +309,7 @@ mod tests {
             | Error::RevisionNotYetAvailable { .. }
             | Error::RevisionPending
             | Error::WriteRolledBack
+            | Error::PendingRevisionExpired { .. }
             | Error::RevisionExpired { .. }
             | Error::MaxDepthExceeded { .. }
             | Error::NonMonotonicCycle { .. }
@@ -331,6 +348,7 @@ mod tests {
             },
             Error::RevisionPending,
             Error::WriteRolledBack,
+            Error::PendingRevisionExpired { horizon: r },
             Error::RevisionExpired {
                 requested: r,
                 horizon: r,
