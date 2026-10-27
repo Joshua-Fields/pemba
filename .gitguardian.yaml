@@ -1,0 +1,15 @@
+# GitGuardian / ggshield configuration. Each entry ignores one specific, known-fake
+# secret value wherever it matches; no file or directory is excluded from scanning.
+version: 2
+secret:
+  ignored_matches:
+    # Throwaway password of the Postgres service container in .github/workflows/ci.yml
+    # (POSTGRES_PASSWORD and PEMBA_PG_URL). The container exists only for the job's
+    # lifetime and is reachable only from the runner.
+    - name: CI Postgres service container password (fake)
+      match: postgres
+    # Fake password in crates/pemba-store-postgres/tests/migrate.rs
+    # (`bad_configuration_is_an_invalid_request`), which checks that a DSN's password
+    # never appears in an error message. The line also carries a ggignore comment.
+    - name: Test fixture DSN password (fake)
+      match: hunter2secret

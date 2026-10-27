@@ -1170,3 +1170,62 @@ it is resolved.
 - Resolution: Resolved by the human, 2026-10-27: write(conn=...) / write_in return
   PendingRevision on all stores; there is no assign_now. int(pending) works for one
   release with a deprecation warning, then is removed.
+
+## OQ-046 — `pemba_rel_rev` cannot serve head reads index-only without `resource_id`
+- Raised in: T5.3 (`docs/10-postgres.md` §3.2)
+- Blocking: no (storage version 1 is unreleased until T5.12; T5.4 can change it)
+- Current choice: T5.3 builds the index as §3.2 lists it, the SQLite columns with
+  `deleted_batch` appended: `(subject_type, subject_id, subject_relation, resource_type,
+  relation, created_batch, deleted_batch)`. §3.2 says `deleted_batch` is added "so that
+  head reads stay index-only", but a reverse read also returns `resource_id`, which is not
+  in the index, so Postgres must visit the heap anyway.
+- Options considered: add `INCLUDE (resource_id)` (index-only, larger index); leave as is
+  and drop the claim from §3.2.
+- Resolve by: T5.4, with `EXPLAIN` on the reverse-read shapes.
+
+## OQ-047 — Default of `PostgresConfig::auto_migrate`
+- Raised in: T5.3 (`docs/10-postgres.md` §3.4)
+- Blocking: no
+- Current choice: `false`. §3.4 says `auto_migrate = false` is "the recommended production
+  default, as for SQLite", but SQLite's field defaults to `true`; the spec does not say
+  which default the Postgres field takes. `false` is the conservative reading: an app
+  process never runs DDL on a shared database unless asked, and a skipped deploy step is
+  `NotMigrated`, not a surprise migration.
+- Options considered: `true`, matching `SqliteConfig` (convenient for local development).
+- Resolve by: maintainer, before T5.9 (Python `Engine.postgres` mirrors the default).
+- Resolution: Resolved by the human, 2026-10-27: `false` on Postgres. Why it differs from
+  SQLite: a SQLite file belongs to one app and `true` makes a new file usable at once,
+  while a Postgres database is shared and long-lived, migrating it needs `CREATE` on the
+  schema (app roles usually lack it), and several instances starting at once would all
+  run DDL. Recorded in `10` §3.4; Python `Engine.postgres` (T5.9) takes the same default.
+
+## OQ-048 — Returning `Err` instead of panicking on a tokio runtime thread
+- Raised in: T5.3 review (decision (b): return `Err`; a direct `tokio` dependency approved)
+- Blocking: no (the current behaviour is documented and pinned by a test)
+- Current choice: unchanged. The `postgres` crate panics ("Cannot start a runtime from
+  within a runtime") when called on a thread that has *entered* a tokio runtime (an async
+  task or a `block_on` body). Tokio exposes that state only privately. The public signals
+  cannot separate it from `spawn_blocking`, the documented safe path: probed on tokio
+  1.54.1, `Handle::try_current()` is `Ok` and `task::try_id()` is `Some` inside both an
+  async task and `spawn_blocking`. So an `Err` keyed on them would also reject
+  `spawn_blocking`.
+- Options considered:
+  1. `Handle::try_current()` → `Err`: also refuses `spawn_blocking` and `Handle::enter`
+     callers, the documented path.
+  2. `catch_unwind` around each driver call at the store boundary, mapping the panic to
+     `Err` (the panic fires on entry, before any I/O). Works wherever unwinding is on;
+     the default panic hook still prints the message; a `panic = "abort"` build still
+     aborts.
+  3. When `Handle::try_current()` is `Ok`, run the driver call on a scoped OS thread:
+     never panics and never fails, but costs a thread spawn per call on the
+     `spawn_blocking` path too.
+  4. Keep the panic, documented and pinned by a test (current).
+- Resolve by: maintainer.
+- Resolution: Resolved by the human, 2026-10-27: option 4. Keep the panic, documented and
+  pinned by `the_store_works_through_spawn_blocking`; this is how `postgres` and
+  `reqwest::blocking` behave. Reasons: inside a tokio task the panic is caught by the
+  runtime and fails that one request (fail closed per request, never a wrong answer);
+  Python is unaffected, since its calls never run on a tokio thread; and the real fix for
+  async callers is T5.13's async foreign mode. No direct `tokio` dependency. The crate
+  docs of `pemba-store-postgres` say "from async code, call through `spawn_blocking`",
+  with an example.

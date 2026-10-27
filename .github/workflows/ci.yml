@@ -40,7 +40,7 @@ jobs:
         run: |
           status=0
           for d in pemba pemba-core pemba-schema pemba-store-memory pemba-sqlite-common \
-                   pemba-store-sqlite pemba-fixtures pemba-cli pemba-py; do
+                   pemba-store-sqlite pemba-store-postgres pemba-fixtures pemba-cli pemba-py; do
             for f in LICENSE NOTICE; do
               cmp -s "$f" "crates/$d/$f" || { echo "::error::crates/$d/$f differs from $f"; status=1; }
             done
@@ -165,6 +165,38 @@ jobs:
       # stores, ~8 s), `prop3_*_full` (lookup_subjects, both stores, ~8 s) and
       # `schema_change_*_full` run at least 1 000 cases each; `prop4_*_full` includes GC.
       - run: cargo test -p pemba-testkit --test properties -- --ignored
+
+  postgres:
+    # The Postgres store against each supported server (docs/10-postgres.md §4): the oldest
+    # supported (15) and the newest (18). Service containers need Linux runners. The test
+    # job above runs the same tests without PEMBA_PG_URL, where they report "not run".
+    name: postgres ${{ matrix.pg }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        pg: ["15", "18"]
+    services:
+      postgres:
+        image: postgres:${{ matrix.pg }}
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 30
+    env:
+      PEMBA_PG_URL: postgres://postgres:postgres@localhost:5432/postgres
+      PEMBA_PG_REQUIRED: "1"
+    steps:
+      - uses: actions/checkout@v5
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test -p pemba-store-postgres --all-features
+      # The plaintext-only build still compiles and passes.
+      - run: cargo test -p pemba-store-postgres --no-default-features
 
   publish:
     # Every publishable crate packages and builds from its .crate alone (T3.3). Never

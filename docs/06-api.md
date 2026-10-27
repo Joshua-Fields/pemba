@@ -304,6 +304,27 @@ let engine = Engine::builder().store(store).config(cfg).build()?;
 engine.write_schema(SCHEMA)?;
 ```
 
+Postgres (`pemba-store-postgres`, M5; T5.3 ships open / migrate only, reads and writes
+follow in T5.4–T5.5):
+
+```rust
+let config = PostgresConfig::default()    // #[non_exhaustive]; pub fields + with_* setters
+    .with_schema("authz")                 // Option<String>; None = current_schema() at open
+    .with_pool_size(8)                    // most connections, opened on demand; >= 1
+    .with_auto_migrate(false);            // default false (deploy step migrates)
+PostgresStore::migrate("postgres://app@db/app", &config)?;   // deploy step: one transaction,
+                                          // concurrent callers serialise; schema must exist
+let store = PostgresStore::open("postgres://app@db/app", config)?;
+                                          // NotMigrated / StorageVersionTooNew as SQLite;
+                                          // Store error if the server is < 15 or not UTF8
+```
+
+The store is blocking. From async Rust, call it (and an engine over it) inside
+`tokio::task::spawn_blocking`: the `postgres` crate panics when called on a thread that
+is running a tokio runtime (pinned by a test). The `tls` feature (default on) connects
+through rustls, verifying the server against the platform trust store; the DSN's
+`sslmode` (`disable`, `prefer`, `require`) decides whether TLS is used.
+
 ### 1.1 Error type
 
 ```rust
