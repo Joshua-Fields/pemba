@@ -79,7 +79,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: Swatinem/rust-cache@v2
-      - run: cargo test --release -p pemba-testkit --test properties -- --include-ignored prop1 prop2 prop3 prop4 trace::
+      - run: "cargo test --release -p pemba-testkit --test properties -- --include-ignored prop1 prop2 prop3 prop4 trace::"
         env:
           PEMBA_PROPTEST_STORE: postgres
           PEMBA_PG_URL: postgres://postgres@localhost:5432/postgres
