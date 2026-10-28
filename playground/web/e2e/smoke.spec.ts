@@ -26,3 +26,12 @@ test('runs a check and shows the answer', async ({ page }) => {
 
   expect(errors).toEqual([]);
 });
+
+// T6.9: the footer names the build (docs/11-playground.md §5).
+test('the footer shows the version and commit', async ({ page }) => {
+  await page.goto('/');
+  const version = await page.locator('footer').getAttribute('data-version');
+  expect(version).toMatch(/^\d+\.\d+\.\d+/);
+  await expect(page.locator('#build-version')).toHaveText(version ?? '');
+  await expect(page.locator('#build-commit')).toHaveText(/^[0-9a-f]{7,}$/);
+});

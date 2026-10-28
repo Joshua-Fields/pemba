@@ -5,7 +5,12 @@ name: Playground
 #   1 000 generated cases exactly as the native library does, byte for byte, and the
 #   generated cases must agree with the reference evaluator;
 # - site (T6.4): type-check, Vitest, the production build within its gzip budget, a
-#   Playwright smoke test against it, and `npm audit` of the shipped dependencies.
+#   Playwright smoke test against it, and `npm audit` of the shipped dependencies;
+# - release (T6.9, `v*` tags): creates or updates the GitHub Release (pre-release, notes
+#   from CHANGELOG.md), then attaches the site built for `/pemba/v/<version>/`;
+# - deploy (T6.9, tags and pushes to main): assembles the whole Pages site (§5.1) from
+#   every release asset, the newest release at the root and main at `/next/`, checks it,
+#   and deploys it.
 # Runs on PRs that can change an answer or the playground.
 on:
   pull_request:
@@ -18,6 +23,8 @@ on:
       - ".github/workflows/playground.yml"
   push:
     branches: [main]
+    # Path filters are not applied to tag pushes, so every `v*` tag runs.
+    tags: ["v*"]
     paths:
       - "crates/**"
       - "playground/**"
@@ -107,3 +114,171 @@ jobs:
           name: playground-site
           path: playground/web/dist/
           retention-days: 7
+
+  release:
+    name: release asset
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [conformance, site]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ github.ref_name }}
+    defaults:
+      run:
+        working-directory: playground/web
+    steps:
+      - uses: actions/checkout@v5
+      - name: The tag names the workspace version
+        id: version
+        run: |
+          version="${TAG#v}"
+          workspace=$(cargo metadata --format-version 1 --no-deps --locked \
+            | jq -r '.packages[] | select(.name == "pemba-core") | .version')
+          if [ "$version" != "$workspace" ]; then
+            echo "::error::tag $TAG does not match the workspace version $workspace"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+      # The release exists before anything is attached to it. One made by hand keeps
+      # its title.
+      - name: Create or update the GitHub Release
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          node scripts/release.mjs notes "$VERSION" > "$RUNNER_TEMP/notes.md"
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            gh release edit "$TAG" --notes-file "$RUNNER_TEMP/notes.md" --prerelease
+          else
+            gh release create "$TAG" --verify-tag --title "pemba $VERSION" \
+              --notes-file "$RUNNER_TEMP/notes.md" --prerelease
+          fi
+      - name: Is the playground already attached?
+        id: attached
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          if gh release view "$TAG" --json assets --jq '.assets[].name' \
+              | grep -qx "playground-$VERSION.tar.gz"; then
+            echo "::notice::playground-$VERSION.tar.gz is already attached; a release's asset is never rebuilt"
+            echo "attached=true" >> "$GITHUB_OUTPUT"
+          fi
+      - if: steps.attached.outputs.attached != 'true'
+        run: rustup target add wasm32-unknown-unknown
+      - if: steps.attached.outputs.attached != 'true'
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: playground-site
+      - name: Install wasm-bindgen
+        if: steps.attached.outputs.attached != 'true'
+        run: |
+          version=$(cargo metadata --format-version 1 --locked \
+            | jq -r '.packages[] | select(.name == "wasm-bindgen") | .version')
+          cargo install wasm-bindgen-cli --version "$version" --locked
+      - name: Build and attach playground-<version>.tar.gz
+        if: steps.attached.outputs.attached != 'true'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          PLAYGROUND_BASE: /pemba/v/${{ steps.version.outputs.version }}/
+        run: |
+          npm ci
+          npm run wasm
+          npm run build
+          npm run size
+          tar -czf "$RUNNER_TEMP/playground-$VERSION.tar.gz" -C dist .
+          gh release upload "$TAG" "$RUNNER_TEMP/playground-$VERSION.tar.gz"
+
+  deploy:
+    name: deploy Pages
+    # After `release` on a tag; `release` is skipped on main.
+    if: >-
+      !cancelled() && github.event_name == 'push'
+      && needs.conformance.result == 'success' && needs.site.result == 'success'
+      && (needs.release.result == 'success' || needs.release.result == 'skipped')
+    needs: [conformance, site, release]
+    runs-on: ubuntu-latest
+    # One deploy at a time, and each finishes: a tag and a merge can land together.
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SITE: ${{ github.workspace }}/site
+      ASSETS: ${{ github.workspace }}/release-assets
+    steps:
+      # `/next/` is main, also on a tag; the tags are needed to rebuild the root.
+      - uses: actions/checkout@v5
+        with:
+          ref: main
+          fetch-depth: 0
+      - run: rustup target add wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: playground-site
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+      - name: Install wasm-bindgen
+        run: |
+          version=$(cargo metadata --format-version 1 --locked \
+            | jq -r '.packages[] | select(.name == "wasm-bindgen") | .version')
+          cargo install wasm-bindgen-cli --version "$version" --locked
+      # Pages replaces the whole site, so every release is re-published from its asset,
+      # never rebuilt: an old link runs the very .wasm that version shipped.
+      - name: Every release's playground at /v/<version>/
+        run: |
+          mkdir -p "$ASSETS" "$SITE/v"
+          gh api --paginate "repos/$GITHUB_REPOSITORY/releases" --jq '.[]
+            | select(.draft | not) | .tag_name as $tag | .assets[]
+            | select(.name | test("^playground-.+\\.tar\\.gz$")) | "\($tag) \(.name)"' \
+            > "$RUNNER_TEMP/assets.txt"
+          while read -r tag name; do
+            gh release download "$tag" --pattern "$name" --dir "$ASSETS"
+            version="${name#playground-}"
+            version="${version%.tar.gz}"
+            mkdir -p "$SITE/v/$version"
+            tar -xzf "$ASSETS/$name" -C "$SITE/v/$version"
+          done < "$RUNNER_TEMP/assets.txt"
+      - name: main at /next/
+        working-directory: playground/web
+        env:
+          PLAYGROUND_BASE: /pemba/next/
+        run: |
+          npm ci
+          npm run wasm
+          npm run build
+          cp -R dist "$SITE/next"
+      - name: The newest release at the root
+        run: |
+          newest=$(node playground/web/scripts/release.mjs newest $(ls "$SITE/v"))
+          if [ -z "$newest" ]; then
+            echo "::notice::no playground release yet; the root points at /next/"
+            echo '<!doctype html><meta charset="utf-8"><title>pemba playground</title><meta http-equiv="refresh" content="0; url=next/"><a href="next/">pemba playground</a>' \
+              > "$SITE/index.html"
+            exit 0
+          fi
+          # Rebuilt from the same tag with base /pemba/ (§5.1).
+          git worktree add "$RUNNER_TEMP/root" "v$newest"
+          cd "$RUNNER_TEMP/root/playground/web"
+          npm ci
+          npm run wasm
+          PLAYGROUND_BASE=/pemba/ npm run build
+          cp -R dist/. "$SITE/"
+      - name: Check the assembled site
+        run: node playground/web/scripts/check-site.mjs "$SITE" "$ASSETS"
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: site
+      - id: deployment
+        uses: actions/deploy-pages@v5
