@@ -33,7 +33,12 @@ const commit = git('rev-parse', 'HEAD');
 const shortCommit = git('rev-parse', '--short', 'HEAD');
 // A link names the engine that produced its answers (§4): on /next/ a release number
 // alone would not, so the commit goes with it.
-const engine = base.endsWith('/next/') ? `${version}+${shortCommit}` : version;
+const next = base.endsWith('/next/');
+const engine = next ? `${version}+${shortCommit}` : version;
+
+// `/next/` is main, not a release; it says so on the page (OQ-057). The text is the one
+// `scripts/check-site.mjs` looks for.
+const devLabel = next ? '<p class="dev-label" id="dev-label">development build (main)</p>' : '';
 
 /**
  * Writes the version and commit into the page footer (§5) as static HTML, so the deploy
@@ -44,6 +49,7 @@ function buildInfo(): Plugin {
     PEMBA_VERSION: version,
     PEMBA_COMMIT: commit,
     PEMBA_SHORT_COMMIT: shortCommit,
+    PEMBA_DEV_LABEL: devLabel,
   };
   return {
     name: 'pemba-build-info',

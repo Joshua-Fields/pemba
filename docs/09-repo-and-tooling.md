@@ -147,17 +147,20 @@ them, never `set -x` around them, and do not expose them to workflows triggered 
   - it uploads `dist/` as an artifact.
   The workflow also runs on `v*` tags (T6.9, `docs/11-playground.md` §5.1). The `release`
   job (tags only, after `conformance` and `site`) checks the tag names the workspace
-  version, creates the tag's GitHub Release or updates it if it exists (pre-release, notes
-  from the version's `CHANGELOG.md` section, `scripts/release.mjs notes`; a release made
-  by hand keeps its title), and only then attaches `playground-<version>.tar.gz`, built
-  with `base` `/pemba/v/<version>/`. An asset already attached is never rebuilt. The
+  version, creates the tag's GitHub Release or updates it if it exists (pre-release only
+  for a version with a prerelease part such as `-alpha.N`, `scripts/release.mjs
+  prerelease`; notes from the version's `CHANGELOG.md` section, `scripts/release.mjs
+  notes`; a release made by hand keeps its title), and only then attaches
+  `playground-<version>.tar.gz`, built with `base` `/pemba/v/<version>/`. An asset
+  already attached is never rebuilt; a re-run only refreshes the notes. The
   `deploy` job (tags and pushes to main, after `release` on a tag) assembles the whole
   Pages site: every release's `playground-*.tar.gz` unpacked at `/v/<version>/`, the
   newest release (`scripts/release.mjs newest`) rebuilt from its tag with `base`
   `/pemba/` at the root (a redirect to `/next/` before the first one, OQ-057), and main
   at `/next/`. Its workflow test, `scripts/check-site.mjs`, fails unless every release
-  asset has its `/v/<version>/`, each page's own URLs stay under its path, and the
-  root's footer version is the newest release; then `actions/deploy-pages` publishes it.
+  asset has its `/v/<version>/`, each page's own URLs stay under its path, the root's
+  footer version is the newest release, and only `/next/` carries the "development
+  build (main)" label; then `actions/deploy-pages` publishes it.
   One deploy runs at a time (`concurrency: pages`). The page footer shows the version and
   commit (`vite.config.ts`).
   Dependabot (`.github/dependabot.yml`) updates the npm dependencies weekly. Cargo

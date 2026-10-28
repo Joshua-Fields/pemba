@@ -1,6 +1,6 @@
 // The deploy's workflow test (docs/11-playground.md §5.1): fails unless the assembled
 // site has a `/v/<version>/` for every playground release asset, each built for its own
-// path, the root serves the newest release, and `/next/` exists.
+// path, the root serves the newest release, and `/next/` exists and is labelled as main.
 //   node scripts/check-site.mjs <site> <assets dir>
 import fs from 'node:fs';
 import path from 'node:path';
@@ -28,6 +28,9 @@ function foreignUrls(html, base) {
   return [...html.matchAll(/\b(?:src|href)="(\/[^"]*)"/g)].map((m) => m[1]).filter((u) => !u.startsWith(base));
 }
 
+// Shown on `/next/` only (OQ-057); written by vite.config.ts.
+const DEV_LABEL = 'development build (main)';
+
 function checkPage(site, dir, base, version, problems) {
   const file = path.join(site, dir, 'index.html');
   if (!fs.existsSync(file)) {
@@ -41,6 +44,10 @@ function checkPage(site, dir, base, version, problems) {
   }
   for (const url of foreignUrls(html, base)) {
     problems.push(`${dir || '/'}: ${url} is outside ${base}`);
+  }
+  const dev = dir === 'next';
+  if (html.includes(DEV_LABEL) !== dev) {
+    problems.push(`${dir || '/'}: ${dev ? 'no' : 'has a'} "${DEV_LABEL}" label`);
   }
 }
 

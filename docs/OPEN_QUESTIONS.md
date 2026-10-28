@@ -1470,3 +1470,9 @@ it is resolved.
 - (c) A release's asset is never rebuilt (§5.1): on a re-run for a tag whose release
   already has the asset, the workflow updates the notes and skips the build.
 - Resolve by: maintainer.
+- Resolution: Resolved by the human, 2026-10-28: (a) accepted: the root redirects to
+  `/next/` until the first tag with a playground archive, and `/next/` shows a visible
+  "development build (main)" label; (b) changed: a release is marked pre-release only
+  when its version has a prerelease suffix (a hyphen, e.g. `-alpha.N`, `-rc.N`), so 0.1.0
+  and other plain versions are full releases; (c) accepted: an attached archive is never
+  rebuilt, a re-run only refreshes the notes.

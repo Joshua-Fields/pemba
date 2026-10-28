@@ -9,6 +9,10 @@
 # schema SQL text in sqlite_master on Windows than on every other platform.
 *.sql text eol=lf
 
+# The playground's tests regenerate these JSON snapshots with LF; a CRLF checkout shows
+# them as modified after every test run.
+playground/web/**/*.json text eol=lf
+
 # rustfmt.toml sets newline_style = "Unix", so `cargo fmt --check` fails on every Rust file a
 # Windows checkout with core.autocrlf=true converts to CRLF.
 *.rs text eol=lf

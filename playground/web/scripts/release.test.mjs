@@ -5,7 +5,7 @@ import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { checkSite } from './check-site.mjs';
-import { changelogSection, compareVersions, newest } from './release.mjs';
+import { changelogSection, compareVersions, isPrerelease, newest } from './release.mjs';
 
 describe('compareVersions', () => {
   it('follows SemVer precedence', () => {
@@ -27,6 +27,15 @@ describe('compareVersions', () => {
 
   it('rejects what is not a version', () => {
     expect(() => compareVersions('v0.1.0', '0.1.0')).toThrow(/not a version/);
+  });
+});
+
+describe('isPrerelease', () => {
+  it('is true only with a prerelease part', () => {
+    expect(isPrerelease('0.1.0-alpha.4')).toBe(true);
+    expect(isPrerelease('1.0.0-rc.1')).toBe(true);
+    expect(isPrerelease('0.1.0')).toBe(false);
+    expect(isPrerelease('1.2.3+build.5')).toBe(false);
   });
 });
 
@@ -90,11 +99,12 @@ describe('checkSite', () => {
     if (site !== '') fs.rmSync(site, { recursive: true, force: true });
   });
 
-  function page(dir, base, version) {
+  function page(dir, base, version, label = dir === 'next') {
     fs.mkdirSync(path.join(site, dir), { recursive: true });
     fs.writeFileSync(
       path.join(site, dir, 'index.html'),
-      `<script type="module" src="${base}assets/index.js"></script>\n<footer class="foot" data-version="${version}"></footer>\n`,
+      `${label ? '<p class="dev-label">development build (main)</p>\n' : ''}` +
+        `<script type="module" src="${base}assets/index.js"></script>\n<footer class="foot" data-version="${version}"></footer>\n`,
     );
   }
 
@@ -134,6 +144,16 @@ describe('checkSite', () => {
     assemble();
     fs.rmSync(path.join(site, 'next'), { recursive: true });
     expect(checkSite(site, releases)).toEqual(['next: no index.html']);
+  });
+
+  it('wants /next/ labelled as a development build, and no release labelled so', () => {
+    assemble();
+    page('next', '/pemba/next/', '0.1.0-alpha.6', false);
+    page('v/0.1.0-alpha.4', '/pemba/v/0.1.0-alpha.4/', '0.1.0-alpha.4', true);
+    expect(checkSite(site, releases)).toEqual([
+      'v/0.1.0-alpha.4: has a "development build (main)" label',
+      'next: no "development build (main)" label',
+    ]);
   });
 
   it('accepts a root that only points at /next/ before the first release', () => {

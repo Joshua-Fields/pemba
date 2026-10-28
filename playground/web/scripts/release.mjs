@@ -1,5 +1,6 @@
 // Release helpers for the Pages deploy (docs/11-playground.md §5.1):
 //   node scripts/release.mjs notes <version> [CHANGELOG.md]   the version's CHANGELOG section
+//   node scripts/release.mjs prerelease <version>              `true` if it has a prerelease part
 //   node scripts/release.mjs newest <version>...               the release the site root serves
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -38,11 +39,19 @@ export function compareVersions(a, b) {
 }
 
 /**
+ * Whether `version` has a prerelease part (`-alpha.N`, `-rc.N`), so its GitHub Release is
+ * marked pre-release; a plain version is a full release (OQ-057).
+ */
+export function isPrerelease(version) {
+  return parse(version).pre.length > 0;
+}
+
+/**
  * The release the site root serves: the newest stable release once one exists, and
  * until then the newest prerelease (§5.1). `undefined` when there are none.
  */
 export function newest(versions) {
-  const stable = versions.filter((v) => parse(v).pre.length === 0);
+  const stable = versions.filter((v) => !isPrerelease(v));
   const pool = stable.length > 0 ? stable : versions;
   return [...pool].sort(compareVersions).at(-1);
 }
@@ -70,12 +79,18 @@ function main(argv) {
     process.stdout.write(changelogSection(fs.readFileSync(file, 'utf8'), args[0]));
     return;
   }
+  if (command === 'prerelease' && args.length === 1) {
+    process.stdout.write(`${isPrerelease(args[0])}\n`);
+    return;
+  }
   if (command === 'newest') {
     const v = newest(args);
     if (v !== undefined) process.stdout.write(`${v}\n`);
     return;
   }
-  console.error('usage: node scripts/release.mjs notes <version> [CHANGELOG.md] | newest <version>...');
+  console.error(
+    'usage: node scripts/release.mjs notes <version> [CHANGELOG.md] | prerelease <version> | newest <version>...',
+  );
   process.exit(2);
 }
 
