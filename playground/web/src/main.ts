@@ -15,6 +15,7 @@ import { EngineClient, EngineFailure } from './engine';
 import { outcomeGutter, showOutcomes } from './outcomes';
 import { checkLimits, describe, pageError } from './result';
 import { follow, theme } from './theme';
+import { traceTree } from './trace';
 import type { QueryKind, RunRequest, View } from './types';
 
 const SCHEMA = `definition user {}
@@ -116,7 +117,8 @@ async function runNow(): Promise<void> {
   const request: RunRequest = {
     schema: editors.schema,
     relationships: editors.relationships,
-    query: { kind: queryKind, text: text.value },
+    // A check also returns its trace, for the explain tree.
+    query: queryKind === 'check' ? { kind: queryKind, text: text.value, explain: true } : { kind: queryKind, text: text.value },
   };
   const limit = checkLimits(editors);
   let view: View;
@@ -221,7 +223,9 @@ function render(view: View): void {
       return;
     case 'check':
       line(`verdict ${view.allowed ? 'allowed' : 'denied'}`, view.allowed ? 'allowed' : 'denied');
-      break;
+      line('meta', `revision ${view.revision}`);
+      if (view.explain) result.append(traceTree(document, view.explain.trace, view.explain.text));
+      return;
     case 'lookup_resources':
       line('verdict', view.ids.length === 1 ? '1 resource' : `${view.ids.length} resources`);
       list(view.ids);
