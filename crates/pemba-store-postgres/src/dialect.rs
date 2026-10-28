@@ -75,6 +75,27 @@ impl SqlDialect for PostgresDialect {
             literal_body(&self.table("pemba_schema")),
         ))
     }
+    /// One `jsonb` parameter, its elements unpacked by position. Everything is qualified
+    /// with `pg_catalog`, operators included, so an app connection's `search_path`
+    /// (`Engine::write_in`) cannot redirect it.
+    fn bulk_rows(&self, n: usize) -> Option<String> {
+        let columns = [
+            "resource_type",
+            "resource_id",
+            "relation",
+            "subject_type",
+            "subject_id",
+            "subject_relation",
+        ]
+        .iter()
+        .enumerate()
+        .map(|(i, c)| format!("e.t OPERATOR(pg_catalog.->>) {i} AS {c}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+        Some(format!(
+            "(SELECT {columns} FROM pg_catalog.jsonb_array_elements(             ${n}::pg_catalog.text::pg_catalog.jsonb) AS e(t)) AS v"
+        ))
+    }
 }
 
 /// Refuses schema names the store cannot use safely.

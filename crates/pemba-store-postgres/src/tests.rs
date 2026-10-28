@@ -1072,3 +1072,103 @@ fn a_schema_write_empties_every_cache() {
         assert_eq!(conn.statements.len(), 1);
     }
 }
+
+// ---- bulk writes (OQ-056) ----
+
+#[test]
+fn a_mixed_batch_writes_one_statement_per_op_kind() {
+    let Some(url) = pg_url() else { return };
+    let s = TestStore::new(&url, false);
+    let kept = "doc:a_-=+/|.1#viewer@user:*";
+    let gone = "doc:2#viewer@group:eng#member";
+    s.write(&touch(&[kept, gone]), None).unwrap();
+    let rev = s
+        .write(
+            &request(vec![
+                WriteOp::Create(rel("doc:3#viewer@user:anne")),
+                WriteOp::Touch(rel(kept)),
+                WriteOp::Touch(rel("doc:4#viewer@group:eng#member")),
+                WriteOp::Delete(rel(gone)),
+                WriteOp::Delete(rel("doc:5#viewer@user:nobody")),
+                WriteOp::Create(rel("doc:6#viewer@user:bob")),
+            ]),
+            None,
+        )
+        .unwrap();
+    let mut got = s.read(|r| Ok(docs(r, rev))).unwrap();
+    got.sort();
+    assert_eq!(
+        got,
+        [
+            "doc:3#viewer@user:anne",
+            "doc:4#viewer@group:eng#member",
+            "doc:6#viewer@user:bob",
+            kept,
+        ]
+    );
+    // The untouched tuple keeps its first revision; the deleted one is gone only from
+    // this revision on.
+    assert!(s.read(|r| r.exists(rev, &rel(kept))).unwrap());
+    assert!(
+        s.read(|r| r.exists(Revision(rev.0 - 1), &rel(gone)))
+            .unwrap()
+    );
+    assert_eq!(s.map().len(), 2, "one revision per write");
+}
+
+#[test]
+fn a_bulk_create_conflict_names_the_first_existing_tuple_in_op_order() {
+    let Some(url) = pg_url() else { return };
+    let s = TestStore::new(&url, false);
+    let (b, c) = ("doc:1#viewer@user:bob", "doc:1#viewer@user:carl");
+    let r1 = s.write(&touch(&[b, c]), None).unwrap();
+    let err = s
+        .write(
+            &request(vec![
+                WriteOp::Touch(rel("doc:9#viewer@user:zed")),
+                WriteOp::Create(rel("doc:1#viewer@user:anne")),
+                WriteOp::Create(rel(c)),
+                WriteOp::Delete(rel("doc:1#viewer@user:dora")),
+                WriteOp::Create(rel(b)),
+            ]),
+            None,
+        )
+        .unwrap_err();
+    match err {
+        Error::AlreadyExists(t) => assert_eq!(t, c),
+        other => panic!("expected AlreadyExists, got {other:?}"),
+    }
+    // Nothing of the failed batch is visible, and it took no revision.
+    assert_eq!(s.store.head_revision().unwrap(), r1);
+    let mut got = s.read(|r| Ok(docs(r, r1))).unwrap();
+    got.sort();
+    assert_eq!(got, [b, c]);
+}
+
+#[test]
+fn bulk_writes_ignore_the_app_connections_search_path() {
+    let Some(url) = pg_url() else { return };
+    let s = TestStore::new(&url, false);
+    let mut client = s.app_client();
+    let mut tx = client.transaction().unwrap();
+    // A schema the app controls, first on its search path: nothing pemba sends may
+    // resolve a function, operator or type there.
+    let decoy = format!("{}_decoy", s.store.schema());
+    tx.batch_execute(&format!(
+        "CREATE SCHEMA \"{decoy}\"; \
+         CREATE FUNCTION \"{decoy}\".jsonb_array_elements(jsonb) RETURNS SETOF jsonb \
+             LANGUAGE sql AS 'SELECT NULL::jsonb WHERE false'; \
+         SET LOCAL search_path = \"{decoy}\", pg_catalog"
+    ))
+    .unwrap();
+    let batch = app_write(
+        &s,
+        &mut tx,
+        &touch(&["doc:1#viewer@user:anne", "doc:2#viewer@user:bob"]),
+    );
+    tx.batch_execute(&format!("DROP SCHEMA \"{decoy}\" CASCADE"))
+        .unwrap();
+    tx.commit().unwrap();
+    let rev = s.revision_of(batch).unwrap();
+    assert_eq!(s.read(|r| Ok(docs(r, rev))).unwrap().len(), 2);
+}
