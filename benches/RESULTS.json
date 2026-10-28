@@ -1,266 +1,492 @@
 {
  "metadata": {
-  "Generated": "2026-10-19 23:28 UTC",
-  "Generated at commit": "2ccb4379a630a92b731d3e996608afc090f6f7b8 (with uncommitted changes)",
+  "Generated": "2026-10-28 00:32 UTC",
+  "Generated at commit": "cde996f0eee9d474a202b07bb86d1aa7313acd62 (with uncommitted changes)",
   "CPU": "Intel(R) Core(TM) i5-14600KF, 20 logical CPUs",
   "Memory": "31.8 GiB",
-  "OS": "Windows-11-10.0.26200-SP0",
+  "OS": "Windows-11-10.0.26300-SP0",
   "rustc": "rustc 1.99.0 (b940084d7 2026-09-28)",
   "Python": "CPython 3.12.10",
-  "SQLite (Python's sqlite3)": "3.49.1"
+  "SQLite (Python's sqlite3)": "3.49.1",
+  "Postgres (Rust benches)": "PostgreSQL 18.6 (Debian 18.6-1.pgdg13+2) on x86_64-pc-linux-gnu, compiled by gcc (Debian 14.2.0-19) 14.2.0, 64-bit"
  },
  "rust": {
   "memory__direct_hit": {
    "n": 2000,
-   "min_us": 0.9,
-   "p50_us": 1.0,
-   "p90_us": 1.1,
-   "p99_us": 1.2,
-   "max_us": 121.7,
-   "mean_us": 1.0706
+   "min_us": 0.8,
+   "p50_us": 1.5,
+   "p90_us": 3.3,
+   "p99_us": 3.6,
+   "max_us": 33.6,
+   "mean_us": 1.8131
   },
   "memory__exclusion": {
    "n": 2000,
    "min_us": 1.1,
    "p50_us": 1.2,
-   "p90_us": 2.2,
-   "p99_us": 2.4,
-   "max_us": 141.6,
-   "mean_us": 1.7247000000000001
+   "p90_us": 1.2,
+   "p99_us": 1.3,
+   "max_us": 21.5,
+   "mean_us": 1.184
   },
   "memory__folders_depth_1": {
    "n": 2000,
    "min_us": 2.2,
    "p50_us": 2.3,
-   "p90_us": 2.4,
-   "p99_us": 3.7,
-   "max_us": 91.8,
-   "mean_us": 2.4305
+   "p90_us": 4.8,
+   "p99_us": 5.5,
+   "max_us": 49.4,
+   "mean_us": 2.8645500000000004
   },
   "memory__folders_depth_10": {
    "n": 2000,
-   "min_us": 8.9,
+   "min_us": 9.1,
    "p50_us": 9.4,
-   "p90_us": 9.6,
-   "p99_us": 12.5,
-   "max_us": 90.9,
-   "mean_us": 9.62225
+   "p90_us": 16.7,
+   "p99_us": 19.1,
+   "max_us": 137.7,
+   "mean_us": 10.4779
   },
   "memory__folders_depth_30": {
    "n": 2000,
    "min_us": 25.1,
-   "p50_us": 25.9,
-   "p90_us": 26.4,
-   "p99_us": 38.7,
-   "max_us": 298.4,
-   "mean_us": 26.524150000000002
+   "p50_us": 26.3,
+   "p90_us": 26.8,
+   "p99_us": 30.7,
+   "max_us": 86.1,
+   "mean_us": 26.483849999999997
   },
   "memory__groups_depth_1": {
    "n": 2000,
-   "min_us": 1.1,
-   "p50_us": 1.2,
-   "p90_us": 1.3,
-   "p99_us": 1.3,
-   "max_us": 8.3,
-   "mean_us": 1.22195
+   "min_us": 1.2,
+   "p50_us": 2.2,
+   "p90_us": 2.3,
+   "p99_us": 2.4,
+   "max_us": 66.3,
+   "mean_us": 2.25025
   },
   "memory__groups_depth_10": {
    "n": 2000,
-   "min_us": 5.4,
-   "p50_us": 5.5,
-   "p90_us": 5.6,
-   "p99_us": 5.7,
-   "max_us": 16.9,
-   "mean_us": 5.56755
+   "min_us": 5.3,
+   "p50_us": 5.6,
+   "p90_us": 10.1,
+   "p99_us": 10.2,
+   "max_us": 94.6,
+   "mean_us": 7.26865
   },
   "memory__groups_depth_5": {
    "n": 2000,
    "min_us": 2.9,
    "p50_us": 3.1,
-   "p90_us": 3.2,
-   "p99_us": 3.3,
-   "max_us": 8.3,
-   "mean_us": 3.09415
+   "p90_us": 6.8,
+   "p99_us": 20.4,
+   "max_us": 71.9,
+   "mean_us": 4.75325
   },
   "memory__lookup_resources_10k": {
    "n": 2000,
-   "min_us": 463.8,
-   "p50_us": 484.6,
-   "p90_us": 552.1,
-   "p99_us": 829.6,
-   "max_us": 1206.0,
-   "mean_us": 506.42190000000005
+   "min_us": 455.8,
+   "p50_us": 478.9,
+   "p90_us": 933.0,
+   "p99_us": 1072.0,
+   "max_us": 1501.2,
+   "mean_us": 607.1853000000001
   },
   "memory__lookup_resources_10k_pages_100": {
    "n": 2000,
-   "min_us": 1371.8,
-   "p50_us": 1435.4,
-   "p90_us": 1674.3,
-   "p99_us": 2140.7,
-   "max_us": 3590.3,
-   "mean_us": 1496.95245
+   "min_us": 1364.0,
+   "p50_us": 1427.0,
+   "p90_us": 2430.4,
+   "p99_us": 2890.7,
+   "max_us": 3092.8,
+   "mean_us": 1611.2474
   },
   "memory__wide_groups_10k": {
    "n": 2000,
    "min_us": 1.1,
-   "p50_us": 1.2,
-   "p90_us": 1.3,
-   "p99_us": 1.3,
-   "max_us": 7.0,
-   "mean_us": 1.218
+   "p50_us": 2.2,
+   "p90_us": 2.2,
+   "p99_us": 3.0,
+   "max_us": 186.1,
+   "mean_us": 2.124
   },
   "memory__write_batch_1": {
    "n": 2000,
-   "min_us": 0.6,
-   "p50_us": 0.9,
-   "p90_us": 1.6,
-   "p99_us": 2.5,
-   "max_us": 53.2,
-   "mean_us": 1.14445
+   "min_us": 0.5,
+   "p50_us": 0.8,
+   "p90_us": 1.0,
+   "p99_us": 1.3,
+   "max_us": 14.0,
+   "mean_us": 0.87195
   },
   "memory__write_batch_100": {
    "n": 2000,
-   "min_us": 63.4,
-   "p50_us": 68.4,
-   "p90_us": 84.5,
-   "p99_us": 138.2,
-   "max_us": 2800826.3,
-   "mean_us": 1472.75225
+   "min_us": 67.0,
+   "p50_us": 95.2,
+   "p90_us": 125.8,
+   "p99_us": 192.4,
+   "max_us": 3309640.1,
+   "mean_us": 1752.40575
   },
   "memory__write_batch_1000": {
    "n": 2000,
-   "min_us": 1020.2,
-   "p50_us": 1111.7,
-   "p90_us": 1268.3,
-   "p99_us": 1648.7,
-   "max_us": 2765477.5,
-   "mean_us": 2525.5399500000003
+   "min_us": 1027.1,
+   "p50_us": 1169.4,
+   "p90_us": 1760.3,
+   "p99_us": 2023.9,
+   "max_us": 3106917.9,
+   "mean_us": 2874.8115
+  },
+  "postgres__direct_hit": {
+   "n": 2000,
+   "min_us": 1361.9,
+   "p50_us": 1604.9,
+   "p90_us": 1938.9,
+   "p99_us": 2386.3,
+   "max_us": 2946.7,
+   "mean_us": 1665.48545
+  },
+  "postgres__direct_hit_below_head": {
+   "n": 2000,
+   "min_us": 1525.6,
+   "p50_us": 1778.0,
+   "p90_us": 2091.9,
+   "p99_us": 2516.5,
+   "max_us": 2957.9,
+   "mean_us": 1836.2463500000001
+  },
+  "postgres__exclusion": {
+   "n": 2000,
+   "min_us": 2133.7,
+   "p50_us": 2536.4,
+   "p90_us": 2943.2,
+   "p99_us": 3463.0,
+   "max_us": 28694.8,
+   "mean_us": 2627.4763
+  },
+  "postgres__exclusion_below_head": {
+   "n": 2000,
+   "min_us": 2347.6,
+   "p50_us": 2930.8,
+   "p90_us": 3328.4,
+   "p99_us": 3867.9,
+   "max_us": 5345.3,
+   "mean_us": 2988.2036000000003
+  },
+  "postgres__folders_depth_1": {
+   "n": 2000,
+   "min_us": 3674.5,
+   "p50_us": 4770.1,
+   "p90_us": 5369.2,
+   "p99_us": 6335.8,
+   "max_us": 28591.7,
+   "mean_us": 4854.0587000000005
+  },
+  "postgres__folders_depth_10": {
+   "n": 2000,
+   "min_us": 13900.7,
+   "p50_us": 17049.6,
+   "p90_us": 18221.8,
+   "p99_us": 20472.6,
+   "max_us": 33790.4,
+   "mean_us": 17137.59015
+  },
+  "postgres__folders_depth_10_below_head": {
+   "n": 2000,
+   "min_us": 18622.3,
+   "p50_us": 21425.4,
+   "p90_us": 22585.7,
+   "p99_us": 24259.9,
+   "max_us": 35242.5,
+   "mean_us": 21463.993300000002
+  },
+  "postgres__folders_depth_1_below_head": {
+   "n": 2000,
+   "min_us": 4690.4,
+   "p50_us": 5739.0,
+   "p90_us": 6269.8,
+   "p99_us": 6901.5,
+   "max_us": 7973.2,
+   "mean_us": 5797.61895
+  },
+  "postgres__folders_depth_30": {
+   "n": 2000,
+   "min_us": 36282.3,
+   "p50_us": 45015.3,
+   "p90_us": 47575.8,
+   "p99_us": 53430.0,
+   "max_us": 74237.9,
+   "mean_us": 45085.50295
+  },
+  "postgres__folders_depth_30_below_head": {
+   "n": 2000,
+   "min_us": 47505.8,
+   "p50_us": 55739.4,
+   "p90_us": 58152.8,
+   "p99_us": 65062.2,
+   "max_us": 84499.7,
+   "mean_us": 55892.37575
+  },
+  "postgres__groups_depth_1": {
+   "n": 2000,
+   "min_us": 2297.5,
+   "p50_us": 2624.5,
+   "p90_us": 2995.1,
+   "p99_us": 3439.2,
+   "max_us": 3957.3,
+   "mean_us": 2678.26165
+  },
+  "postgres__groups_depth_10": {
+   "n": 2000,
+   "min_us": 8356.5,
+   "p50_us": 10799.2,
+   "p90_us": 11682.8,
+   "p99_us": 13134.3,
+   "max_us": 35053.7,
+   "mean_us": 10822.303199999998
+  },
+  "postgres__groups_depth_10_below_head": {
+   "n": 2000,
+   "min_us": 11494.6,
+   "p50_us": 13331.1,
+   "p90_us": 14147.4,
+   "p99_us": 15243.6,
+   "max_us": 29631.0,
+   "mean_us": 13403.135199999999
+  },
+  "postgres__groups_depth_1_below_head": {
+   "n": 2000,
+   "min_us": 2423.9,
+   "p50_us": 2988.1,
+   "p90_us": 3374.3,
+   "p99_us": 4029.3,
+   "max_us": 5385.9,
+   "mean_us": 3040.22875
+  },
+  "postgres__groups_depth_5": {
+   "n": 2000,
+   "min_us": 4920.1,
+   "p50_us": 6206.8,
+   "p90_us": 6888.8,
+   "p99_us": 8040.2,
+   "max_us": 28288.3,
+   "mean_us": 6279.0815
+  },
+  "postgres__groups_depth_5_below_head": {
+   "n": 2000,
+   "min_us": 6459.8,
+   "p50_us": 7698.4,
+   "p90_us": 8323.7,
+   "p99_us": 9247.2,
+   "max_us": 26221.8,
+   "mean_us": 7779.8035
+  },
+  "postgres__lookup_resources_10k": {
+   "n": 2000,
+   "min_us": 194887.6,
+   "p50_us": 230078.2,
+   "p90_us": 239591.6,
+   "p99_us": 251291.8,
+   "max_us": 287566.0,
+   "mean_us": 229127.18315
+  },
+  "postgres__lookup_resources_10k_below_head": {
+   "n": 2000,
+   "min_us": 238963.7,
+   "p50_us": 289286.4,
+   "p90_us": 298416.7,
+   "p99_us": 310764.0,
+   "max_us": 441985.5,
+   "mean_us": 288492.21475
+  },
+  "postgres__lookup_resources_10k_pages_100": {
+   "n": 2000,
+   "min_us": 203755.8,
+   "p50_us": 242549.7,
+   "p90_us": 252366.6,
+   "p99_us": 264088.2,
+   "max_us": 314535.1,
+   "mean_us": 241979.64705
+  },
+  "postgres__lookup_resources_10k_pages_100_below_head": {
+   "n": 2000,
+   "min_us": 267906.6,
+   "p50_us": 305124.7,
+   "p90_us": 315157.2,
+   "p99_us": 327458.4,
+   "max_us": 372320.5,
+   "mean_us": 304465.25275
+  },
+  "postgres__wide_groups_10k": {
+   "n": 2000,
+   "min_us": 2047.8,
+   "p50_us": 2507.9,
+   "p90_us": 2871.6,
+   "p99_us": 3344.3,
+   "max_us": 4799.0,
+   "mean_us": 2563.79525
+  },
+  "postgres__wide_groups_10k_below_head": {
+   "n": 2000,
+   "min_us": 2931.3,
+   "p50_us": 3436.2,
+   "p90_us": 3892.0,
+   "p99_us": 4484.1,
+   "max_us": 9399.5,
+   "mean_us": 3515.1782000000003
+  },
+  "postgres__write_batch_1": {
+   "n": 2000,
+   "min_us": 3470.5,
+   "p50_us": 4051.3,
+   "p90_us": 4600.6,
+   "p99_us": 5479.1,
+   "max_us": 20122.2,
+   "mean_us": 4155.00655
+  },
+  "postgres__write_batch_100": {
+   "n": 2000,
+   "min_us": 36029.6,
+   "p50_us": 45696.3,
+   "p90_us": 48173.7,
+   "p99_us": 55327.6,
+   "max_us": 77745.8,
+   "mean_us": 45863.47795
+  },
+  "postgres__write_batch_1000": {
+   "n": 2000,
+   "min_us": 369193.3,
+   "p50_us": 430363.2,
+   "p90_us": 446373.5,
+   "p99_us": 463225.0,
+   "max_us": 547021.0,
+   "mean_us": 429006.1278
   },
   "sqlite__direct_hit": {
    "n": 2000,
-   "min_us": 3.4,
-   "p50_us": 3.7,
-   "p90_us": 3.8,
-   "p99_us": 3.9,
-   "max_us": 10.5,
-   "mean_us": 3.6856
+   "min_us": 3.5,
+   "p50_us": 3.8,
+   "p90_us": 3.9,
+   "p99_us": 4.5,
+   "max_us": 114.3,
+   "mean_us": 3.8863000000000003
   },
   "sqlite__exclusion": {
    "n": 2000,
-   "min_us": 5.1,
-   "p50_us": 5.4,
-   "p90_us": 5.6,
-   "p99_us": 8.6,
-   "max_us": 121.8,
-   "mean_us": 5.65175
+   "min_us": 5.2,
+   "p50_us": 12.9,
+   "p90_us": 13.2,
+   "p99_us": 14.2,
+   "max_us": 138.1,
+   "mean_us": 9.90865
   },
   "sqlite__folders_depth_1": {
    "n": 2000,
-   "min_us": 9.1,
-   "p50_us": 9.7,
-   "p90_us": 9.9,
-   "p99_us": 14.3,
-   "max_us": 61.8,
-   "mean_us": 9.818200000000001
+   "min_us": 9.6,
+   "p50_us": 22.0,
+   "p90_us": 22.6,
+   "p99_us": 34.1,
+   "max_us": 211.1,
+   "mean_us": 22.1397
   },
   "sqlite__folders_depth_10": {
    "n": 2000,
-   "min_us": 32.4,
-   "p50_us": 33.8,
-   "p90_us": 34.5,
-   "p99_us": 60.1,
-   "max_us": 248.5,
-   "mean_us": 34.52055
+   "min_us": 33.1,
+   "p50_us": 74.2,
+   "p90_us": 76.2,
+   "p99_us": 88.3,
+   "max_us": 218.5,
+   "mean_us": 57.75775
   },
   "sqlite__folders_depth_30": {
    "n": 2000,
-   "min_us": 86.0,
-   "p50_us": 89.1,
-   "p90_us": 92.6,
-   "p99_us": 134.9,
-   "max_us": 269.1,
-   "mean_us": 90.91125
+   "min_us": 85.6,
+   "p50_us": 89.0,
+   "p90_us": 190.7,
+   "p99_us": 211.3,
+   "max_us": 398.1,
+   "mean_us": 106.6898
   },
   "sqlite__groups_depth_1": {
    "n": 2000,
-   "min_us": 5.4,
-   "p50_us": 5.8,
-   "p90_us": 6.0,
-   "p99_us": 9.3,
-   "max_us": 165.6,
-   "mean_us": 6.17555
+   "min_us": 5.5,
+   "p50_us": 5.7,
+   "p90_us": 5.9,
+   "p99_us": 7.7,
+   "max_us": 241.4,
+   "mean_us": 6.0394
   },
   "sqlite__groups_depth_10": {
    "n": 2000,
-   "min_us": 21.8,
+   "min_us": 21.9,
    "p50_us": 22.3,
-   "p90_us": 22.7,
-   "p99_us": 29.9,
-   "max_us": 202.0,
-   "mean_us": 22.769
+   "p90_us": 22.6,
+   "p99_us": 29.0,
+   "max_us": 152.5,
+   "mean_us": 22.6754
   },
   "sqlite__groups_depth_5": {
    "n": 2000,
-   "min_us": 12.7,
-   "p50_us": 13.2,
-   "p90_us": 13.5,
-   "p99_us": 23.6,
-   "max_us": 112.7,
-   "mean_us": 13.6769
+   "min_us": 12.6,
+   "p50_us": 28.9,
+   "p90_us": 29.2,
+   "p99_us": 39.6,
+   "max_us": 166.2,
+   "mean_us": 27.19585
   },
   "sqlite__lookup_resources_10k": {
    "n": 2000,
-   "min_us": 1172.7,
-   "p50_us": 1199.9,
-   "p90_us": 1370.3,
-   "p99_us": 1823.5,
-   "max_us": 2429.2,
-   "mean_us": 1249.4928
+   "min_us": 1162.2,
+   "p50_us": 1215.1,
+   "p90_us": 1869.6,
+   "p99_us": 2337.9,
+   "max_us": 4748.1,
+   "mean_us": 1348.4635
   },
   "sqlite__lookup_resources_10k_pages_100": {
    "n": 2000,
-   "min_us": 3333.4,
-   "p50_us": 3439.9,
-   "p90_us": 3893.9,
-   "p99_us": 5016.3,
-   "max_us": 7029.5,
-   "mean_us": 3563.7305499999998
+   "min_us": 3335.0,
+   "p50_us": 3499.6,
+   "p90_us": 5052.2,
+   "p99_us": 6477.6,
+   "max_us": 7495.0,
+   "mean_us": 3826.49645
   },
   "sqlite__wide_groups_10k": {
    "n": 2000,
-   "min_us": 5.4,
-   "p50_us": 5.9,
-   "p90_us": 6.1,
-   "p99_us": 8.4,
-   "max_us": 155.3,
-   "mean_us": 6.0714
+   "min_us": 5.7,
+   "p50_us": 6.0,
+   "p90_us": 6.5,
+   "p99_us": 16.7,
+   "max_us": 416.2,
+   "mean_us": 7.1931
   },
   "sqlite__write_batch_1": {
    "n": 2000,
-   "min_us": 26.8,
-   "p50_us": 29.2,
-   "p90_us": 44.2,
-   "p99_us": 430.7,
-   "max_us": 2595.4,
-   "mean_us": 49.96385
+   "min_us": 26.4,
+   "p50_us": 29.1,
+   "p90_us": 55.7,
+   "p99_us": 441.0,
+   "max_us": 2588.9,
+   "mean_us": 53.68865
   },
   "sqlite__write_batch_100": {
    "n": 2000,
-   "min_us": 1616.8,
-   "p50_us": 2054.1,
-   "p90_us": 8295.6,
-   "p99_us": 9780.4,
-   "max_us": 41058.6,
-   "mean_us": 3080.90915
+   "min_us": 1612.2,
+   "p50_us": 2224.5,
+   "p90_us": 8559.1,
+   "p99_us": 10823.1,
+   "max_us": 41285.0,
+   "mean_us": 3370.56235
   },
   "sqlite__write_batch_1000": {
    "n": 2000,
-   "min_us": 42037.7,
-   "p50_us": 51746.1,
-   "p90_us": 55893.5,
-   "p99_us": 69116.0,
-   "max_us": 91920.3,
-   "mean_us": 52241.6714
+   "min_us": 42815.8,
+   "p50_us": 51035.3,
+   "p90_us": 54844.5,
+   "p99_us": 66195.0,
+   "max_us": 99186.3,
+   "mean_us": 51488.2055
   }
  },
  "python": {

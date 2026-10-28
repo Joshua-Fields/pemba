@@ -29,6 +29,11 @@ The Rust crates and the Python package share one version: `0.1.0-alpha.2` on cra
 
 ### Added
 
+- **Postgres store** (`pemba-store-postgres`, Postgres 15+): relationships in a schema of
+  your database, revisions assigned at commit so concurrent writers stay in commit order,
+  writes that join your transaction (`Engine::write_in` with `PgTxn`), GC that compacts
+  and prunes, TLS through rustls. Wheels include it. See the README's Postgres section;
+  benchmarks in `benches/RESULTS.md`.
 - `PendingRevision` (Rust and Python) and `Engine::resolve`. Python's `at_least=`
   accepts a `PendingRevision`.
 - Error codes `REVISION_PENDING` and `WRITE_ROLLED_BACK`, from `Engine::resolve` on a
