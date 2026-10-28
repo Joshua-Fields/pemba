@@ -334,6 +334,26 @@ fn run_assertions_rejects_unknown_keys_and_bad_requests() {
 }
 
 #[test]
+fn run_assertions_says_where_the_assertions_start() {
+    // Line 3 of the assertions text; the runner names it in the joined fixture.
+    let assertions = "assertions:\n  assertTrue: []\n  assertTure: []\n";
+    for (schema, relationships) in [
+        (SCHEMA, TUPLES),
+        ("", ""),
+        ("definition user {}\r\n\r\n", "\n\n// x\n"),
+    ] {
+        let v = call(
+            run_assertions,
+            &json!({ "schema": schema, "relationships": relationships, "assertions": assertions }),
+        );
+        let first = v["assertions_line"].as_u64().unwrap();
+        let message = v["failures"][0]["message"].as_str().unwrap();
+        let named = format!("line {} column 3", first + 2);
+        assert!(message.contains(&named), "{named} not in {message}");
+    }
+}
+
+#[test]
 fn parse_fixture_errors() {
     for (source, why) in [
         ("schemaFile: x.zed\n", "schemaFile"),
@@ -404,7 +424,9 @@ fn corpus_round_trips_with_pemba_test_semantics() {
         let mut parts: Value = serde_json::from_str(&parse_fixture(&source)).unwrap();
         assert_eq!(parts["ok"], true, "{}: {parts}", path.display());
         parts.as_object_mut().unwrap().remove("ok");
-        let got = call(run_assertions, &parts);
+        let mut got = call(run_assertions, &parts);
+        assert!(got["assertions_line"].is_u64(), "{}", path.display());
+        got.as_object_mut().unwrap().remove("assertions_line");
         assert_eq!(got, report_json(&source), "{}", path.display());
         assert_eq!(got["passed"], true, "{}", path.display());
     }

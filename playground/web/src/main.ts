@@ -1,5 +1,6 @@
 // The playground page (docs/11-playground.md §3, §4): three editors, the query bar, and the
-// result of a fresh run 300 ms after the last edit, with its diagnostics marked inline.
+// result of a fresh run 300 ms after the last edit, with its diagnostics marked inline, and
+// the assertions run as a fixture (`pemba test` semantics) with a result per line.
 
 import { basicSetup, EditorView } from 'codemirror';
 import { yaml } from '@codemirror/lang-yaml';
@@ -7,9 +8,11 @@ import { lintGutter, setDiagnostics, type Diagnostic } from '@codemirror/lint';
 import type { Extension, Text } from '@codemirror/state';
 
 import './style.css';
+import { place, readReport, type Placed, type Report } from './assertions';
 import { marks } from './diagnostics';
 import { dsl } from './dsl';
 import { EngineClient, EngineFailure } from './engine';
+import { outcomeGutter, showOutcomes } from './outcomes';
 import { checkLimits, describe, pageError } from './result';
 import { follow, theme } from './theme';
 import type { QueryKind, RunRequest, View } from './types';
@@ -56,6 +59,7 @@ function element<T extends HTMLElement>(id: string): T {
 const kind = element<HTMLSelectElement>('kind');
 const text = element<HTMLInputElement>('text');
 const result = element<HTMLDivElement>('result');
+const assertionsResult = element<HTMLDivElement>('assertions-result');
 
 let timer: ReturnType<typeof setTimeout> | undefined;
 const schedule = () => {
@@ -79,7 +83,7 @@ function editor(id: string, doc: string, extra: Extension[] = []): EditorView {
 
 const schema = editor('schema', SCHEMA, [dsl, lintGutter()]);
 const relationships = editor('relationships', RELATIONSHIPS, [lintGutter()]);
-const assertions = editor('assertions', ASSERTIONS, [yaml()]);
+const assertions = editor('assertions', ASSERTIONS, [yaml(), outcomeGutter]);
 
 const client = new EngineClient(
   () => new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' }),
@@ -93,9 +97,16 @@ function annotate(view: EditorView, sent: Text, diagnostics: Diagnostic[]): void
   if (view.state.doc === sent) view.dispatch(setDiagnostics(view.state, diagnostics));
 }
 
+/** The assertions pane: the runner's report and where its lines are, or why there is none. */
+type Checked = { report: Report; placed: Placed } | { code: string; message: string };
+
 async function runNow(): Promise<void> {
   const mine = ++generation;
-  const sent = { schema: schema.state.doc, relationships: relationships.state.doc };
+  const sent = {
+    schema: schema.state.doc,
+    relationships: relationships.state.doc,
+    assertions: assertions.state.doc,
+  };
   const editors = {
     schema: schema.state.doc.toString(),
     relationships: relationships.state.doc.toString(),
@@ -109,27 +120,77 @@ async function runNow(): Promise<void> {
   };
   const limit = checkLimits(editors);
   let view: View;
+  let checked: Checked;
   // Without an answer there is nothing to mark, so old marks are cleared, not kept.
   let found = { schema: [] as Diagnostic[], relationships: [] as Diagnostic[] };
   if (limit) {
     view = limit;
+    checked = limit.kind === 'error' ? limit : { code: 'INTERNAL', message: 'no answer' };
   } else {
     result.dataset['state'] = 'running';
+    assertionsResult.dataset['state'] = 'running';
     try {
-      const out = await client.run(request);
+      const [out, report] = await Promise.all([client.run(request), client.runAssertions(editors)]);
       view = describe(queryKind, out);
       found = marks(out, editors);
+      const r = readReport(report);
+      checked = 'code' in r ? r : { report: r, placed: place(editors.assertions, r) };
     } catch (e) {
       view =
         e instanceof EngineFailure
           ? pageError(e.code, e.message)
           : pageError('INTERNAL', String(e));
+      checked = view.kind === 'error' ? view : { code: 'INTERNAL', message: String(e) };
     }
   }
   if (mine !== generation) return;
   render(view);
   annotate(schema, sent.schema, found.schema);
   annotate(relationships, sent.relationships, found.relationships);
+  renderAssertions(checked);
+  if (assertions.state.doc === sent.assertions) {
+    showOutcomes(assertions, 'report' in checked ? checked.placed.outcomes : []);
+  }
+}
+
+function renderAssertions(checked: Checked): void {
+  const pane = assertionsResult;
+  pane.replaceChildren();
+  const line = (cls: string, content: string) => {
+    const p = document.createElement('p');
+    p.className = cls;
+    p.textContent = content;
+    pane.append(p);
+  };
+  if (!('report' in checked)) {
+    pane.dataset['state'] = 'error';
+    line('verdict error', `Error: ${checked.code}`);
+    line('message', checked.message);
+    return;
+  }
+  const { report, placed } = checked;
+  pane.dataset['state'] = report.passed ? 'answer' : 'error';
+  const n = report.checked === 1 ? '1 check' : `${report.checked} checks`;
+  if (report.passed) {
+    line('verdict allowed', `${n}, all passed`);
+  } else {
+    const f = report.failures.length === 1 ? '1 failure' : `${report.failures.length} failures`;
+    line('verdict error', `${f} (${n})`);
+    const ul = document.createElement('ul');
+    ul.className = 'failures';
+    for (const x of report.failures) {
+      const li = document.createElement('li');
+      const where = document.createElement('code');
+      where.textContent = x.assertion === '' ? x.location : `${x.location} ${x.assertion}`;
+      li.append(where, document.createElement('br'), x.message);
+      ul.append(li);
+    }
+    pane.append(ul);
+  }
+  if (!placed.proved && report.checked > 0) {
+    line('meta', 'Lines are not marked as passing: the page could not match every check the runner counted to a line.');
+  }
+  for (const w of report.warnings) line('meta', `warning: ${w}`);
 }
 
 function render(view: View): void {

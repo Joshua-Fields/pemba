@@ -1,0 +1,254 @@
+[
+  {
+    "assertions": "# `.all()` over 0, 1 and many related objects. Over none it is ∅ (false), not \"everyone\".\n\n# approved(none) = ∅; approved(one) = {anne}; approved(many) = {anne} ∩ {anne, bob} ∩\n# {anne, bob} = {anne}.\nassertions:\n  assertTrue:\n    - document:one#approved@user:anne\n    - document:many#approved@user:anne\n  assertFalse:\n    - document:none#approved@user:anne\n    - document:one#approved@user:bob\n    - document:many#approved@user:bob\n    - document:many#approved@user:carol\n",
+    "checked": 6,
+    "fixture": "all_arrow",
+    "relationships": "document:none#viewer@user:anne\ndocument:one#approver_group@group:g1\ndocument:many#approver_group@group:g1\ndocument:many#approver_group@group:g2\ndocument:many#approver_group@group:g3\ngroup:g1#member@user:anne\ngroup:g2#member@user:anne\ngroup:g2#member@user:bob\ngroup:g3#member@user:anne\ngroup:g3#member@user:bob",
+    "schema": "definition user {}\n\ndefinition group {\n    relation member: user\n}\n\ndefinition document {\n    relation approver_group: group\n    relation viewer: user\n    permission approved = approver_group.all(member)\n}"
+  },
+  {
+    "assertions": "# `.any(p)` is identical to `->p`.\n\n# Both = view(a) ∪ view(b) = {anne, bob} on d; ∅ on orphan.\nassertions:\n  assertTrue:\n    - document:d#via_arrow@user:anne\n    - document:d#via_any@user:anne\n    - document:d#via_arrow@user:bob\n    - document:d#via_any@user:bob\n  assertFalse:\n    - document:d#via_arrow@user:carol\n    - document:d#via_any@user:carol\n    - document:orphan#via_arrow@user:anne\n    - document:orphan#via_any@user:anne\n",
+    "checked": 8,
+    "fixture": "any_alias",
+    "relationships": "document:d#parent@folder:a\ndocument:d#parent@folder:b\ndocument:orphan#parent@folder:empty\nfolder:a#viewer@user:anne\nfolder:b#viewer@user:bob",
+    "schema": "definition user {}\n\ndefinition folder {\n    relation viewer: user\n    permission view = viewer\n}\n\ndefinition document {\n    relation parent: folder\n    permission via_arrow = parent->view\n    permission via_any = parent.any(view)\n}"
+  },
+  {
+    "assertions": "# `parent->view` recursion through a chain of 10 folders: f9 → f8 → ... → f0.\n\n# view(fk) = {root_viewer} for k < 5, {root_viewer, mid} for k ≥ 5.\n# view(deep) = view(f9) ∪ {direct}; view(top) = view(f0).\nassertions:\n  assertTrue:\n    - document:deep#view@user:root_viewer\n    - document:deep#view@user:mid\n    - document:deep#view@user:direct\n    - folder:f9#view@user:root_viewer\n    - folder:f5#view@user:mid\n    - folder:f7#view@user:mid\n    - document:top#view@user:root_viewer\n  assertFalse:\n    - folder:f4#view@user:mid\n    - folder:f0#view@user:mid\n    - document:top#view@user:mid\n    - document:top#view@user:direct\n    - folder:f9#view@user:direct\n    - document:deep#view@user:stranger\n",
+    "checked": 13,
+    "fixture": "arrows_folders",
+    "relationships": "folder:f1#parent@folder:f0\nfolder:f2#parent@folder:f1\nfolder:f3#parent@folder:f2\nfolder:f4#parent@folder:f3\nfolder:f5#parent@folder:f4\nfolder:f6#parent@folder:f5\nfolder:f7#parent@folder:f6\nfolder:f8#parent@folder:f7\nfolder:f9#parent@folder:f8\nfolder:f0#viewer@user:root_viewer\nfolder:f5#viewer@user:mid\ndocument:deep#parent@folder:f9\ndocument:deep#viewer@user:direct\ndocument:top#parent@folder:f0",
+    "schema": "definition user {}\n\ndefinition folder {\n    relation parent: folder\n    relation viewer: user\n    permission view = viewer + parent->view\n}\n\ndefinition document {\n    relation parent: folder\n    relation viewer: user\n    permission view = viewer + parent->view\n}"
+  },
+  {
+    "assertions": "# An arrow over a tuple whose subject is `group:eng#member` walks to `group:eng` and\n# ignores the subject relation: `owner_group->manage` reads eng's `manage`, not its members.\n\n# admin_view(d) = manage(eng) = {alice}; member_view(d) = member(eng) = {bob}.\n# owner_group(d) itself = S(eng, member) = {bob, eng#member}.\nassertions:\n  assertTrue:\n    - document:d#admin_view@user:alice\n    - document:d#member_view@user:bob\n    - document:d#owner_group@user:bob\n    - document:e#member_view@user:carol\n  assertFalse:\n    - document:d#admin_view@user:bob\n    - document:d#member_view@user:alice\n    - document:d#owner_group@user:alice\n    - document:e#admin_view@user:carol\n",
+    "checked": 8,
+    "fixture": "arrows_ignore_subject_relation",
+    "relationships": "document:d#owner_group@group:eng#member\ndocument:e#owner_group@group:ops\ngroup:eng#admin@user:alice\ngroup:eng#member@user:bob\ngroup:ops#member@user:carol",
+    "schema": "definition user {}\n\ndefinition group {\n    relation member: user\n    relation admin: user\n    permission manage = admin\n}\n\ndefinition document {\n    relation owner_group: group | group#member\n    permission admin_view = owner_group->manage\n    permission member_view = owner_group->member\n}"
+  },
+  {
+    "assertions": "# A chain of 60 folders, f59 → f58 → ... → f00, deeper than the default max_depth of 50.\n# Depth counting (OQ-019 (b)): the root node is depth 1 and each nested eval adds one, and\n# `max_depth = 50` allows 50 nested nodes. From folder fk, `view` reaches f00#view at depth\n# k + 1 and f00#viewer at depth k + 2. So f48 (f00#viewer at 50) answers; f49 (51) does not.\n# Uses the pemba `expectCheckErrors:` extension (docs/07-testing.md §3.2).\n\nassertions:\n  assertTrue:\n    - folder:f05#view@user:root\n    - folder:f48#view@user:root\n    # Found at depth 3 (deep#view, f59#view, f59#viewer) before the chain is walked.\n    - document:deep#view@user:near\n  assertFalse:\n    # f30 → f00 is 31 folders; nobody is anywhere on it.\n    - folder:f30#view@user:near\n\nexpectCheckErrors:\n  folder:f49#view@user:root: MAX_DEPTH_EXCEEDED\n  document:deep#view@user:root: MAX_DEPTH_EXCEEDED\n  # A `false` needs the whole chain walked too.\n  folder:f59#view@user:nobody: MAX_DEPTH_EXCEEDED\n",
+    "checked": 7,
+    "fixture": "depth_limit",
+    "relationships": "folder:f01#parent@folder:f00\nfolder:f02#parent@folder:f01\nfolder:f03#parent@folder:f02\nfolder:f04#parent@folder:f03\nfolder:f05#parent@folder:f04\nfolder:f06#parent@folder:f05\nfolder:f07#parent@folder:f06\nfolder:f08#parent@folder:f07\nfolder:f09#parent@folder:f08\nfolder:f10#parent@folder:f09\nfolder:f11#parent@folder:f10\nfolder:f12#parent@folder:f11\nfolder:f13#parent@folder:f12\nfolder:f14#parent@folder:f13\nfolder:f15#parent@folder:f14\nfolder:f16#parent@folder:f15\nfolder:f17#parent@folder:f16\nfolder:f18#parent@folder:f17\nfolder:f19#parent@folder:f18\nfolder:f20#parent@folder:f19\nfolder:f21#parent@folder:f20\nfolder:f22#parent@folder:f21\nfolder:f23#parent@folder:f22\nfolder:f24#parent@folder:f23\nfolder:f25#parent@folder:f24\nfolder:f26#parent@folder:f25\nfolder:f27#parent@folder:f26\nfolder:f28#parent@folder:f27\nfolder:f29#parent@folder:f28\nfolder:f30#parent@folder:f29\nfolder:f31#parent@folder:f30\nfolder:f32#parent@folder:f31\nfolder:f33#parent@folder:f32\nfolder:f34#parent@folder:f33\nfolder:f35#parent@folder:f34\nfolder:f36#parent@folder:f35\nfolder:f37#parent@folder:f36\nfolder:f38#parent@folder:f37\nfolder:f39#parent@folder:f38\nfolder:f40#parent@folder:f39\nfolder:f41#parent@folder:f40\nfolder:f42#parent@folder:f41\nfolder:f43#parent@folder:f42\nfolder:f44#parent@folder:f43\nfolder:f45#parent@folder:f44\nfolder:f46#parent@folder:f45\nfolder:f47#parent@folder:f46\nfolder:f48#parent@folder:f47\nfolder:f49#parent@folder:f48\nfolder:f50#parent@folder:f49\nfolder:f51#parent@folder:f50\nfolder:f52#parent@folder:f51\nfolder:f53#parent@folder:f52\nfolder:f54#parent@folder:f53\nfolder:f55#parent@folder:f54\nfolder:f56#parent@folder:f55\nfolder:f57#parent@folder:f56\nfolder:f58#parent@folder:f57\nfolder:f59#parent@folder:f58\nfolder:f00#viewer@user:root\nfolder:f59#viewer@user:near\ndocument:deep#parent@folder:f59",
+    "schema": "definition user {}\n\ndefinition folder {\n    relation parent: folder\n    relation viewer: user\n    permission view = viewer + parent->view\n}\n\ndefinition document {\n    relation parent: folder\n    permission view = parent->view\n}"
+  },
+  {
+    "assertions": "# Direct relations, and Create / Touch / Delete visibility across write batches.\n# Uses the pemba `steps:` extension (docs/07-testing.md §3.2); `zed validate` sees only\n# the top-level relationships and assertions (step 0).\n\nassertions:\n  assertTrue:\n    - document:readme#viewer@user:anne\n    - document:readme#view@user:anne\n    - document:readme#view@user:bob\n    - document:readme#editor@user:bob\n    - document:spec#view@user:carol\n  assertFalse:\n    - document:readme#editor@user:anne\n    - document:readme#viewer@user:bob\n    - document:readme#view@user:carol\n    - document:spec#view@user:anne\n    - document:readme#view@user:dan\n    - document:unknown#view@user:anne\n\nsteps:\n  # Create of a new tuple is visible.\n  - ops:\n      - create: document:readme#viewer@user:dan\n    assertions:\n      assertTrue:\n        - document:readme#view@user:dan\n\n  # Create of a live tuple fails the whole batch: erin's tuple is not written either.\n  - ops:\n      - create: document:spec#viewer@user:erin\n      - create: document:readme#viewer@user:anne\n    expectError: ALREADY_EXISTS\n    assertions:\n      assertTrue:\n        - document:readme#view@user:anne\n      assertFalse:\n        - document:spec#view@user:erin\n\n  # Touch of a live tuple is a no-op; touch of a new one creates it.\n  - ops:\n      - touch: document:readme#viewer@user:anne\n      - touch: document:spec#editor@user:erin\n    assertions:\n      assertTrue:\n        - document:readme#view@user:anne\n        - document:spec#view@user:erin\n        - document:spec#editor@user:erin\n\n  # Delete removes; delete of an absent tuple is a no-op. Other tuples are untouched.\n  - ops:\n      - delete: document:readme#viewer@user:anne\n      - delete: document:readme#viewer@user:nobody\n    assertions:\n      assertTrue:\n        - document:readme#view@user:bob\n        - document:readme#view@user:dan\n      assertFalse:\n        - document:readme#view@user:anne\n        - document:readme#viewer@user:anne\n\n  # A deleted tuple can be created again.\n  - ops:\n      - create: document:readme#viewer@user:anne\n    assertions:\n      assertTrue:\n        - document:readme#view@user:anne\n\n  # The same tuple twice in one batch is refused; nothing is applied.\n  - ops:\n      - touch: document:spec#viewer@user:frank\n      - delete: document:spec#viewer@user:frank\n    expectError: DUPLICATE_IN_BATCH\n    assertions:\n      assertFalse:\n        - document:spec#view@user:frank\n\n  # Deleting the only grant revokes the permission.\n  - ops:\n      - delete: document:readme#editor@user:bob\n    assertions:\n      assertFalse:\n        - document:readme#view@user:bob\n",
+    "checked": 26,
+    "fixture": "direct",
+    "relationships": "// step 0\ndocument:readme#viewer@user:anne\ndocument:readme#editor@user:bob\n\ndocument:spec#viewer@user:carol",
+    "schema": "definition user {}\n\ndefinition document {\n    relation viewer: user\n    relation editor: user\n    permission view = viewer + editor\n}"
+  },
+  {
+    "assertions": "# `(viewer + edit) - banned`, with bans by user, by group and by wildcard.\n\n# view(d) = {anne, bob, mallory, carol, eve} \\ {eve, mallory} = {anne, bob, carol}\n# view(locked) = {anne, carol} \\ every user = ∅; edit is not affected by bans.\nassertions:\n  assertTrue:\n    - document:d#view@user:anne\n    - document:d#view@user:bob\n    - document:d#view@user:carol\n    - document:d#edit@user:eve\n    - document:locked#edit@user:carol\n  assertFalse:\n    - document:d#view@user:eve\n    - document:d#view@user:mallory\n    - document:d#view@user:zed\n    - document:locked#view@user:anne\n    - document:locked#view@user:carol\n\n# Lookups, from the computation above.\nexpectedLookups:\n  subjects:\n    - query: \"document:d#view@user\"\n      expect: { ids: [anne, bob, carol] }\n    - query: \"document:d#edit@user\"\n      expect: { ids: [carol, eve] }\n    - query: \"document:locked#view@user\"\n      expect: { ids: [] }\n    - query: \"group:staff#member@user\"\n      expect: { ids: [bob, mallory] }\n",
+    "checked": 14,
+    "fixture": "exclusion_banned",
+    "relationships": "document:d#viewer@user:anne\ndocument:d#viewer@group:staff#member\ngroup:staff#member@user:bob\ngroup:staff#member@user:mallory\ndocument:d#editor@user:carol\ndocument:d#editor@user:eve\ndocument:d#banned@user:eve\ndocument:d#banned@group:blocked#member\ngroup:blocked#member@user:mallory\ndocument:locked#viewer@user:anne\ndocument:locked#editor@user:carol\ndocument:locked#banned@user:*",
+    "schema": "definition user {}\n\ndefinition group {\n    relation member: user | group#member\n}\n\ndefinition document {\n    relation viewer: user | group#member\n    relation editor: user\n    relation banned: user | user:* | group#member\n    permission edit = editor\n    permission view = (viewer + edit) - banned\n}"
+  },
+  {
+    "assertions": "# A GitHub-like model: organisation → teams (nested) → repositories with\n# admin ⊇ maintain ⊇ write ⊇ read, outside collaborators, public repositories and blocks.\n\n# Hand computation: sre = {carol, sam}; platform = {alice, bob} ∪ sre; frontend = {dave, erin};\n# acme members = {olivia, alice, bob, carol, dave, erin, frank}.\n#   api     admin = maintain = platform ∪ {olivia}; write = admin ∪ frontend;\n#           read = write ∪ acme members, minus frank\n#   web     admin {olivia}; maintain {olivia} ∪ frontend; write maintain ∪ {bob, xavier};\n#           read write ∪ acme members\n#   infra   admin sre ∪ {olivia}; maintain = write = read = admin ∪ {alice}\n#   docs    admin = maintain {olivia}; write {olivia} ∪ frontend; read every user\n#   legacy  write = read = {olivia}      (carol is a writer but blocked)\n#   fork    admin {mallory}; read {mallory, alice}\nassertions:\n  assertTrue:\n    - repository:api#admin@user:carol\n    - repository:api#admin@user:sam\n    - repository:api#admin@user:olivia\n    - repository:api#write@user:erin\n    - repository:api#read@user:dave\n    - repository:web#maintain@user:dave\n    - repository:web#write@user:xavier\n    - repository:web#read@user:frank\n    - repository:infra#maintain@user:alice\n    - repository:infra#read@user:sam\n    - repository:docs#read@user:stranger\n    - repository:legacy#write@user:olivia\n    - repository:fork#read@user:alice\n    - team:platform#members@user:carol\n  assertFalse:\n    - repository:api#read@user:frank\n    - repository:api#maintain@user:erin\n    - repository:web#admin@user:dave\n    - repository:web#maintain@user:bob\n    - repository:web#read@user:sam\n    - repository:infra#read@user:bob\n    - repository:infra#admin@user:alice\n    - repository:docs#write@user:stranger\n    - repository:legacy#write@user:carol\n    - repository:legacy#read@user:carol\n    - repository:fork#admin@user:olivia\n    - repository:fork#read@user:bob\n    - team:frontend#members@user:alice\n\n# Lookups, from the hand computation above.\nexpectedLookups:\n  resources:\n    - query: \"repository#read@user:alice\"\n      expect: [api, docs, fork, infra, web]\n    - query: \"repository#write@user:carol\"\n      expect: [api, infra]\n    - query: \"repository#admin@user:olivia\"\n      expect: [api, docs, infra, legacy, web]\n    - query: \"repository#read@user:frank\"\n      expect: [docs, web]\n    - query: \"repository#read@user:stranger\"\n      expect: [docs]\n    - query: \"repository#maintain@team:frontend#members\"\n      expect: [web]\n    - query: \"team#members@user:sam\"\n      expect: [platform, sre]\n",
+    "checked": 34,
+    "fixture": "github_like",
+    "relationships": "organization:acme#owner@user:olivia\norganization:acme#member@user:alice\norganization:acme#member@user:bob\norganization:acme#member@user:carol\norganization:acme#member@user:dave\norganization:acme#member@user:erin\norganization:acme#member@user:frank\norganization:other#owner@user:mallory\n\n// sre is a child team of platform; sam is on sre but not an org member.\nteam:platform#maintainer@user:alice\nteam:platform#member@user:bob\nteam:platform#member@team:sre#members\nteam:sre#member@user:carol\nteam:sre#member@user:sam\nteam:frontend#maintainer@user:dave\nteam:frontend#member@user:erin\n\nrepository:api#org@organization:acme\nrepository:api#admins@team:platform#members\nrepository:api#writers@team:frontend#members\nrepository:api#readers@organization:acme#members\nrepository:api#blocked@user:frank\n\nrepository:web#org@organization:acme\nrepository:web#maintainers@team:frontend#members\nrepository:web#writers@user:bob\nrepository:web#writers@user:xavier\nrepository:web#readers@organization:acme#members\n\nrepository:infra#org@organization:acme\nrepository:infra#admins@team:sre#members\nrepository:infra#maintainers@user:alice\n\nrepository:docs#org@organization:acme\nrepository:docs#readers@user:*\nrepository:docs#writers@team:frontend#members\n\nrepository:legacy#org@organization:acme\nrepository:legacy#writers@user:carol\nrepository:legacy#blocked@user:carol\n\nrepository:fork#org@organization:other\nrepository:fork#readers@user:alice",
+    "schema": "definition user {}\n\ndefinition organization {\n    relation owner: user\n    relation member: user\n    permission administer = owner\n    permission members = owner + member\n}\n\ndefinition team {\n    relation maintainer: user\n    relation member: user | team#members\n    permission members = maintainer + member\n}\n\ndefinition repository {\n    relation org: organization\n    relation admins: user | team#members\n    relation maintainers: user | team#members\n    relation writers: user | team#members\n    relation readers: user | user:* | team#members | organization#members\n    relation blocked: user\n    permission admin = admins + org->administer\n    permission maintain = admin + maintainers\n    permission write = (maintain + writers) - blocked\n    permission read = (write + readers) - blocked\n}"
+  },
+  {
+    "assertions": "# A Google-Docs-like model: an organisation, nested groups, a folder tree, documents with\n# owners, editors, commenters, viewers, public links and blocks (an exclusion).\n\n# Hand computation (members = {bob, carol, dave, erin, mallory}, eng = {bob, carol, dave}):\n#   folder edit:  root {alice}; engineering eng ∪ {alice}; specs = engineering;\n#                 design {erin, alice}; shared_ext {grace}\n#   folder view:  root, engineering, specs, design = {alice} ∪ members;\n#                 shared_ext {grace, frank, mallory}\n#   roadmap   edit {alice};             view {alice} ∪ members\n#   arch      edit {alice, bob, dave};  comment edit ∪ {frank};\n#             view {alice, bob, dave, erin, mallory, frank}           (carol blocked)\n#   mockups   edit {erin, alice};       comment edit ∪ eng;  view {alice} ∪ members\n#   secret    edit {alice} ∪ eng;       view {alice, bob, carol, dave, erin}\n#             (frank and mallory blocked through contractors)\n#   press     edit {heidi};             view every user\n#   contract  edit {frank, grace};      view {frank, grace}           (mallory blocked)\n#   handbook  edit {alice};             view {alice} ∪ members\nassertions:\n  assertTrue:\n    - document:roadmap#view@user:bob\n    - document:roadmap#edit@user:alice\n    - document:arch#edit@user:dave\n    - document:arch#edit@user:alice\n    - document:arch#view@user:erin\n    - document:arch#comment@user:frank\n    - document:arch#view@user:frank\n    - document:mockups#comment@user:carol\n    - document:mockups#edit@user:erin\n    - document:secret#view@user:erin\n    - document:secret#edit@user:carol\n    - document:press#view@user:ivan\n    - document:contract#edit@user:grace\n    - document:contract#view@user:frank\n    - document:handbook#view@user:mallory\n    - folder:specs#edit@user:bob\n    - group:eng#member@user:dave\n  assertFalse:\n    - document:arch#edit@user:carol\n    - document:arch#view@user:carol\n    - document:arch#comment@user:erin\n    - document:roadmap#edit@user:bob\n    - document:roadmap#view@user:ivan\n    - document:roadmap#view@user:grace\n    - document:mockups#edit@user:bob\n    - document:secret#view@user:frank\n    - document:secret#view@user:mallory\n    - document:press#edit@user:ivan\n    - document:contract#view@user:mallory\n    - document:contract#view@user:alice\n    - document:handbook#edit@user:bob\n    - folder:shared_ext#view@user:alice\n    - folder:design#edit@user:bob\n\n# Lookups, from the hand computation above. `group:eng#member` reaches secret and arch\n# through folder edit, and mockups as a commenter; the public link (`user:*`) on press\n# matches objects only, never a subject set.\nexpectedLookups:\n  resources:\n    - query: \"document#view@user:bob\"\n      expect: [arch, handbook, mockups, press, roadmap, secret]\n    - query: \"document#view@user:carol\"\n      expect: [handbook, mockups, press, roadmap, secret]\n    - query: \"document#view@user:frank\"\n      expect: [arch, contract, press]\n    - query: \"document#view@user:mallory\"\n      expect: [arch, handbook, mockups, press, roadmap]\n    - query: \"document#view@user:ivan\"\n      expect: [press]\n    - query: \"document#edit@user:frank\"\n      expect: [contract]\n    - query: \"document#view@group:eng#member\"\n      expect: [arch, mockups, secret]\n    - query: \"folder#view@user:frank\"\n      expect: [shared_ext]\n    - query: \"folder#edit@user:bob\"\n      expect: [engineering, specs]\n  subjects:\n    - query: \"document:press#view@user\"\n      expect: { wildcard: true, excluded: [] }\n    - query: \"document:roadmap#view@user\"\n      expect: { ids: [alice, bob, carol, dave, erin, mallory] }\n    - query: \"document:arch#view@user\"\n      expect: { ids: [alice, bob, dave, erin, frank, mallory] }\n    - query: \"document:secret#view@user\"\n      expect: { ids: [alice, bob, carol, dave, erin] }\n    - query: \"document:contract#view@user\"\n      expect: { ids: [frank, grace] }\n    - query: \"folder:shared_ext#view@user\"\n      expect: { ids: [frank, grace, mallory] }\n    - query: \"group:eng#member@user\"\n      expect: { ids: [bob, carol, dave] }\n",
+    "checked": 48,
+    "fixture": "google_docs",
+    "relationships": "// Organisation: alice administers; mallory is a member who is blocked in places.\norganization:acme#admin@user:alice\norganization:acme#member@user:bob\norganization:acme#member@user:carol\norganization:acme#member@user:dave\norganization:acme#member@user:erin\norganization:acme#member@user:mallory\n\n// Groups: eng_leads is nested in eng.\ngroup:eng#member@user:bob\ngroup:eng#member@user:carol\ngroup:eng#member@group:eng_leads#member\ngroup:eng_leads#member@user:dave\ngroup:design#member@user:erin\ngroup:contractors#member@user:frank\ngroup:contractors#member@user:mallory\n\n// Folders: root (whole org can view) > engineering > specs; root > design.\nfolder:root#org@organization:acme\nfolder:root#owner@user:alice\nfolder:root#viewer@organization:acme#member\nfolder:engineering#parent@folder:root\nfolder:engineering#org@organization:acme\nfolder:engineering#editor@group:eng#member\nfolder:specs#parent@folder:engineering\nfolder:specs#org@organization:acme\nfolder:design#parent@folder:root\nfolder:design#editor@group:design#member\n// An external folder owned by grace, outside the organisation.\nfolder:shared_ext#owner@user:grace\nfolder:shared_ext#viewer@group:contractors#member\n\n// Documents.\ndocument:roadmap#folder@folder:root\ndocument:roadmap#owner@user:alice\ndocument:arch#folder@folder:specs\ndocument:arch#commenter@user:frank\ndocument:arch#blocked@user:carol\ndocument:mockups#folder@folder:design\ndocument:mockups#commenter@group:eng#member\ndocument:secret#folder@folder:engineering\ndocument:secret#viewer@user:frank\ndocument:secret#blocked@group:contractors#member\ndocument:press#owner@user:heidi\ndocument:press#viewer@user:*\ndocument:contract#folder@folder:shared_ext\ndocument:contract#editor@user:frank\ndocument:contract#blocked@user:mallory\ndocument:handbook#owner@user:alice\ndocument:handbook#viewer@organization:acme#member",
+    "schema": "definition user {}\n\ndefinition organization {\n    relation admin: user\n    relation member: user\n    permission manage = admin\n}\n\ndefinition group {\n    relation member: user | group#member\n}\n\ndefinition folder {\n    relation org: organization\n    relation parent: folder\n    relation owner: user\n    relation editor: user | group#member\n    relation viewer: user | group#member | organization#member\n    permission edit = owner + editor + parent->edit + org->manage\n    permission view = edit + viewer + parent->view\n}\n\ndefinition document {\n    relation folder: folder\n    relation owner: user\n    relation editor: user | group#member\n    relation commenter: user | group#member\n    relation viewer: user | user:* | group#member | organization#member\n    relation blocked: user | group#member\n    permission edit = (owner + editor + folder->edit) - blocked\n    permission comment = edit + commenter\n    permission view = (comment + viewer + folder->view) - blocked\n}"
+  },
+  {
+    "assertions": "# `member & viewer`: both sides must hold; a wildcard on one side still needs the other.\n\n# view(d) = {anne, bob} ∩ {anne, carol} = {anne}; view(p) = {dave} ∩ all = {dave}.\nassertions:\n  assertTrue:\n    - document:d#view@user:anne\n    - document:p#view@user:dave\n  assertFalse:\n    - document:d#view@user:bob\n    - document:d#view@user:carol\n    - document:d#view@user:eve\n    - document:p#view@user:anne\n    - document:p#view@user:eve\n",
+    "checked": 7,
+    "fixture": "intersection",
+    "relationships": "document:d#member@user:anne\ndocument:d#viewer@user:anne\ndocument:d#member@user:bob\ndocument:d#viewer@user:carol\ndocument:p#viewer@user:*\ndocument:p#member@user:dave",
+    "schema": "definition user {}\n\ndefinition document {\n    relation member: user\n    relation viewer: user | user:*\n    permission view = member & viewer\n}"
+  },
+  {
+    "assertions": "# Tenant isolation: identical structures in two tenants; nothing leaks across except an\n# explicit share.\n\n# view(p1) = {a_lead, a_admin, a_user}; view(p2) = {b_admin, b_user}\n# view(d1) = view(p1); view(d2) = view(p2); view(d3) = view(p1) ∪ {b_user}\nassertions:\n  assertTrue:\n    - document:d1#view@user:a_user\n    - document:d1#view@user:a_admin\n    - document:d1#view@user:a_lead\n    - project:p1#manage@user:a_admin\n    - document:d2#view@user:b_user\n    - document:d2#view@user:b_admin\n    - document:d3#view@user:b_user\n    - document:d3#view@user:a_user\n  assertFalse:\n    - document:d1#view@user:b_user\n    - document:d1#view@user:b_admin\n    - document:d2#view@user:a_admin\n    - document:d2#view@user:a_user\n    - document:d2#view@user:a_lead\n    - document:d3#view@user:b_admin\n    - project:p2#manage@user:a_admin\n    - project:p1#manage@user:b_admin\n    - project:p1#manage@user:a_user\n",
+    "checked": 17,
+    "fixture": "multi_tenant",
+    "relationships": "tenant:t1#admin@user:a_admin\ntenant:t1#member@user:a_user\ntenant:t2#admin@user:b_admin\ntenant:t2#member@user:b_user\nproject:p1#tenant@tenant:t1\nproject:p1#lead@user:a_lead\nproject:p2#tenant@tenant:t2\ndocument:d1#project@project:p1\ndocument:d2#project@project:p2\ndocument:d3#project@project:p1\n// The one explicit cross-tenant share.\ndocument:d3#viewer@user:b_user",
+    "schema": "definition user {}\n\ndefinition tenant {\n    relation admin: user\n    relation member: user\n    permission members = admin + member\n}\n\ndefinition project {\n    relation tenant: tenant\n    relation lead: user\n    permission manage = lead + tenant->admin\n    permission view = manage + tenant->members\n}\n\ndefinition document {\n    relation project: project\n    relation viewer: user\n    permission view = viewer + project->view\n}"
+  },
+  {
+    "assertions": "# Groups that contain each other (a ⊃ b ⊃ c ⊃ a) and a group that contains itself:\n# check terminates with the least fixed point.\n\n# a, b, c are one cycle, so S(a) = S(b) = S(c) = {bob, a#member, b#member, c#member}.\n# S(x, member) = {x#member}: the self loop adds nothing.\nassertions:\n  assertTrue:\n    - group:a#member@user:bob\n    - group:b#member@user:bob\n    - group:c#member@user:bob\n    - group:a#member@group:c#member\n    - group:c#member@group:b#member\n    - document:d#view@user:bob\n    - group:x#member@group:x#member\n  assertFalse:\n    - group:a#member@user:eve\n    - group:c#member@user:eve\n    - document:d#view@user:eve\n    - group:x#member@user:bob\n    - group:x#member@group:a#member\n    - group:a#member@group:x#member\n\n# Lookups walk the cycle backwards and stop: every group of the cycle once.\nexpectedLookups:\n  resources:\n    - query: \"group#member@user:bob\"\n      expect: [a, b, c]\n    - query: \"group#member@group:a#member\"\n      expect: [a, b, c]\n    - query: \"group#member@group:x#member\"\n      expect: [x]\n    - query: \"group#member@user:eve\"\n      expect: []\n    - query: \"document#view@user:bob\"\n      expect: [d]\n    - query: \"document#view@group:c#member\"\n      expect: [d]\n    - query: \"document#view@user:eve\"\n      expect: []\n  subjects:\n    - query: \"group:a#member@user\"\n      expect: { ids: [bob] }\n    - query: \"group:c#member@user\"\n      expect: { ids: [bob] }\n    - query: \"group:x#member@user\"\n      expect: { ids: [] }\n    - query: \"document:d#view@user\"\n      expect: { ids: [bob] }\n",
+    "checked": 24,
+    "fixture": "nested_groups_cycle",
+    "relationships": "group:a#member@group:b#member\ngroup:b#member@group:c#member\ngroup:c#member@group:a#member\ngroup:b#member@user:bob\ngroup:x#member@group:x#member\ndocument:d#viewer@group:a#member",
+    "schema": "definition user {}\n\ndefinition group {\n    relation member: user | group#member\n}\n\ndefinition document {\n    relation viewer: group#member\n    permission view = viewer\n}"
+  },
+  {
+    "assertions": "# A cycle through the subtracted side of an exclusion has no well-defined answer\n# (docs/04-evaluation.md §3.6): the engine fails with NON_MONOTONIC_CYCLE when it reaches\n# one, and answers normally on data where the cycle is not reached. The reference evaluator\n# refuses this schema (it is not stratifiable), so assertions here are checked against the\n# engine and the hand-computed answers only.\n\n# view(y) = {u} \\ ∅ = {u}; view(x) = {u} \\ view(y) = ∅.\n# For a user who is not a viewer, the base side is false and the cycle is never reached.\nassertions:\n  assertTrue:\n    - doc:y#view@user:u\n  assertFalse:\n    - doc:x#view@user:u\n    - doc:a#view@user:other\n    - doc:b#view@user:other\n\nexpectCheckErrors:\n  doc:a#view@user:u: NON_MONOTONIC_CYCLE\n  doc:b#view@user:u: NON_MONOTONIC_CYCLE\n  doc:c#view@user:u: NON_MONOTONIC_CYCLE\n",
+    "checked": 7,
+    "fixture": "non_monotone_cycle",
+    "relationships": "// A self loop and a two-node cycle, both reached.\ndoc:a#parent@doc:a\ndoc:a#viewer@user:u\ndoc:b#parent@doc:c\ndoc:c#parent@doc:b\ndoc:b#viewer@user:u\ndoc:c#viewer@user:u\n// Acyclic: x → y.\ndoc:x#parent@doc:y\ndoc:x#viewer@user:u\ndoc:y#viewer@user:u",
+    "schema": "definition user {}\n\ndefinition doc {\n    relation parent: doc\n    relation viewer: user\n    permission view = viewer - parent->view\n}"
+  },
+  {
+    "assertions": "# Prefixed type names (`docs/document`, `iam/user`) are distinct from unprefixed ones.\n\n# view(root) = {iam/user:anne}; view(readme) = {iam/user:bob, iam/user:anne};\n# view(other) = {user:anne}.\nassertions:\n  assertTrue:\n    - docs/document:readme#view@iam/user:anne\n    - docs/document:readme#view@iam/user:bob\n    - docs/folder:root#view@iam/user:anne\n    - docs/document:other#view@user:anne\n    - iam/group:eng#member@iam/user:anne\n  assertFalse:\n    - docs/document:readme#view@user:anne\n    - docs/document:other#view@iam/user:anne\n    - docs/folder:root#view@iam/user:bob\n    - docs/document:readme#view@user:bob\n",
+    "checked": 9,
+    "fixture": "prefixed_types",
+    "relationships": "iam/group:eng#member@iam/user:anne\ndocs/folder:root#viewer@iam/group:eng#member\ndocs/document:readme#parent@docs/folder:root\ndocs/document:readme#viewer@iam/user:bob\ndocs/document:other#viewer@user:anne",
+    "schema": "definition user {}\n\ndefinition iam/user {}\n\ndefinition iam/group {\n    relation member: iam/user | iam/group#member\n}\n\ndefinition docs/folder {\n    relation viewer: iam/user | iam/group#member\n    permission view = viewer\n}\n\ndefinition docs/document {\n    relation parent: docs/folder\n    relation viewer: iam/user | user\n    permission view = viewer + parent->view\n}"
+  },
+  {
+    "assertions": "# E_AMBIGUOUS_OPERATORS: `+` and `&` mixed at one level without parentheses.\nexpectErrors:\n  - E_AMBIGUOUS_OPERATORS\n",
+    "checked": 1,
+    "fixture": "schema_errors/ambiguous_operators",
+    "relationships": "",
+    "schema": "definition user {}\ndefinition doc {\n    relation viewer: user\n    relation editor: user\n    relation member: user\n    permission view = viewer + editor & member\n}"
+  },
+  {
+    "assertions": "# E_ARROW_CHAIN: An arrow whose right side is another arrow.\nexpectErrors:\n  - E_ARROW_CHAIN\n",
+    "checked": 1,
+    "fixture": "schema_errors/arrow_chain",
+    "relationships": "",
+    "schema": "definition user {}\ndefinition folder {\n    relation parent: folder\n    relation viewer: user\n    permission view = viewer\n}\ndefinition doc {\n    relation parent: folder\n    permission view = parent->parent->view\n}"
+  },
+  {
+    "assertions": "# E_ARROW_LEFT_NOT_RELATION: An arrow whose left side is a permission.\nexpectErrors:\n  - E_ARROW_LEFT_NOT_RELATION\n",
+    "checked": 1,
+    "fixture": "schema_errors/arrow_left_not_relation",
+    "relationships": "",
+    "schema": "definition user {}\ndefinition doc {\n    relation owner: user\n    permission edit = owner\n    permission view = edit->view\n}"
+  },
+  {
+    "assertions": "# E_ARROW_OVER_WILDCARD: An arrow over a relation that allows a wildcard.\nexpectErrors:\n  - E_ARROW_OVER_WILDCARD\n",
+    "checked": 1,
+    "fixture": "schema_errors/arrow_over_wildcard",
+    "relationships": "",
+    "schema": "definition folder {\n    relation parent: folder | folder:*\n    permission view = parent->view\n}"
+  },
+  {
+    "assertions": "# E_ARROW_TARGET_MISSING: An arrow target defined on none of the left relation's types.\nexpectErrors:\n  - E_ARROW_TARGET_MISSING\n",
+    "checked": 1,
+    "fixture": "schema_errors/arrow_target_missing",
+    "relationships": "",
+    "schema": "definition user {}\ndefinition team {}\ndefinition doc {\n    relation owner: user | team\n    permission view = owner->member\n}"
+  },
+  {
+    "assertions": "# E_DIRECT_CYCLE: Permissions that refer to each other through computed usersets only.\nexpectErrors:\n  - E_DIRECT_CYCLE\n",
+    "checked": 1,
+    "fixture": "schema_errors/direct_cycle",
+    "relationships": "",
+    "schema": "definition user {}\ndefinition doc {\n    relation x_rel: user\n    permission aaa = bbb\n    permission bbb = aaa + x_rel\n}"
+  },
+  {
+    "assertions": "# E_DUPLICATE_ALLOWED_TYPE: The same allowed type listed twice.\nexpectErrors:\n  - E_DUPLICATE_ALLOWED_TYPE\n",
+    "checked": 1,
+    "fixture": "schema_errors/duplicate_allowed_type",
+    "relationships": "",
+    "schema": "definition user {}\ndefinition doc {\n    relation viewer: user | user\n}"
+  },
+  {
+    "assertions": "# E_DUPLICATE_MEMBER: A relation and a permission with the same name.\nexpectErrors:\n  - E_DUPLICATE_MEMBER\n",
+    "checked": 1,
+    "fixture": "schema_errors/duplicate_member",
+    "relationships": "",
+    "schema": "definition user {}\ndefinition doc {\n    relation viewer: user\n    permission viewer = viewer\n}"
+  },
+  {
+    "assertions": "# E_DUPLICATE_TYPE: The same type defined twice.\nexpectErrors:\n  - E_DUPLICATE_TYPE\n",
+    "checked": 1,
+    "fixture": "schema_errors/duplicate_type",
+    "relationships": "",
+    "schema": "definition user {}\n\ndefinition user {}"
+  },
+  {
+    "assertions": "# E_IDENT_FORMAT: Type names need at least three characters.\nexpectErrors:\n  - E_IDENT_FORMAT\n",
+    "checked": 1,
+    "fixture": "schema_errors/ident_format",
+    "relationships": "",
+    "schema": "definition ab {}"
+  },
+  {
+    "assertions": "# E_RESERVED_NAME: A relation named like a keyword.\nexpectErrors:\n  - E_RESERVED_NAME\n",
+    "checked": 1,
+    "fixture": "schema_errors/reserved_name",
+    "relationships": "",
+    "schema": "definition user {}\ndefinition doc {\n    relation nil: user\n}"
+  },
+  {
+    "assertions": "# E_UNEXPECTED_CHAR: A character that starts no token.\nexpectErrors:\n  - E_UNEXPECTED_CHAR\n",
+    "checked": 1,
+    "fixture": "schema_errors/unexpected_char",
+    "relationships": "",
+    "schema": "definition user {}\n$"
+  },
+  {
+    "assertions": "# E_UNEXPECTED_TOKEN: SpiceDB has no `;` terminators.\nexpectErrors:\n  - E_UNEXPECTED_TOKEN\n",
+    "checked": 1,
+    "fixture": "schema_errors/unexpected_token",
+    "relationships": "",
+    "schema": "definition user {}\ndefinition doc {\n    relation viewer: user;\n}"
+  },
+  {
+    "assertions": "# E_UNKNOWN_MEMBER: A permission referring to an undefined member.\nexpectErrors:\n  - E_UNKNOWN_MEMBER\n",
+    "checked": 1,
+    "fixture": "schema_errors/unknown_member",
+    "relationships": "",
+    "schema": "definition user {}\ndefinition doc {\n    relation viewer: user\n    permission view = viewr\n}"
+  },
+  {
+    "assertions": "# E_UNKNOWN_SUBJECT_RELATION: A subject set naming an undefined member.\nexpectErrors:\n  - E_UNKNOWN_SUBJECT_RELATION\n",
+    "checked": 1,
+    "fixture": "schema_errors/unknown_subject_relation",
+    "relationships": "",
+    "schema": "definition user {}\ndefinition group {\n    relation member: user\n}\ndefinition doc {\n    relation viewer: group#membr\n}"
+  },
+  {
+    "assertions": "# E_UNKNOWN_TYPE: An allowed type that is not defined.\nexpectErrors:\n  - E_UNKNOWN_TYPE\n",
+    "checked": 1,
+    "fixture": "schema_errors/unknown_type",
+    "relationships": "",
+    "schema": "definition user {}\ndefinition doc {\n    relation viewer: usr\n}"
+  },
+  {
+    "assertions": "# E_UNSUPPORTED_FEATURE: Caveats are recognised and refused, not a generic parse error.\nexpectErrors:\n  - E_UNSUPPORTED_FEATURE\n",
+    "checked": 1,
+    "fixture": "schema_errors/unsupported_feature",
+    "relationships": "",
+    "schema": "caveat ip_allowed(ip ipaddress) {\n    ip.in_cidr('10.0.0.0/8')\n}\ndefinition user {}"
+  },
+  {
+    "assertions": "# E_UNTERMINATED_COMMENT: A block comment that is never closed.\nexpectErrors:\n  - E_UNTERMINATED_COMMENT\n",
+    "checked": 1,
+    "fixture": "schema_errors/unterminated_comment",
+    "relationships": "",
+    "schema": "definition user {}\n/* never closed\ndefinition team {}"
+  },
+  {
+    "assertions": "# Self membership (docs/04-evaluation.md §2): `o#m` is always in S(o, m), with or without\n# tuples, but `o#m` is not in S(o, m') for another member m' unless m' contains m.\n\n# S(eng, member) = {anne, eng#member}; S(eng, is_member) = S(eng, member) ∪ {eng#is_member}.\nassertions:\n  assertTrue:\n    - group:eng#member@group:eng#member\n    - group:empty#member@group:empty#member\n    - group:eng#is_member@group:eng#is_member\n    - group:eng#is_member@group:eng#member\n    - document:d#view@group:eng#member\n    - document:d#view@user:anne\n  assertFalse:\n    - group:eng#member@group:other#member\n    - group:eng#member@group:eng#is_member\n    - group:empty#member@group:eng#member\n    - document:d#view@group:other#member\n",
+    "checked": 10,
+    "fixture": "self_membership",
+    "relationships": "group:eng#member@user:anne\ndocument:d#viewer@group:eng#member",
+    "schema": "definition user {}\n\ndefinition group {\n    relation member: user | group#member\n    permission is_member = member\n}\n\ndefinition document {\n    relation viewer: group#member\n    permission view = viewer\n}"
+  },
+  {
+    "assertions": "# Subject sets: a document shared with `group:a#member`, where a ⊃ b ⊃ c (3 deep).\n\n# S(c, member) = {carol, c#member}\n# S(b, member) = {bob} ∪ S(c, member) ∪ {b#member}\n# S(a, member) = {alice} ∪ S(b, member) ∪ {a#member}\n# S(doc, view) = S(a, member) ∪ {doc#view, doc#viewer}; S(other, view) = S(c, member) ∪ ...\nassertions:\n  assertTrue:\n    - document:doc#view@user:alice\n    - document:doc#view@user:bob\n    - document:doc#view@user:carol\n    - group:a#member@user:carol\n    - document:doc#view@group:c#member\n    - document:doc#view@group:a#member\n    - document:other#view@user:carol\n  assertFalse:\n    - document:other#view@user:bob\n    - document:other#view@user:alice\n    - document:other#view@group:a#member\n    - group:c#member@user:alice\n    - group:b#member@user:alice\n    - group:c#member@group:b#member\n    - document:doc#view@user:dave\n",
+    "checked": 14,
+    "fixture": "subject_sets",
+    "relationships": "group:a#member@group:b#member\ngroup:b#member@group:c#member\ngroup:a#member@user:alice\ngroup:b#member@user:bob\ngroup:c#member@user:carol\ndocument:doc#viewer@group:a#member\ndocument:other#viewer@group:c#member",
+    "schema": "definition user {}\n\ndefinition group {\n    relation member: user | group#member\n}\n\ndefinition document {\n    relation viewer: user | group#member\n    permission view = viewer\n}"
+  },
+  {
+    "assertions": "# `user:*` matches every user, including ones no tuple mentions, but never a subject set\n# and never another type.\n\n# S(public, view)  = every user\n# S(private, view) = {anne}\n# S(team, view)    = {bob, group:eng#member}\nassertions:\n  assertTrue:\n    - document:public#view@user:anne\n    - document:public#viewer@user:bob\n    - document:public#view@user:zed\n    - document:private#view@user:anne\n    - document:team#view@user:bob\n    - document:team#view@group:eng#member\n  assertFalse:\n    - document:private#view@user:zed\n    - document:public#view@group:eng#member\n    - document:public#view@bot:r2\n    - document:team#view@user:anne\n    - document:team#view@user:zed\n\n# Lookups: the wildcard answers \"every user\" (subject type user only).\nexpectedLookups:\n  subjects:\n    - query: \"document:public#view@user\"\n      expect: { wildcard: true, excluded: [] }\n    - query: \"document:public#view@bot\"\n      expect: { ids: [] }\n    - query: \"document:private#view@user\"\n      expect: { ids: [anne] }\n    - query: \"document:team#view@user\"\n      expect: { ids: [bob] }\n",
+    "checked": 15,
+    "fixture": "wildcard",
+    "relationships": "document:public#viewer@user:*\ndocument:private#viewer@user:anne\ndocument:team#viewer@group:eng#member\ngroup:eng#member@user:bob",
+    "schema": "definition user {}\n\ndefinition bot {}\n\ndefinition group {\n    relation member: user\n}\n\ndefinition document {\n    relation viewer: user | user:* | bot | group#member\n    permission view = viewer\n}"
+  },
+  {
+    "assertions": "# A stored wildcard `t:*` matches objects of type `t`, never a subject set `t:x#r`\n# (docs/04-evaluation.md §3.3). SpiceDB matches the subject set too: KD-3 in\n# crates/pemba-difftest/KNOWN_DIFFERENCES.md. On the grant side pemba says false where\n# SpiceDB says true. On the subtracted side of an exclusion pemba would say true where\n# SpiceDB says false, so it fails with AMBIGUOUS_WILDCARD_EXCLUSION instead (T3.4b,\n# docs/04-evaluation.md §3.3).\n\nassertions:\n  assertTrue:\n    - doc:d#viewer@grp:g\n    - doc:d#viewer@grp:anyone\n  assertFalse:\n    # Grant side: the wildcard does not match the subject set.\n    - doc:d#viewer@grp:g#member\n    # Only the subject set grp:g#member is a viewer, not the object grp:g.\n    - page:p#view@grp:g\n    # No viewer: the exclusion's base is empty, so its subtracted side is never reached.\n    - page:q#view@grp:g#member\n\nexpectCheckErrors:\n  # Subtracted side: grp:* bans every grp object; whether it bans the subject set is\n  # ambiguous (SpiceDB: yes).\n  page:p#view@grp:g#member: AMBIGUOUS_WILDCARD_EXCLUSION\n",
+    "checked": 6,
+    "fixture": "wildcard_subject_set",
+    "relationships": "grp:g#member@user:anne\ndoc:d#viewer@grp:*\npage:p#viewer@grp:g#member\npage:p#banned@grp:*\npage:q#banned@grp:*",
+    "schema": "definition user {}\n\ndefinition grp {\n    relation member: user\n}\n\ndefinition doc {\n    relation viewer: grp:* | grp#member\n}\n\ndefinition page {\n    relation viewer: grp#member\n    relation banned: grp:*\n    permission view = viewer - banned\n}"
+  }
+]

@@ -221,3 +221,38 @@ code {
 .diag-help {
   color: var(--muted);
 }
+
+/* Assertion results per line (T6.6). */
+.cm-assert-gutter .cm-gutterElement {
+  padding: 0 4px;
+  font-weight: 600;
+}
+
+.assert-pass {
+  color: var(--allowed);
+}
+
+.assert-fail {
+  color: var(--error);
+}
+
+.assert-skipped {
+  color: var(--muted);
+}
+
+.failures {
+  margin: 0 0 8px;
+  padding-left: 1.2rem;
+  font-family: var(--mono);
+  font-size: 0.85rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.failures li {
+  margin-bottom: 6px;
+}
+
+.results h2 + .result + h2 {
+  margin-top: 16px;
+}
