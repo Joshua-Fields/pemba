@@ -271,6 +271,17 @@ afresh each attempt.
 state, but the engine's connections use prepared statements, which need PgBouncer 1.21 or
 newer with `max_prepared_statements` set.
 
+**Latency is round trips.** Each statement is a round trip to the server (prepared
+statements are cached per connection), so cost scales with your network, not with the
+data. A direct check costs about 5 round trips; each level of hierarchy the check walks
+adds about 3, so a document 30 folders deep costs 99. A `lookup_resources` over 10,000
+documents costs about 500. A write is 10 round trips whatever its size, up to the batch
+limit of 1,000. On a CI runner where a round trip took about 150 µs, that came to 0.76 ms
+for a direct check, 16 ms for 30 folders and 19 ms for a 1,000-tuple write
+([`benches/RESULTS.md`](benches/RESULTS.md)). Keep the database close to the app, and
+prefer shallow hierarchies on hot paths. Fewer round trips for deep hierarchies is planned
+after the first Postgres release.
+
 **Garbage collection and autovacuum.** `engine.gc(keep_from)` raises the horizon, deletes
 history below it, and compacts what is left, each step in its own short transaction off
 your write path; run it from a scheduled job. It leaves dead rows like any bulk delete:
