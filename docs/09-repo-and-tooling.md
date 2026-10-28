@@ -149,6 +149,25 @@ them, never `set -x` around them, and do not expose them to workflows triggered 
 - `fuzz.yml` (manual): nightly toolchain, each target for a fixed time.
 - Weekly: `cargo-mutants` on `pemba-core::eval` and `pemba-schema` validator.
 
+### 4.1 Release checklist
+
+A release PR bumps the version and nothing CI cannot check; tagging and publishing are
+manual human steps after it merges.
+
+1. Bump `version` and every internal dependency's `version` in the root `Cargo.toml`.
+2. `cargo update -w` at the root **and in `fuzz/`** (`cd fuzz && cargo update -w`): `fuzz/`
+   is its own workspace with its own `Cargo.lock`, which the root command does not touch,
+   and a stale one fails `cargo check` there. Both diffs should change only pemba's own
+   crate versions.
+3. `CHANGELOG.md`: turn `[Unreleased]` into a dated section, add an empty `[Unreleased]`,
+   update the version note and the compare links.
+4. README status and install lines; copy `README.md` to `crates/pemba-py/README.md`
+   (`package-files` checks they match).
+5. Full local check (`CLAUDE.md` §5), `cargo publish --workspace --dry-run`, and a manual
+   `wheels.yml` run on the release branch.
+6. After merge (human): tag `v<version>` on main (`wheels.yml` uploads to PyPI after
+   review), then `cargo publish` the crates.
+
 ## 5. Git conventions
 
 - Conventional commits (`feat:`, `fix:`, `test:`, `docs:`, `refactor:`, `perf:`, `chore:`).
