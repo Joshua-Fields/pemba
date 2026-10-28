@@ -10,6 +10,12 @@ The Rust crates and the Python package share one version: `0.1.0-alpha.3` on cra
 
 ## [Unreleased]
 
+### Added
+
+- `pemba_fixtures::parse_str` splits fixture YAML into its schema, its relationships
+  text and its assertion sections, without running anything (the playground's import;
+  `docs/07-testing.md` §3). `FixtureError` gains `Malformed`.
+
 ### Changed
 
 - `pemba-core`, `pemba-schema`, `pemba-store-memory` and `pemba-fixtures` build and run on

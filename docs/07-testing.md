@@ -216,6 +216,12 @@ expectErrors:                       # optional: schema or write must fail with t
   CLI `pemba test` uses) and `pemba-testkit::fixtures::run(path, store_kind)`, the same
   runner with the reference evaluator plugged in as its `Oracle` (OQ-024, T3.3). pemba's
   own tests use the testkit form.
+  `pemba_fixtures::parse_str` (T6.2, the playground's import) runs nothing: it splits a
+  fixture into `schema`, the `relationships` text as written, and `assertions`, which is
+  every other top-level key as verbatim YAML. Comment lines before the first key go to
+  `assertions`; any later column-0 comment line goes with the key after it. It refuses
+  `schemaFile`, text that is not a valid fixture, and a top level that is not a block
+  mapping. Joined again, the three parts are the same fixture.
   Each fixture runs against **both** memory and SQLite stores (memory only until the SQLite
   store lands in M2; adding a store kind is one `StoreKind` variant and one match arm).
 - **Every `assertTrue` / `assertFalse` is cross-checked** (testkit form; `pemba test`

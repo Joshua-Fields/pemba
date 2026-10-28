@@ -162,6 +162,24 @@ Diagnostic spans are converted from byte offsets to **UTF-16 offsets** on the Ru
 CodeMirror positions are UTF-16, and `SchemaError::col` counts `char`s, which disagree on
 astral characters.
 
+Contract details (T6.2; the crate docs are the reference):
+- **Envelope.** Every answer has `ok`. On `ok: false`, `error` has `code`, `message` and
+  `stage` (`request`, `schema`, `relationships` or `query`). Where they apply, it also
+  has `diagnostics` (schema), and `line`, `start`, `end` and `at` (UTF-16, into that
+  stage's text).
+- **Codes.** An engine error carries `Error::code()`. A relationship the schema rejects
+  carries its `E_...` code, as fixtures name it. `PARSE_ERROR` means input that does not
+  parse (not an engine code). `BAD_REQUEST` means request JSON this API cannot read.
+- **Writes.** `run` writes relationships as `Touch` batches of `max_write_batch` lines,
+  as `pemba check --fixture` does. `run_assertions` hands one fixture to
+  `pemba_fixtures::run_str`, so it keeps `pemba test`'s single batch: more than 1 000
+  relationships fail there with `BATCH_TOO_LARGE`, as they do in `pemba test`.
+- **Trace.** `run` returns a check's `trace` as the `pemba check --json` text, byte for
+  byte. It is not an embedded object, because a deep trace (the `depth_limit` fixture)
+  nests past `serde_json`'s recursion limit. The worker calls `JSON.parse` on it.
+- **Lookups.** `lookup_resources` returns every page, all read at the first page's
+  revision.
+
 ## 4. UX and frontend
 
 - **Three editors.**
