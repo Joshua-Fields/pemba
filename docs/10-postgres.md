@@ -671,13 +671,13 @@ engine.check("document:readme", "view", "user:anne", at_least=pending)
 | Annotations `-> Revision` on the `conn=` path | `-> PendingRevision` |
 | Rust `let rev = engine.write_in(&mut SqliteTxn::new(&tx), req)?;` | `let p = engine.write_in(...)?; tx.commit()?; let rev = engine.resolve(&p)?;`. On SQLite `p.resolved()` is already `Some(rev)`. |
 
-- **Python transition aid, for one release:** only `int(pending)` and
-  `operator.index(pending)` (`__int__` / `__index__`) still work; they return
-  `revision()` with a `DeprecationWarning`. `PendingRevision` has no comparison or
-  arithmetic operators, so `pending == 3` is `False` and `pending + 1` raises `TypeError`:
-  code that compared or did arithmetic on the returned value must call `revision()`. On
-  Postgres before commit, `int()` raises `RevisionPending` instead of returning a wrong
-  number.
+- **Python transition aid (alpha.3 only):** `int(pending)` and
+  `operator.index(pending)` returned `revision()` with a `DeprecationWarning`.
+  **Removed in alpha.4:** both conversions now raise `TypeError`, whether the
+  pending revision is resolved or not, without attempting to resolve it. Call
+  `pending.revision()` after commit to obtain the number, or pass `pending` as
+  `at_least=`. `PendingRevision` has no comparison or arithmetic operators, so
+  `pending == 3` is `False` and `pending + 1` raises `TypeError`.
 - **Rust** has no transition aid: the type changes, and the compiler points at every call
   site.
 - **The version bump** follows the project's pre-1.0 rule for breaking changes (T5.0).
@@ -1273,7 +1273,8 @@ server and drop their schema on success.
      drivers, through `write_async`, are added in T5.13.
    - **Async rejected.** An async connection passed to `write(conn=)` raises `TypeError`.
    - **SQLite.** `PendingRevision` is returned and resolved; `at_least=pending` works; the
-     deprecated `int(pending)` warns.
+     removed `int(pending)` and `operator.index(pending)` conversions raise
+     `TypeError` without resolving an unresolved pending write.
    - **Search path.** A hostile `search_path` on the foreign connection has no effect.
    - **Typing.** `mypy --strict` over the new `.pyi`.
 7. **Fail closed.** A connection killed mid-request (`pg_terminate_backend`) and a

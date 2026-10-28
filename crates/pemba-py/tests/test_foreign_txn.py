@@ -311,7 +311,7 @@ def test_precondition_race_in_a_deferred_transaction_is_a_retryable_conflict(
     assert engine.check("document:readme#view@user:anne") is False
 
 
-def test_pending_revision_as_int_is_deprecated(
+def test_pending_revision_rejects_integer_conversions(
     engine: pemba.Engine, connect: Callable[..., sqlite3.Connection]
 ) -> None:
     conn = connect()
@@ -319,10 +319,10 @@ def test_pending_revision_as_int_is_deprecated(
     pending = engine.write(touch=[ANNE], conn=conn)
     conn.execute("COMMIT")
     rev = pending.revision()
-    with pytest.warns(DeprecationWarning, match="revision"):
-        assert int(pending) == rev
-    with pytest.warns(DeprecationWarning):
-        assert operator.index(pending) == rev
+    with pytest.raises(TypeError):
+        int(pending)  # type: ignore[call-overload]
+    with pytest.raises(TypeError):
+        operator.index(pending)  # type: ignore[arg-type]
     # The supported routes do not warn.
     with warnings.catch_warnings():
         warnings.simplefilter("error")
@@ -331,3 +331,22 @@ def test_pending_revision_as_int_is_deprecated(
     # at_exactly names a point in history: it takes a revision, not a pending write.
     with pytest.raises(TypeError, match="at_exactly"):
         engine.check("document:readme#view@user:anne", at_exactly=pending)  # type: ignore[call-overload]
+
+
+def test_unresolved_pending_revision_rejects_conversions_without_resolving() -> None:
+    calls: list[bool] = []
+
+    def resolve() -> int:
+        calls.append(True)
+        return 7
+
+    pending = pemba.PendingRevision(resolver=resolve)
+    with pytest.raises(TypeError):
+        int(pending)  # type: ignore[call-overload]
+    with pytest.raises(TypeError):
+        operator.index(pending)  # type: ignore[arg-type]
+    assert calls == []
+    assert not pending.resolved
+    assert pending.revision() == 7
+    assert pending.resolved
+    assert calls == [True]

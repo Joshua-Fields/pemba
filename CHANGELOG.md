@@ -5,13 +5,39 @@ All notable changes to pemba are recorded here. The format is based on
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). While pemba is an alpha
 (0.1.0 pre-releases), any release may break the API.
 
-The Rust crates and the Python package share one version: `0.1.0-alpha.3` on crates.io is
-`0.1.0a3` on PyPI.
+The Rust crates and the Python package share one version: `0.1.0-alpha.4` on crates.io is
+`0.1.0a4` on PyPI.
 
 ## [Unreleased]
 
+## [0.1.0-alpha.4] - 2026-10-28
+
+The first release with the browser playground.
+
+### Breaking
+
+- Python: removed the deprecated `PendingRevision.__int__` and `__index__`
+  conversions announced in alpha.3. `int(pending)` and `operator.index(pending)`
+  now raise `TypeError`. Migration: call `pending.revision()` after commit when
+  you need the revision number, or pass `pending` directly as `at_least=`.
+
 ### Added
 
+- **Browser playground** at <https://joshua-fields.github.io/pemba/>: the real
+  engine compiled to WebAssembly, running locally in a Web Worker. Edit schemas
+  with syntax highlighting and inline diagnostics, run checks and both lookups,
+  run fixture assertions, and inspect a collapsible explain tree or copy its text.
+- Playground examples for document sharing, GitHub-like permissions and agent
+  authorisation; versioned share links and fixture YAML import/export. A version
+  mismatch banner links to the original release when available.
+- Immutable `playground-<version>.tar.gz` assets attached to GitHub Releases.
+  Pages serves the newest playground release at the root, each release at
+  `/v/<version>/`, and development builds at `/next/`, with version and commit
+  shown in the footer. Tag builds create or update the GitHub Release using
+  these changelog notes before attaching the playground.
+- Playground CI checks the release WASM against native transcripts for all
+  fixtures and 1,000 generated cases, checks generated cases against the reference
+  evaluator, and runs frontend unit and browser tests with a 700 KB gzip budget.
 - `pemba_fixtures::parse_str` splits fixture YAML into its schema, its relationships
   text and its assertion sections, without running anything (the playground's import;
   `docs/07-testing.md` §3). `FixtureError` gains `Malformed`.
@@ -22,6 +48,11 @@ The Rust crates and the Python package share one version: `0.1.0-alpha.3` on cra
   `wasm32-unknown-unknown`, for the browser playground (ADR-016). It is not a supported
   WASM package. On wasm32 only, `pemba-core` takes `Instant` from `web-time`, because
   std's `Instant::now` traps there. Other targets gain no dependency.
+
+### Fixed
+
+- The scheduled Postgres property-test workflow parses correctly after quoting
+  its test command.
 
 ## [0.1.0-alpha.3] - 2026-10-28
 
@@ -189,7 +220,8 @@ First public pre-release.
 - The `pemba` CLI (`pemba-cli`): `schema validate`, `schema fmt` (experimental; keeps
   comments) and `test`, which runs YAML fixture files.
 
-[Unreleased]: https://github.com/Joshua-Fields/pemba/compare/v0.1.0-alpha.3...HEAD
+[Unreleased]: https://github.com/Joshua-Fields/pemba/compare/v0.1.0-alpha.4...HEAD
+[0.1.0-alpha.4]: https://github.com/Joshua-Fields/pemba/compare/v0.1.0-alpha.3...v0.1.0-alpha.4
 [0.1.0-alpha.3]: https://github.com/Joshua-Fields/pemba/compare/v0.1.0-alpha.2...v0.1.0-alpha.3
 [0.1.0-alpha.2]: https://github.com/Joshua-Fields/pemba/compare/v0.1.0-alpha.1...v0.1.0-alpha.2
 [0.1.0-alpha.1]: https://github.com/Joshua-Fields/pemba/releases/tag/v0.1.0-alpha.1

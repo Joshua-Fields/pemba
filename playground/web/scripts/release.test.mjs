@@ -88,7 +88,7 @@ describe('changelogSection', () => {
 
   it('reads the real CHANGELOG.md', () => {
     const text = fs.readFileSync(new URL('../../../CHANGELOG.md', import.meta.url), 'utf8');
-    expect(changelogSection(text, '0.1.0-alpha.3')).toMatch(/\S/);
+    expect(changelogSection(text, '0.1.0-alpha.4')).toMatch(/\S/);
   });
 });
 

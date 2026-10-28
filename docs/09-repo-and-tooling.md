@@ -209,7 +209,13 @@ manual human steps after it merges.
    update the version note and the compare links.
 4. README status and install lines; copy `README.md` to `crates/pemba-py/README.md`
    (`package-files` checks they match).
-5. Full local check (`CLAUDE.md` §5) and `cargo publish --workspace --dry-run`. The
+5. Full local check (`CLAUDE.md` §5) and `cargo publish --workspace --dry-run`.
+   Also run the playground release checks: `playground/conformance/run.sh`, then in
+   `playground/web`, `npm ci`, `npm audit --omit=dev`, `npm run wasm`, `npm test`,
+   `npm run build`, `npm run size` and `npm run e2e` (with Playwright Chromium installed).
+   Verify `scripts/release.mjs notes <version>` extracts the new changelog section and
+   `scripts/release.mjs prerelease <version>` returns `true` for an alpha release.
+   These checks build locally and do not publish a release or upload an asset. The
    release PR changes `Cargo.lock`, so `wheels.yml` runs on it by itself (build and smoke
    on every platform, no upload). It must be green before merge; a manual run on the
    branch is the same thing, for when the PR run was cancelled or is stale.

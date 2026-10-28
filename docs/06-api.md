@@ -457,7 +457,7 @@ class PendingRevision:                 # what write(..., conn=) returns (ADR-015
                                          # a rollback; cached once known
     @property
     def resolved(self) -> bool: ...      # True once known (always, on SQLite)
-    # int(p) / operator.index(p): deprecated, DeprecationWarning; removed next release.
+    # int(p) / operator.index(p): TypeError; call p.revision() after commit instead.
     # No comparison or arithmetic operators: p == 3 is False, p + 1 raises TypeError.
 
 class Engine:
