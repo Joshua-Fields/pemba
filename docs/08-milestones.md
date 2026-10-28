@@ -471,18 +471,125 @@ AC:
 
 ---
 
-## M6–M10 — Later milestones (outline)
+## M6 — Playground
+
+Design: `docs/11-playground.md` (accepted 2026-10-28; D1–D4 resolved by the maintainer).
+Each task ends green: the §5 checks
+of `CLAUDE.md`, plus the `wasm` CI job from T6.1 and `playground.yml` from T6.3 once they
+exist. Evidence: the unmerged spike branch `t6.0-playground-spike`.
+
+### T6.0 Accept the design (docs only) — done in #67
+Refs: `11` §0, §2.
+AC:
+- The maintainer records D1–D4 in `11` §0 and sets its status to accepted.
+- ADR-016 (WASM for the playground build only; no published WASM package).
+- `CLAUDE.md` §6 amended with the `11` §2 wording.
+- `09` §2: `web-time` (wasm32 only, `pemba-core`) and `wasm-bindgen` (playground crate
+  only), plus the npm toolchain list; `09` §1 layout gains `playground/`.
+
+### T6.1 wasm32 portability of the engine crates
+Refs: `11` §1.1–§1.2, §2 item 1, §5.
+AC:
+- `pemba-core` takes `Instant` from `web-time` on wasm32 (or the D2 alternative); native
+  code paths unchanged (`std::time` re-export).
+- `ci.yml` `wasm` job: `cargo clippy --target wasm32-unknown-unknown` on `pemba-core`,
+  `pemba-schema`, `pemba-store-memory`, `pemba-fixtures` with `-D warnings`.
+- A wasm32 smoke test (`wasm-bindgen-test` under Node) runs one check, one
+  `check_with_trace` and one lookup, so a trap such as `Instant::now` fails CI, not
+  just a build.
+
+### T6.2 `pemba-playground` crate (the WASM API)
+Refs: `11` §3, §3.1.
+AC:
+- `playground/wasm`, workspace member, `publish = false`, `#![forbid(unsafe_code)]`:
+  `compile`, `run`, `run_assertions`, `parse_fixture` as JSON in/out over the library,
+  no semantics of its own; every engine error carries its `Error::code()`.
+- Diagnostic and relationship-line spans in UTF-16 offsets, tested with astral
+  characters.
+- `pemba-fixtures` gains a public parse-only entry point returning the schema,
+  relationships and assertion sections (`07` §3 updated); `run_assertions` is
+  `pemba test` semantics exactly.
+- Native unit tests for every function, including fail-closed error paths.
+
+### T6.3 Conformance: WASM transcript equals native transcript
+Refs: `11` §6 layers 1–2, §5.
+AC:
+- `playground/conformance` writes the transcript (`11` §6) for a corpus, natively and
+  inside the release `.wasm` under Node; CI diffs them byte for byte.
+- Corpus: `testdata/fixtures/**` plus 1 000 `pemba-testkit` generated cases (cyclic
+  data included), which also run through the testkit runner against the oracle.
+- New `playground.yml` (PRs touching `crates/`, `playground/`, `testdata/`) runs it;
+  a deliberately broken WASM answer (local test only) makes it fail.
+
+### T6.4 Frontend skeleton
+Refs: `11` §3, §4 (stack), §5.
+AC:
+- `playground/web`: TypeScript strict, Vite, CodeMirror 6; three editors, the query bar
+  (check / lookup resources / lookup subjects), results with revision; engine in a Web
+  Worker with the `11` §3 limits and 5 s timeout; errors shown with code, never as
+  denied.
+- `playground.yml` builds the site, enforces the 700 KB gzip budget, runs Vitest and a
+  Playwright smoke test (load, run a check, see the answer); Dependabot for npm;
+  `npm audit --omit=dev`.
+
+### T6.5 Schema editing: highlighting and inline diagnostics
+Refs: `11` §4; `03` §7.
+AC:
+- `StreamLanguage` mode for the DSL; errors and warnings inline with code, message,
+  `help`; relationship lines that do not parse or do not fit the schema marked.
+- Playwright: each `testdata/fixtures/schema_errors` case shows its expected code at its
+  span.
+
+### T6.6 Assertions editor
+Refs: `11` §4; `07` §3, §3.2.
+AC:
+- Assertions YAML assembled with schema and relationships into a fixture and run
+  through `run_assertions`; per-line pass/fail with the runner's message; unknown keys
+  are failures, as in `pemba test`.
+- Playwright: every corpus fixture's assertions pass in the page (`11` §6 layer 3).
+
+### T6.7 Explain tree
+Refs: `11` §4; `04` §3.8; `06` §3.1.
+AC:
+- Collapsible tree from the trace JSON: result per node, matched tuple on direct hits,
+  memo hits link to the full node, cycle pass counts, `truncated` banner; per-node
+  durations hidden (`11` §1.2); "copy as text" gives `CheckTrace::render`.
+- Vitest: for the four T4.1 snapshot fixtures the tree's text content matches the
+  `render()` snapshot node for node.
+
+### T6.8 Examples, shareable links, YAML import/export
+Refs: `11` §4.
+AC:
+- Example menu: `google_docs`, `github_like`, and a new `testdata/fixtures/agent_authz.yaml`
+  mirroring `examples/agent_authz.py` (run by `cargo test` like every fixture).
+- Share links: deflate-raw + base64url state in the fragment, always carrying the pemba
+  version (`11` §4); Vitest round-trip; a malformed fragment shows an error, never
+  partial state.
+- Version mismatch banner naming both versions, linking to `/v/<link version>/` with the
+  same fragment when that release exists, and saying the answers may differ when it
+  does not; never switches version on its own. Playwright: a link stamped with another
+  version shows the banner with the right target.
+- Import/export: every corpus fixture survives export → import → run unchanged.
+
+### T6.9 Deploy and document
+Refs: `11` §5.
+AC:
+- Pages deploy per D3 and `11` §5.1: each `v*` tag attaches `playground-<version>.tar.gz`
+  (built with `base` `/pemba/v/<version>/`) to its GitHub Release; every deploy (tag or
+  push to `main`) assembles the root (newest release), `/v/<version>/` for every release
+  asset, and `/next/` (main); footer shows version and commit.
+- A workflow test: the assembled site has a `/v/<version>/` for every playground release
+  asset, and the root's footer version equals the newest release.
+- `09` §4 lists the new jobs; `09` §4.1 release checklist gains the Pages check (root and
+  `/v/<version>/` both load).
+- README: a "Try it in the browser" link; "Debugging permissions" links the playground.
+
+---
+
+## M7–M10 — Later milestones (outline)
 
 Outlines only. Detailed tasks and acceptance criteria get written when each milestone
 starts, against the spec as it stands then.
-
-### M6 — Playground
-- A browser page to edit a schema and relationships and run `check`, `lookup_*` and
-  `--explain` against them, for docs, bug reports and evaluating pemba before installing.
-- Runs the real engine on the memory store, so answers match the library exactly; how
-  it reaches the browser (WASM, out of scope per `CLAUDE.md` §6, or a small hosted
-  backend) is the first decision when M6 starts.
-- Shareable links that encode the schema, tuples and query; fixture YAML import/export.
 
 ### M7 — 0.1.0 and launch
 - Pass the T3.7 gate, cut 0.1.0 on crates.io and PyPI
