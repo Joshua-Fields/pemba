@@ -3,7 +3,7 @@ resolver = "3"
 members = ["crates/*", "benches", "playground/wasm", "playground/conformance"]
 
 [workspace.package]
-version = "0.1.0-alpha.3"
+version = "0.1.0-alpha.4"
 edition = "2024"
 rust-version = "1.99"
 license = "Apache-2.0"
@@ -14,15 +14,15 @@ keywords = ["authorization", "zanzibar", "rebac", "permissions", "sqlite"]
 
 # Internal crates carry a version so `cargo deny` does not treat them as wildcard deps.
 [workspace.dependencies]
-pemba-schema = { path = "crates/pemba-schema", version = "0.1.0-alpha.3" }
-pemba-core = { path = "crates/pemba-core", version = "0.1.0-alpha.3" }
-pemba-store-memory = { path = "crates/pemba-store-memory", version = "0.1.0-alpha.3" }
-pemba-store-sqlite = { path = "crates/pemba-store-sqlite", version = "0.1.0-alpha.3" }
-pemba-sqlite-common = { path = "crates/pemba-sqlite-common", version = "0.1.0-alpha.3" }
-pemba-store-pysqlite = { path = "crates/pemba-store-pysqlite", version = "0.1.0-alpha.3" }
-pemba-store-postgres = { path = "crates/pemba-store-postgres", version = "0.1.0-alpha.3" }
-pemba = { path = "crates/pemba", version = "0.1.0-alpha.3", default-features = false }
-pemba-fixtures = { path = "crates/pemba-fixtures", version = "0.1.0-alpha.3" }
+pemba-schema = { path = "crates/pemba-schema", version = "0.1.0-alpha.4" }
+pemba-core = { path = "crates/pemba-core", version = "0.1.0-alpha.4" }
+pemba-store-memory = { path = "crates/pemba-store-memory", version = "0.1.0-alpha.4" }
+pemba-store-sqlite = { path = "crates/pemba-store-sqlite", version = "0.1.0-alpha.4" }
+pemba-sqlite-common = { path = "crates/pemba-sqlite-common", version = "0.1.0-alpha.4" }
+pemba-store-pysqlite = { path = "crates/pemba-store-pysqlite", version = "0.1.0-alpha.4" }
+pemba-store-postgres = { path = "crates/pemba-store-postgres", version = "0.1.0-alpha.4" }
+pemba = { path = "crates/pemba", version = "0.1.0-alpha.4", default-features = false }
+pemba-fixtures = { path = "crates/pemba-fixtures", version = "0.1.0-alpha.4" }
 pemba-testkit = { path = "crates/pemba-testkit" }
 
 thiserror = "2.0.21"

@@ -3,7 +3,6 @@ can import them lazily."""
 
 from __future__ import annotations
 
-import warnings
 from collections.abc import Callable
 
 
@@ -26,9 +25,7 @@ class PendingRevision:
     commit assigns it: ``revision()`` raises ``RevisionPending`` before the commit and
     ``WriteRolledBack`` after a rollback, and caches the answer once it has one.
 
-    ``int(pending)`` still works for one release, with a ``DeprecationWarning``; on
-    Postgres before the commit it raises ``RevisionPending`` rather than return a wrong
-    number.
+    Use ``revision()`` after commit; integer and index conversions are not supported.
     """
 
     __slots__ = ("_resolver", "_revision")
@@ -55,21 +52,6 @@ class PendingRevision:
     def resolved(self) -> bool:
         """Whether the number is known (cached)."""
         return self._revision is not None
-
-    def _deprecated_int(self) -> int:
-        warnings.warn(
-            "using a PendingRevision as an int is deprecated and will be removed in the "
-            "next release: call .revision() after commit, or pass it as at_least=",
-            DeprecationWarning,
-            stacklevel=3,
-        )
-        return int(self.revision())
-
-    def __int__(self) -> int:
-        return self._deprecated_int()
-
-    def __index__(self) -> int:
-        return self._deprecated_int()
 
     def __repr__(self) -> str:
         if self._revision is None:

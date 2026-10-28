@@ -54,10 +54,6 @@ class PendingRevision:
     @property
     def resolved(self) -> bool:
         """Whether the number is known: always on SQLite; on Postgres once revision() succeeded."""
-    def __int__(self) -> int:
-        """Deprecated (DeprecationWarning): use revision()."""
-    def __index__(self) -> int:
-        """Deprecated (DeprecationWarning): use revision()."""
 
 # ---- results and arguments (frozen) ----
 
