@@ -1,0 +1,82 @@
+# Authorising an AI agent's tool calls: mirrors examples/agent_authz.py (keep the two in
+# step). An agent never holds more authority than the person it acts for.
+#   Gate 1 (tools/list): tool#invoke@agent, a lookup.
+#   Gate 2 (a call): all three of agent#acts_for@person, tool#invoke@agent and
+#   resource#view@person. A fixture checks each separately; the call is allowed only
+#   when all three hold.
+# Uses the pemba `steps:` extension (docs/07-testing.md §3.2) for the revocation.
+schema: |-
+  definition user {}
+
+  definition group {
+      relation member: user | group#member
+  }
+
+  // An agent is software. It holds no authority of its own:
+  // it acts for the people who delegated to it.
+  definition agent {
+      relation principal: user
+      permission acts_for = principal
+  }
+
+  // Gate 1: which tools this agent is allowed to see and call at all.
+  definition tool {
+      relation granted: agent
+      permission invoke = granted
+  }
+
+  definition document {
+      relation owner: user
+      relation viewer: user | group#member
+      permission view = viewer + owner
+  }
+
+relationships: |-
+  group:finance#member@user:bea
+  document:payroll#viewer@group:finance#member
+  document:roadmap#viewer@user:anne
+  document:roadmap#viewer@user:bea
+  // Anne delegates to her triage agent, and grants it two tools.
+  agent:triage#principal@user:anne
+  tool:read_document#granted@agent:triage
+  tool:search_documents#granted@agent:triage
+
+# The example's four calls, all by agent:triage:
+#   read roadmap for anne   allowed: all three gates hold
+#   read payroll for anne   denied: anne cannot view payroll
+#   read payroll for bea    denied: triage does not act for bea (bea can view payroll)
+#   send_email for anne     denied: send_email was never granted
+assertions:
+  assertTrue:
+    - agent:triage#acts_for@user:anne
+    - tool:read_document#invoke@agent:triage
+    - tool:search_documents#invoke@agent:triage
+    - document:roadmap#view@user:anne
+    - document:payroll#view@user:bea
+  assertFalse:
+    - document:payroll#view@user:anne
+    - agent:triage#acts_for@user:bea
+    - tool:send_email#invoke@agent:triage
+
+expectedLookups:
+  resources:
+    # Gate 1: the agent's tools/list.
+    - query: "tool#invoke@agent:triage"
+      expect: [read_document, search_documents]
+    - query: "document#view@user:anne"
+      expect: [roadmap]
+  subjects:
+    - query: "agent:triage#acts_for@user"
+      expect: { ids: [anne] }
+
+steps:
+  # Revocation: with the delegation gone, gate 2 denies every call, though the tool
+  # grants and anne's own access are unchanged.
+  - ops:
+      - delete: agent:triage#principal@user:anne
+    assertions:
+      assertTrue:
+        - tool:read_document#invoke@agent:triage
+        - document:roadmap#view@user:anne
+      assertFalse:
+        - agent:triage#acts_for@user:anne

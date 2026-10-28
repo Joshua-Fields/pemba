@@ -11,7 +11,7 @@ export interface WorkerLike {
 }
 
 /** The WASM API function a message calls. */
-export type Op = 'run' | 'run_assertions';
+export type Op = 'run' | 'run_assertions' | 'parse_fixture';
 
 /** A request to the worker. */
 export interface Message {
@@ -55,15 +55,20 @@ export class EngineClient {
 
   /** Sends one `run` request; resolves to the engine's JSON text. */
   run(request: unknown): Promise<string> {
-    return this.call('run', request);
+    return this.call('run', JSON.stringify(request));
   }
 
   /** Sends one `run_assertions` request; resolves to the engine's JSON text. */
   runAssertions(request: unknown): Promise<string> {
-    return this.call('run_assertions', request);
+    return this.call('run_assertions', JSON.stringify(request));
   }
 
-  private call(op: Op, request: unknown): Promise<string> {
+  /** Splits fixture YAML into the three editors; resolves to the engine's JSON text. */
+  parseFixture(source: string): Promise<string> {
+    return this.call('parse_fixture', source);
+  }
+
+  private call(op: Op, request: string): Promise<string> {
     const worker = this.ensure();
     const id = this.next++;
     return new Promise((resolve, reject) => {
@@ -72,7 +77,7 @@ export class EngineClient {
         this.fail(new EngineFailure('TIMEOUT', `the engine did not answer within ${seconds} s and was stopped`));
       }, this.timeoutMs);
       this.pending.set(id, { resolve, reject, timer });
-      worker.postMessage({ id, op, request: JSON.stringify(request) } satisfies Message);
+      worker.postMessage({ id, op, request } satisfies Message);
     });
   }
 

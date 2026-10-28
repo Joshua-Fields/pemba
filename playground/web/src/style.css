@@ -93,6 +93,56 @@ h1 span {
   cursor: pointer;
 }
 
+.tools {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  padding: 0 16px 12px;
+}
+
+.tools select,
+.tools button {
+  font: inherit;
+  font-size: 0.9rem;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.tool-status {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.banner {
+  margin: 0 16px 12px;
+  padding: 8px 12px;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background: var(--panel);
+}
+
+.banner[hidden] {
+  display: none;
+}
+
+.banner p {
+  margin: 0;
+}
+
+.banner a {
+  color: var(--accent);
+}
+
+.banner-error {
+  border-color: var(--error);
+  background: var(--error-bg);
+}
+
 .layout {
   display: grid;
   grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
