@@ -6,11 +6,13 @@
 //! process, and it replaces connections that broke rather than shrinking for good.
 
 use std::fmt;
-use std::sync::{Condvar, Mutex, PoisonError};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Condvar, Mutex, PoisonError};
 
 use pemba_core::store::StoreError;
 use postgres::{Client, Config};
 
+use crate::statements::Conn;
 use crate::tls::Connector;
 
 /// Runs on every new connection before the pool hands it out: pemba's own SQL resolves
@@ -24,10 +26,12 @@ pub(crate) struct Pool {
     size: usize,
     state: Mutex<State>,
     returned: Condvar,
+    /// Shared by every connection's statement cache, to invalidate them all at once.
+    generation: Arc<AtomicU64>,
 }
 
 struct State {
-    idle: Vec<Client>,
+    idle: Vec<Conn>,
     /// Connections idle, leased or being opened.
     open: usize,
 }
@@ -65,15 +69,17 @@ impl fmt::Debug for Pool {
 impl Pool {
     /// A pool of at most `size` connections, starting with `first` (already set up).
     pub(crate) fn new(config: Config, connector: Connector, size: usize, first: Client) -> Self {
+        let generation = Arc::new(AtomicU64::new(0));
         Self {
             config,
             connector,
             size,
             state: Mutex::new(State {
-                idle: vec![first],
+                idle: vec![Conn::new(first, Arc::clone(&generation))],
                 open: 1,
             }),
             returned: Condvar::new(),
+            generation,
         }
     }
 
@@ -82,10 +88,10 @@ impl Pool {
     pub(crate) fn lease(&self) -> Result<Lease<'_>, StoreError> {
         let mut state = self.state.lock().map_err(poisoned)?;
         loop {
-            if let Some(client) = state.idle.pop() {
+            if let Some(conn) = state.idle.pop() {
                 return Ok(Lease {
                     pool: self,
-                    client: Some(client),
+                    conn: Some(conn),
                 });
             }
             if state.open < self.size {
@@ -95,7 +101,7 @@ impl Pool {
                 return match connect(&self.config, &self.connector) {
                     Ok(client) => Ok(Lease {
                         pool: self,
-                        client: Some(client),
+                        conn: Some(Conn::new(client, Arc::clone(&self.generation))),
                     }),
                     Err(e) => {
                         self.forget_one();
@@ -107,19 +113,24 @@ impl Pool {
         }
     }
 
-    fn give_back(&self, client: Client) {
+    /// Empties every connection's statement cache, each the next time it is used.
+    pub(crate) fn invalidate_statements(&self) {
+        self.generation.fetch_add(1, Ordering::AcqRel);
+    }
+
+    fn give_back(&self, conn: Conn) {
         // A `postgres::Transaction` rolls back when dropped, and it borrows the client; a
         // snapshot ends its raw transaction itself or discards the client. So a client
         // coming back is never inside one of ours. A closed one is discarded and its slot
         // freed for a fresh connection.
-        if client.is_closed() {
+        if conn.client.is_closed() {
             self.forget_one();
             return;
         }
         let Ok(mut state) = self.state.lock() else {
             return;
         };
-        state.idle.push(client);
+        state.idle.push(conn);
         self.returned.notify_one();
     }
 
@@ -134,19 +145,24 @@ impl Pool {
 /// Returns its connection to the pool when dropped, including on unwind.
 pub(crate) struct Lease<'a> {
     pool: &'a Pool,
-    client: Option<Client>,
+    conn: Option<Conn>,
 }
 
 impl Lease<'_> {
+    pub(crate) fn conn(&mut self) -> Result<&mut Conn, StoreError> {
+        // Only `drop` and `discard` take the connection out.
+        self.conn.as_mut().ok_or(StoreError::Poisoned)
+    }
+
+    /// The connection without its statement cache, for statements that skip it.
     pub(crate) fn client(&mut self) -> Result<&mut Client, StoreError> {
-        // Only `drop` takes the client out.
-        self.client.as_mut().ok_or(StoreError::Poisoned)
+        Ok(&mut self.conn()?.client)
     }
 
     /// Closes the connection instead of returning it, for one whose state cannot be
     /// trusted (e.g. a transaction that would not roll back); its slot is freed.
     pub(crate) fn discard(mut self) {
-        if self.client.take().is_some() {
+        if self.conn.take().is_some() {
             self.pool.forget_one();
         }
     }
@@ -154,8 +170,8 @@ impl Lease<'_> {
 
 impl Drop for Lease<'_> {
     fn drop(&mut self) {
-        if let Some(client) = self.client.take() {
-            self.pool.give_back(client);
+        if let Some(conn) = self.conn.take() {
+            self.pool.give_back(conn);
         }
     }
 }

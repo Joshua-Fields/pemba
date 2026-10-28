@@ -64,6 +64,7 @@ mod migrate;
 mod pool;
 mod read;
 mod sql;
+mod statements;
 #[cfg(test)]
 mod tests;
 mod tls;

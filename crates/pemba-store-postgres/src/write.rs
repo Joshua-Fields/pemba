@@ -16,8 +16,9 @@ use pemba_core::store::{
     StoreError, StoredSchema, WritableStore, WriteTxn,
 };
 use pemba_core::write::{self as shared, Applied};
-use postgres::{Client, IsolationLevel};
+use postgres::IsolationLevel;
 
+use crate::statements::Conn;
 use crate::txn::PgTxn;
 use crate::{IDENTITY_SQL, PostgresDialect, PostgresStore, store_err};
 
@@ -29,18 +30,19 @@ fn corrupt(message: String) -> Error {
     Error::Store(StoreError::Corrupt { message })
 }
 
-/// Runs `f` in a READ COMMITTED transaction on `client` and commits it. On error the
+/// Runs `f` in a READ COMMITTED transaction on `conn` and commits it. On error the
 /// transaction is rolled back when dropped.
 fn transact<T>(
-    client: &mut Client,
+    conn: &mut Conn,
     f: impl FnOnce(&mut dyn WriteTxn) -> Result<T, Error>,
 ) -> Result<T, Error> {
+    let Conn { client, statements } = conn;
     let mut tx = client
         .build_transaction()
         .isolation_level(IsolationLevel::ReadCommitted)
         .start()
         .map_err(|e| db(&e))?;
-    let out = f(&mut PgTxn::new(&mut tx))?;
+    let out = f(&mut PgTxn::cached(&mut tx, statements))?;
     tx.commit().map_err(|e| db(&e))?;
     Ok(out)
 }
@@ -57,15 +59,15 @@ impl PostgresStore {
         f: impl FnOnce(&mut dyn WriteTxn) -> Result<(T, Applied), Error>,
     ) -> Result<(T, Revision), Error> {
         let mut lease = self.pool.lease()?;
-        let client = lease.client()?;
-        let (out, applied) = transact(client, f)?;
+        let conn = lease.conn()?;
+        let (out, applied) = transact(conn, f)?;
         let Applied::Pending { batch, .. } = applied else {
             return Err(corrupt(format!(
                 "this store assigns revisions at commit, but the write returned {applied:?}"
             )));
         };
         let rev = self
-            .revision_of(client, batch)?
+            .revision_of(conn, batch)?
             .ok_or_else(|| corrupt(format!("batch {batch} committed without a revision")))?;
         Ok((out, rev))
     }
@@ -79,12 +81,12 @@ impl PostgresStore {
     /// never read the server's `WARNING` still find out.
     pub(crate) fn revision_of(
         &self,
-        client: &mut Client,
+        conn: &mut Conn,
         batch: u64,
     ) -> Result<Option<Revision>, Error> {
         let batch_id = i64::try_from(batch)
             .map_err(|_| corrupt(format!("batch id {batch} is out of range")))?;
-        let row = client
+        let row = conn
             .query_opt(
                 &format!(
                     "SELECT rev, early FROM {} WHERE batch_id = $1",
@@ -137,7 +139,7 @@ impl PostgresStore {
         f: impl FnOnce(&mut dyn WriteTxn) -> Result<T, Error>,
     ) -> Result<T, Error> {
         let mut lease = self.pool.lease()?;
-        transact(lease.client()?, f)
+        transact(lease.conn()?, f)
     }
 }
 
@@ -162,6 +164,10 @@ impl WritableStore for PostgresStore {
             let applied = w.applied;
             Ok((w, applied))
         })?;
+        // No statement depends on the schema's content, but a schema change is where a
+        // cached statement would first go stale if one ever did; it is rare enough that
+        // re-preparing afterwards costs nothing measurable.
+        self.pool.invalidate_statements();
         Ok(written.at(source, hash, rev))
     }
 
@@ -231,11 +237,11 @@ impl WritableStore for PostgresStore {
     /// pooled connection in autocommit, never inside the app's transaction.
     fn resolve_batch(&self, batch: u64, xid: u64) -> Result<Revision, Error> {
         let mut lease = self.pool.lease()?;
-        let client = lease.client()?;
-        if let Some(rev) = self.revision_of(client, batch)? {
+        let conn = lease.conn()?;
+        if let Some(rev) = self.revision_of(conn, batch)? {
             return Ok(rev);
         }
-        let status: Option<String> = client
+        let status: Option<String> = conn
             .query_one(
                 "SELECT pg_catalog.pg_xact_status($1::pg_catalog.text::pg_catalog.xid8)::pg_catalog.text",
                 &[&xid.to_string()],
@@ -249,7 +255,7 @@ impl WritableStore for PostgresStore {
                 // new snapshots.
                 for attempt in 0..COMMITTED_RETRIES {
                     std::thread::sleep(Duration::from_millis(1 << attempt));
-                    if let Some(rev) = self.revision_of(client, batch)? {
+                    if let Some(rev) = self.revision_of(conn, batch)? {
                         return Ok(rev);
                     }
                 }
@@ -280,7 +286,7 @@ impl SqlStore for PostgresStore {
         f: &mut dyn FnMut(&mut dyn WriteTxn) -> Result<T, Error>,
     ) -> Result<T, Error> {
         let mut lease = self.pool.lease()?;
-        transact(lease.client()?, |txn| f(txn))
+        transact(lease.conn()?, |txn| f(txn))
     }
 
     fn dialect(&self) -> &dyn SqlDialect {

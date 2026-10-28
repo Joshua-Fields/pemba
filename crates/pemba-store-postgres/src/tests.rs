@@ -103,7 +103,7 @@ impl TestStore {
     fn revision_of(&self, batch: u64) -> Option<Revision> {
         let mut lease = self.store.pool.lease().unwrap();
         self.store
-            .revision_of(lease.client().unwrap(), batch)
+            .revision_of(lease.conn().unwrap(), batch)
             .unwrap()
     }
 
@@ -562,7 +562,7 @@ fn set_constraints_immediate_fires_early_and_is_flagged() {
         let other = open(&url, s.store.schema());
         let mut lease = other.pool.lease().unwrap();
         assert_eq!(
-            other.revision_of(lease.client().unwrap(), before).unwrap(),
+            other.revision_of(lease.conn().unwrap(), before).unwrap(),
             Some(Revision(2))
         );
         assert_eq!(count.load(Ordering::SeqCst), 2);
@@ -965,4 +965,110 @@ fn serialization_failures_and_deadlocks_are_retryable_conflicts() {
     let err = Error::Store(store_err(&other));
     assert_eq!(err.code(), "STORE_ERROR");
     assert!(matches!(&err, Error::Store(e) if !e.is_retryable()));
+}
+
+/// Server-side prepared statements on `conn` (protocol-level ones included).
+fn prepared_on(conn: &mut crate::statements::Conn) -> i64 {
+    conn.client
+        .query_one(
+            "SELECT count(*) FROM pg_catalog.pg_prepared_statements",
+            &[],
+        )
+        .unwrap()
+        .get(0)
+}
+
+#[test]
+fn statements_are_prepared_once_per_connection() {
+    let Some(url) = pg_url() else { return };
+    let s = TestStore::new(&url, false);
+    let mut lease = s.store.pool.lease().unwrap();
+    let conn = lease.conn().unwrap();
+    let before = prepared_on(conn);
+    for _ in 0..3 {
+        let n: i32 = conn.query_one("SELECT 41 + 1", &[]).unwrap().get(0);
+        assert_eq!(n, 42);
+    }
+    assert!(conn.statements.contains("SELECT 41 + 1"));
+    // `prepared_on` itself is uncached, prepared and closed again; one statement stays.
+    assert_eq!(prepared_on(conn) - before, 1);
+}
+
+#[test]
+fn the_statement_cache_is_bounded_and_frees_what_it_evicts() {
+    let Some(url) = pg_url() else { return };
+    let s = TestStore::new(&url, false);
+    let mut lease = s.store.pool.lease().unwrap();
+    let conn = lease.conn().unwrap();
+    let cap = crate::statements::CAPACITY;
+    for i in 0..cap + 20 {
+        conn.query(&format!("SELECT {i}"), &[]).unwrap();
+    }
+    assert_eq!(conn.statements.len(), cap);
+    // Evicted statements are closed on the server, not just forgotten.
+    assert!(prepared_on(conn) <= i64::try_from(cap).unwrap() + 1);
+    // The least recently used went first; the newest stayed.
+    assert!(!conn.statements.contains("SELECT 0"));
+    assert!(conn.statements.contains(&format!("SELECT {}", cap + 19)));
+}
+
+#[test]
+fn a_stale_plan_fails_closed_once_and_empties_every_cache() {
+    let Some(url) = pg_url() else { return };
+    let s = TestStore::new(&url, false);
+    let t = s.table("pemba_t_stale");
+    s.app_client()
+        .batch_execute(&format!(
+            "CREATE TABLE {t} (a int); INSERT INTO {t} VALUES (1)"
+        ))
+        .unwrap();
+    let sql = format!("SELECT * FROM {t}");
+    let mut first = s.store.pool.lease().unwrap();
+    let mut second = s.store.pool.lease().unwrap();
+    first.conn().unwrap().query(&sql, &[]).unwrap();
+    second.conn().unwrap().query("SELECT 1", &[]).unwrap();
+    // DDL that changes the statement's result type: the server refuses the cached plan.
+    s.app_client()
+        .batch_execute(&format!("ALTER TABLE {t} ADD COLUMN b int"))
+        .unwrap();
+    let err = first.conn().unwrap().query(&sql, &[]).unwrap_err();
+    assert_eq!(
+        err.code(),
+        Some(&postgres::error::SqlState::FEATURE_NOT_SUPPORTED)
+    );
+    assert!(first.conn().unwrap().statements.is_empty());
+    // The next attempt prepares afresh and sees the new column.
+    let rows = first.conn().unwrap().query(&sql, &[]).unwrap();
+    assert_eq!(rows[0].len(), 2);
+    // The other connection's cache was invalidated too: its next use starts empty.
+    second.conn().unwrap().query("SELECT 2", &[]).unwrap();
+    assert!(!second.conn().unwrap().statements.contains("SELECT 1"));
+}
+
+#[test]
+fn a_replacement_connection_starts_with_an_empty_cache() {
+    let Some(url) = pg_url() else { return };
+    let s = TestStore::new(&url, false);
+    // Lease every connection the pool may open, so the one after `discard` is new.
+    let mut leases: Vec<_> = (0..4).map(|_| s.store.pool.lease().unwrap()).collect();
+    for l in &mut leases {
+        l.conn().unwrap().query("SELECT 1", &[]).unwrap();
+    }
+    leases.pop().unwrap().discard();
+    let mut fresh = s.store.pool.lease().unwrap();
+    assert!(fresh.conn().unwrap().statements.is_empty());
+}
+
+#[test]
+fn a_schema_write_empties_every_cache() {
+    let Some(url) = pg_url() else { return };
+    let s = TestStore::new(&url, false);
+    s.store.head_revision().unwrap();
+    s.store.write_schema("x", "h", &|_| Ok(())).unwrap();
+    let mut leases: Vec<_> = (0..4).map(|_| s.store.pool.lease().unwrap()).collect();
+    for l in &mut leases {
+        let conn = l.conn().unwrap();
+        conn.query("SELECT 3", &[]).unwrap();
+        assert_eq!(conn.statements.len(), 1);
+    }
 }
