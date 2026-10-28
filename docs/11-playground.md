@@ -149,6 +149,13 @@ main thread (TS + CodeMirror)  ──postMessage──▶  Web Worker
 - **Limits.** `EngineConfig::default()`, plus a cap of 10 000 relationship lines and 1 MB
   per editor. A worker that does not answer within 5 s is terminated, and the page says
   so.
+- **Page-side error codes** (T6.4). These are shown like engine errors, never as an
+  answer:
+  - `INPUT_TOO_LARGE`: a limit above;
+  - `TIMEOUT`: the 5 s limit;
+  - `ENGINE_CRASHED`: the WASM trapped or failed to load. The worker is replaced,
+    because a trapped instance is not reused;
+  - `INTERNAL`: an answer that is not exactly the expected shape.
 
 ### 3.1 The WASM API (`playground/wasm`, crate `pemba-playground`)
 

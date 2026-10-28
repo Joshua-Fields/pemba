@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>pemba playground</title>
+    <meta name="description" content="Try pemba's authorisation engine in the browser: write a schema and relationships, then check and look up permissions. Nothing leaves your machine." />
+  </head>
+  <body>
+    <header class="top">
+      <h1>pemba <span>playground</span></h1>
+      <p class="tagline">The real engine, running in your browser. Nothing you type leaves your machine.</p>
+    </header>
+
+    <form class="query" id="query" autocomplete="off">
+      <label class="visually-hidden" for="kind">Query kind</label>
+      <select id="kind" name="kind">
+        <option value="check">check</option>
+        <option value="lookup_resources">lookup resources</option>
+        <option value="lookup_subjects">lookup subjects</option>
+      </select>
+      <label class="visually-hidden" for="text">Query</label>
+      <input id="text" name="text" spellcheck="false" />
+      <button type="submit">Run</button>
+    </form>
+
+    <main class="layout">
+      <section class="editors">
+        <div class="editor">
+          <h2>Schema</h2>
+          <div id="schema"></div>
+        </div>
+        <div class="editor">
+          <h2>Relationships <span class="hint">one per line, <code>//</code> for comments</span></h2>
+          <div id="relationships"></div>
+        </div>
+        <div class="editor">
+          <h2>Assertions <span class="hint">fixture YAML</span></h2>
+          <div id="assertions"></div>
+        </div>
+      </section>
+
+      <section class="results" aria-live="polite">
+        <h2>Result</h2>
+        <div id="result" class="result" data-state="idle">Loading the engine…</div>
+      </section>
+    </main>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

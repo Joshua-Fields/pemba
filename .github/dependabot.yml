@@ -1,0 +1,14 @@
+# The playground's npm dependencies (docs/11-playground.md §2 item 3). Cargo crates are
+# updated by hand (docs/09-repo-and-tooling.md §2: check crates.io when adding).
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /playground/web
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      codemirror:
+        patterns: ["@codemirror/*", "codemirror"]
+      tooling:
+        dependency-type: development

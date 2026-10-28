@@ -139,6 +139,14 @@ them, never `set -x` around them, and do not expose them to workflows triggered 
   It then writes the transcript of those cases and `testdata/fixtures` natively and from
   the `wasm-release` `.wasm` under Node, and fails on any byte of difference. On failure,
   the transcripts are uploaded as an artifact. It takes about a minute after the build.
+  The `site` job (T6.4) works in `playground/web`:
+  - `npm ci`, then `npm audit --omit=dev` (only what ships to browsers);
+  - type-check and Vitest;
+  - `vite build`, with a **700 KB gzip budget** for the whole site (`scripts/size.mjs`);
+  - a Playwright smoke test against the build;
+  - it uploads `dist/` as an artifact.
+  Dependabot (`.github/dependabot.yml`) updates the npm dependencies weekly. Cargo
+  crates are still updated by hand.
 - `wheels.yml` (`v*` tags, manual, and pull requests touching `Cargo.lock`, any
   `Cargo.toml`, `crates/pemba-py/pyproject.toml` or the workflow itself, so a new native
   dependency fails on its PR, not at release): maturin-action builds one abi3
