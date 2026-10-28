@@ -70,6 +70,7 @@ the spec files the current task needs (see "Which docs to read").
 | What to build next, acceptance criteria | `docs/08-milestones.md` |
 | Repo layout, CI, lints, dependencies | `docs/09-repo-and-tooling.md` |
 | Postgres store design (milestone M5) | `docs/10-postgres.md` |
+| Playground design (milestone M6) | `docs/11-playground.md` |
 | Glossary of terms | `docs/00-overview.md` §6 |
 
 When two docs disagree, the more specific one wins
