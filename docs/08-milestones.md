@@ -502,7 +502,17 @@ starts, against the spec as it stands then.
 - Original code only (ADR-011): formats from SpiceDB docs, not its source.
 
 ### M10 — User-driven features
-- Chosen from issues and launch feedback, not planned ahead.
-- Candidates carried over from the old stretch list: FastAPI helper (`06` §2.4), batched
-  arrow reads (`04` §4), Node bindings (napi-rs) and a WASM build; anything on the
+- Chosen from issues and launch feedback, not planned ahead, with one exception.
+- **Top post-release performance item: fewer round trips per check on deep hierarchies**
+  (batched arrow reads per level, or a recursive query). On Postgres a check's cost is
+  its round trips (OQ-056). With the statement cache and bulk writes, a direct check is
+  5 round trips (0.76 ms p50 on a Linux CI runner where one round trip took about
+  146 µs), but each level of hierarchy walked adds about 3: `folders_depth_30` is 99
+  round trips and 16.2 ms, `groups_depth_10` 25 and 4.1 ms, `lookup_resources_10k` 506
+  and 88 ms (`benches/RESULTS.md`). Before the cache the same checks were 8 and 196 round
+  trips. Batching each level's arrow reads into one statement would make a check about
+  one round trip per level; a recursive CTE could make it a constant. Either must agree
+  with the reference evaluator (golden rule 1) and keep reads at one snapshot.
+- Candidates carried over from the old stretch list: FastAPI helper (`06` §2.4), Node
+  bindings (napi-rs) and a WASM build; anything on the
   `CLAUDE.md` §6 out-of-scope list still needs an explicit decision first.

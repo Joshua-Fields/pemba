@@ -1415,3 +1415,25 @@ it is resolved.
   shared write algorithm and needs the conformance and equivalence suites.
 - Resolve by: maintainer, before the first Postgres release if write throughput matters
   there; measure on Linux (CI's service container) first.
+- Resolution: Resolved by the human's direction, 2026-10-28: (a) and (b) before the first
+  Postgres release; (c) not done.
+  - (a) `statements.rs`: up to 256 statements per pooled connection, LRU, evicted ones
+    closed on the server; emptied on reconnect, on a stale plan (`0A000`, every
+    connection through a shared generation) and after a schema write; not used in the
+    app's own transaction (`10` §2.1).
+  - (b) `SqlDialect::bulk_rows` (`05` §5 step 5): one statement per op kind, the tuples
+    in one `jsonb` parameter rather than `unnest` arrays, because `WriteTxn` carries only
+    portable `SqlValue`s and the Python adapters pass a string through every driver
+    unchanged. A unique violation from the bulk `Create` rolls back to pemba's savepoint
+    and reruns the write per op, so `AlreadyExists` names the same tuple as before; the
+    app's own transaction and rows are untouched (tested in Rust and on every Python
+    driver). SQLite keeps the per-op form.
+  - Measured with `benches/pg-linux.sh` on one GitHub-hosted Linux runner (server in a
+    service container; `SELECT 1` took 146 µs there, so not much faster than Docker
+    Desktop), p50 / round trips per operation, before → cache → cache and bulk:
+    `direct_hit` 1.58 ms / 8 → 0.82 ms / 5 → 0.76 ms / 5; `folders_depth_30` 46.8 ms /
+    196 → 16.8 ms / 99 → 16.2 ms / 99; `lookup_resources_10k` 235 ms / 1,010 → 88 ms /
+    506; `write_batch_1000` 407 ms / 2,016 → 201 ms / 1,009 → 19.3 ms / 10. Full table:
+    `benches/RESULTS.md`.
+  - What is left is reads: a check costs about 5 round trips plus about 3.3 per level of
+    hierarchy (99 at 30 folder levels). That is the M10 candidate in `08`.
