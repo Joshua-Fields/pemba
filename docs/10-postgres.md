@@ -873,6 +873,20 @@ Consequences:
   covering native writes and snapshots alike; there is no writer mutex because Postgres
   serialises at commit. `r2d2_postgres` (last release 2024-12) adds a dependency for about
   60 lines of code.
+- **Prepared-statement cache (OQ-056):** each pooled connection keeps up to 256 prepared
+  statements by SQL text, least recently used evicted and closed on the server, so a
+  statement the connection ran before costs one round trip instead of two (prepare, then
+  execute). Statement text depends on a request's shape, never its values, so a few dozen
+  entries cover every path. Invalidation: a replacement connection starts empty; a
+  pool-wide generation empties every connection's cache when the server reports a stale
+  plan (`0A000`, after DDL that changes a statement's result type; the failing call fails
+  closed and is not retried) and after a schema write. Not used inside the app's own
+  transaction (`Engine::write_in`): that connection is not the store's. PgBouncer in
+  transaction mode needs `max_prepared_statements` (≥ 1.21), as before.
+- **Bulk writes (OQ-056):** `SqlDialect::bulk_rows` makes a write one statement per op kind,
+  its tuples in one `jsonb` parameter (`05` §5 step 5), so a write is 10 round trips
+  whatever its size (2,016 before for 1,000 tuples); the statement text is the same for
+  any batch size. Measurements: OQ-056, `benches/RESULTS.md`.
 - **TLS:** `tokio-postgres-rustls` 0.14.0, behind a default-on `tls` feature. T5.3 uses
   rustls 0.23 with the `ring` provider (its own `ClientConfig`, not the process default)
   and `rustls-native-certs` roots; `webpki-roots` is not used because its licence

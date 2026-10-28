@@ -324,7 +324,7 @@ fn json_opt_str(out: &mut String, s: Option<&str>) {
 
 /// `s` as a JSON string literal (RFC 8259 §7): quotes, backslashes and control characters
 /// escaped, everything else as is.
-fn json_str(out: &mut String, s: &str) {
+pub(crate) fn json_str(out: &mut String, s: &str) {
     out.push('"');
     for c in s.chars() {
         match c {

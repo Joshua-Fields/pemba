@@ -12,6 +12,7 @@ use pemba_core::store::{SqlValue, StoreError, WriteTxn};
 use postgres::Transaction;
 use postgres::types::{ToSql, Type};
 
+use crate::statements::StatementCache;
 use crate::store_err;
 
 /// The app's own `postgres` transaction, for
@@ -42,12 +43,26 @@ use crate::store_err;
 /// [`PostgresStore`]: crate::PostgresStore
 pub struct PgTxn<'a, 't> {
     tx: &'a mut Transaction<'t>,
+    /// The connection's statement cache, on the store's own connections only: an app's
+    /// connection is not the store's to keep statements on.
+    statements: Option<&'a mut StatementCache>,
 }
 
 impl<'a, 't> PgTxn<'a, 't> {
     /// Wraps `tx`; nothing is sent until the engine writes.
     pub fn new(tx: &'a mut Transaction<'t>) -> Self {
-        Self { tx }
+        Self {
+            tx,
+            statements: None,
+        }
+    }
+
+    /// Wraps `tx`, a transaction on a pooled connection whose cache is `statements`.
+    pub(crate) fn cached(tx: &'a mut Transaction<'t>, statements: &'a mut StatementCache) -> Self {
+        Self {
+            tx,
+            statements: Some(statements),
+        }
     }
 }
 
@@ -148,7 +163,12 @@ impl PgTxn<'_, '_> {
         sql: &str,
         params: &[SqlValue],
     ) -> Result<(postgres::Statement, Vec<Bound>), StoreError> {
-        let stmt = self.tx.prepare(sql).map_err(|e| store_err(&e))?;
+        let tx = &mut *self.tx;
+        let stmt = match self.statements.as_deref_mut() {
+            Some(cache) => cache.get(sql, |s| tx.prepare(s)),
+            None => tx.prepare(sql),
+        }
+        .map_err(|e| store_err(&e))?;
         if stmt.params().len() != params.len() {
             return Err(StoreError::Backend {
                 message: format!(
@@ -168,11 +188,22 @@ impl PgTxn<'_, '_> {
     }
 }
 
+impl PgTxn<'_, '_> {
+    /// An error from running a statement, shown to the cache first (a stale plan
+    /// invalidates it).
+    fn failed(&mut self, e: &postgres::Error) -> StoreError {
+        if let Some(cache) = self.statements.as_deref_mut() {
+            cache.saw(e);
+        }
+        store_err(e)
+    }
+}
+
 impl WriteTxn for PgTxn<'_, '_> {
     fn execute(&mut self, sql: &str, params: &[SqlValue]) -> Result<u64, StoreError> {
         let (stmt, bound) = self.prepare_bound(sql, params)?;
         let refs: Vec<_> = bound.iter().map(Bound::as_sql).collect();
-        self.tx.execute(&stmt, &refs).map_err(|e| store_err(&e))
+        self.tx.execute(&stmt, &refs).map_err(|e| self.failed(&e))
     }
 
     fn query(&mut self, sql: &str, params: &[SqlValue]) -> Result<Vec<Vec<SqlValue>>, StoreError> {
@@ -180,7 +211,7 @@ impl WriteTxn for PgTxn<'_, '_> {
         let refs: Vec<_> = bound.iter().map(Bound::as_sql).collect();
         self.tx
             .query(&stmt, &refs)
-            .map_err(|e| store_err(&e))?
+            .map_err(|e| self.failed(&e))?
             .iter()
             .map(|row| (0..row.len()).map(|i| column(row, i)).collect())
             .collect()

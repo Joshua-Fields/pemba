@@ -17,12 +17,13 @@ use pemba_core::model::{
 use pemba_core::store::{
     ReadStore, RelationCount, ReverseFilter, StoreError, StoredSchema, relationship_columns,
 };
+use postgres::Row;
 use postgres::types::ToSql;
-use postgres::{Client, Row};
 
 use crate::dialect::PostgresDialect;
 use crate::pool::Lease;
 use crate::sql::{self, Form, Forward, P, Query};
+use crate::statements::Conn;
 use crate::{PostgresStore, store_err};
 
 fn corrupt(message: String) -> StoreError {
@@ -81,7 +82,7 @@ fn subject(row: &Row, i: usize) -> Result<SubjectRef, StoreError> {
     })
 }
 
-fn run(client: &mut Client, q: &Query<'_>) -> Result<Vec<Row>, StoreError> {
+fn run(client: &mut Conn, q: &Query<'_>) -> Result<Vec<Row>, StoreError> {
     let params: Vec<&(dyn ToSql + Sync)> = q
         .params
         .iter()
@@ -95,7 +96,7 @@ fn run(client: &mut Client, q: &Query<'_>) -> Result<Vec<Row>, StoreError> {
 
 /// Head and stored GC horizon from one statement.
 fn head_and_horizon(
-    client: &mut Client,
+    client: &mut Conn,
     d: &PostgresDialect,
 ) -> Result<(Revision, Revision), StoreError> {
     let row = client
@@ -119,10 +120,7 @@ trait Source {
     /// The visibility form for a read at `rev` (already range-checked).
     fn form(&self, rev: Revision) -> Result<Form, StoreError>;
 
-    fn with<T>(
-        &self,
-        f: impl FnOnce(&mut Client) -> Result<T, StoreError>,
-    ) -> Result<T, StoreError>;
+    fn with<T>(&self, f: impl FnOnce(&mut Conn) -> Result<T, StoreError>) -> Result<T, StoreError>;
 
     fn check_readable(&self, rev: Revision) -> Result<Form, StoreError> {
         let (head, horizon) = self.bounds();
@@ -164,12 +162,9 @@ impl Source for PostgresStore {
         at(rev)
     }
 
-    fn with<T>(
-        &self,
-        f: impl FnOnce(&mut Client) -> Result<T, StoreError>,
-    ) -> Result<T, StoreError> {
+    fn with<T>(&self, f: impl FnOnce(&mut Conn) -> Result<T, StoreError>) -> Result<T, StoreError> {
         let mut lease = self.pool.lease()?;
-        f(lease.client()?)
+        f(lease.conn()?)
     }
 }
 
@@ -220,13 +215,10 @@ impl Source for Snapshot<'_> {
         }
     }
 
-    fn with<T>(
-        &self,
-        f: impl FnOnce(&mut Client) -> Result<T, StoreError>,
-    ) -> Result<T, StoreError> {
+    fn with<T>(&self, f: impl FnOnce(&mut Conn) -> Result<T, StoreError>) -> Result<T, StoreError> {
         let mut guard = self.lease.lock().map_err(|_| StoreError::Poisoned)?;
         let lease = guard.as_mut().ok_or(StoreError::Poisoned)?;
-        f(lease.client()?)
+        f(lease.conn()?)
     }
 }
 

@@ -125,7 +125,10 @@ pub struct GcStats { pub rows_removed: u64, pub horizon: Revision, pub batches: 
 // latest schema version (0 if none), as of the snapshot when called through one; the
 // default reads `current_schema()`. SqlDialect gains `fn row_id(&self) -> &'static str`
 // (`rowid` / `ctid`) for batched DELETE/UPDATE. StoreError gains
-// `SchemaChanged { expected, found }`, retryable.
+// `SchemaChanged { expected, found }`, retryable. SqlDialect gains (OQ-056)
+// `fn bulk_rows(&self, n: usize) -> Option<String>`, default None: a FROM item `v` reading
+// many tuples from the nth parameter, a JSON array of six-string arrays in
+// relationship_columns order; Some selects §5 step 5's bulk form (Postgres only).
 
 /// SQL-backed stores: the shared write logic (§5) runs over their `WriteTxn`.
 pub trait SqlStore: WritableStore {
@@ -410,6 +413,17 @@ or rolls back the transaction itself.
    Delete: UPDATE pemba_relationships SET deleted_rev = ?rev
            WHERE resource_type=? AND resource_id=? AND relation=? AND subject_type=?
              AND subject_id=? AND subject_relation=? AND deleted_rev IS NULL
+   Bulk form (OQ-056), when SqlDialect::bulk_rows is Some: one statement per op kind present,
+   each reading its tuples from one JSON parameter (the ops name distinct tuples, step 2,
+   so their order does not matter):
+     INSERT INTO pemba_relationships (...) SELECT v.*, CAST(?mark AS BIGINT) FROM <rows>
+     the same + ON CONFLICT (...) WHERE deleted_* IS NULL DO NOTHING      -- Touch
+     UPDATE pemba_relationships SET deleted_* = ?mark FROM <rows> WHERE <six columns = v>
+       AND deleted_* IS NULL                                              -- Delete
+   A unique violation from the Create insert says only that some tuple exists: steps 2b–6
+   are rolled back to the savepoint and run again in the per-op form above, so
+   AlreadyExists names the first existing tuple in op order, as on every other store (or the
+   write succeeds, if the conflicting writer rolled back meanwhile).
 6. return rev
 ```
 

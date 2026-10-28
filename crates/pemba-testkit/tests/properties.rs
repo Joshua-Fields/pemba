@@ -2129,7 +2129,10 @@ mod trace {
         use std::sync::Mutex;
 
         let seen: Mutex<(u32, u32, BTreeMap<u64, u32>)> = Mutex::new((0, 0, BTreeMap::new()));
-        let mut runner = TestRunner::new(config(1000));
+        let config = config(1000);
+        // At least 1 000, or exactly PROPTEST_CASES on Postgres (`config`).
+        let want = config.cases;
+        let mut runner = TestRunner::new(config);
         let result = runner.run(&generate::cyclic_case(), |case| {
             let passes = agrees(&case)?;
             let mut s = seen.lock().unwrap();
@@ -2150,7 +2153,7 @@ mod trace {
             "cyclic cases: {cases}; with a check whose head re-ran (cycle_passes > 1): {reran}; \
              checks by cycle_passes: {per_check:?}"
         );
-        assert!(cases >= 1000);
+        assert!(cases >= want);
         // About 20% re-run a head; 10% leaves room for seed variance (17% seen).
         assert!(
             reran * 10 >= cases,

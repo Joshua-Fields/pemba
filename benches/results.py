@@ -6,6 +6,9 @@ Inputs (whichever exist; a missing one is reported as "not run"):
 - ``target/bench-py.json``: ``pytest bench/test_scenarios.py --benchmark-json=... \
   --benchmark-save-data`` in ``crates/pemba-py``
 - ``target/bench-spicedb.json``: ``python benches/spicedb/run.py``
+- ``target/bench-pg-linux/``: ``benches/pg-linux.sh`` (the ``bench-postgres`` workflow's
+  artifact): the Postgres group on Linux, with round trips per operation, at one or more
+  commits
 
 Every table is p50/p99 per operation in µs (``docs/07-testing.md`` §7), next to the
 hardware, OS, toolchain and commit it was measured on, and the commands that produced it.
@@ -36,6 +39,8 @@ COMMANDS = {
                "bench/test_scenarios.py --benchmark-json=../../target/bench-py.json "
                "--benchmark-save-data"),
     "spicedb": "python benches/spicedb/run.py",
+    "postgres": ("benches/pg-linux.sh (CI: push a bench/* branch, workflow bench-postgres; "
+                 "download its artifact into target/bench-pg-linux/)"),
     "results": "python benches/results.py",
 }
 
@@ -160,6 +165,67 @@ def spicedb(target: Path) -> tuple[dict[str, list[float]], dict[str, str]]:
     return {k: [float(x) for x in v] for k, v in doc["results"].items()}, doc["meta"]
 
 
+def pg_linux(target: Path) -> tuple[list[str], dict[str, dict], dict[str, str]]:
+    """Labels in order; per label its latencies, round trips and commit; the machine."""
+    d = target / "bench-pg-linux"
+    if not (d / "order").exists():
+        return [], {}, {}
+    labels = (d / "order").read_text().split()
+    runs = {}
+    for label in labels:
+        ld = d / label
+        runs[label] = {
+            "commit": (ld / "commit").read_text().strip(),
+            "server": (ld / "bench-postgres-version.txt").read_text().strip(),
+            "latency": rust(ld),
+            "round_trips": {f.stem: float(f.read_text())
+                            for f in sorted((ld / "bench-round-trips").glob("*.txt"))},
+            "measured": measured(ld / "bench-latency"),
+        }
+    machine = {}
+    for line in (d / "machine.txt").read_text(encoding="utf-8").splitlines():
+        k, _, v = line.partition(": ")
+        machine[k] = v
+    return labels, runs, machine
+
+
+def rt(x: float | None) -> str:
+    return "–" if x is None else f"{x:,.0f}" if x == int(x) else f"{x:,.1f}"
+
+
+def pg_tables(labels: list[str], runs: dict[str, dict], order: list[str]) -> list[str]:
+    final = runs[labels[-1]]
+    lat, trips = final["latency"], final["round_trips"]
+    names = {k.split("__", 1)[1] for k in lat}
+    base = [n for n in order if n in names]
+    base += sorted(n for n in names - set(order) if not n.endswith("_below_head"))
+    # Each scenario, then its read below head.
+    rows = []
+    for n in base:
+        rows.append(n)
+        if f"{n}_below_head" in names:
+            rows.append(f"{n}_below_head")
+    lines = ["| scenario | p50 | p99 | round trips |", "|---|---:|---:|---:|"]
+    for n in rows:
+        st = stats(lat[f"postgres__{n}"])
+        lines.append(f"| `{n}` | {fmt(st['p50_us'])} | {fmt(st['p99_us'])} | "
+                     f"{rt(trips.get(f'postgres__{n}'))} |")
+    if len(labels) > 1:
+        lines += ["", "### Before and after (same runner; p50 µs / round trips per operation)",
+                  "", "| scenario | " + " | ".join(labels) + " |",
+                  "|---|" + "---:|" * len(labels)]
+        for n in rows:
+            cells = []
+            for label in labels:
+                xs = runs[label]["latency"].get(f"postgres__{n}")
+                t = runs[label]["round_trips"].get(f"postgres__{n}")
+                cells.append(f"{fmt(stats(xs)['p50_us'])} / {rt(t)}" if xs else "–")
+            lines.append(f"| `{n}` | " + " | ".join(cells) + " |")
+        lines += ["", "Commits: " + ", ".join(
+            f"{label} `{runs[label]['commit'][:7]}`" for label in labels) + "."]
+    return lines
+
+
 def scenario_order(target: Path) -> list[str]:
     m = target / "bench-data" / "manifest.tsv"
     if m.exists():
@@ -198,6 +264,7 @@ def main() -> None:
     order = scenario_order(a.target)
     r, py = rust(a.target), python(a.target)
     sp, sp_meta = spicedb(a.target)
+    pg_labels, pg_runs, pg_machine = pg_linux(a.target)
 
     md = ["# Benchmark results", ""]
     if not sp:
@@ -211,6 +278,12 @@ def main() -> None:
            "`write_batch_100` (about 44 ms, slower than its `write_batch_1000`) looks like a "
            "delayed-ACK stall in the bench's HTTP transport rather than SpiceDB: do not "
            "quote it.", "",
+           "> **Postgres figures are round-trip-bound (OQ-056).** They have their own section, "
+           "measured on a Linux CI runner with the server in a service container, where a "
+           "`SELECT 1` round trip took about 146 µs: the round-trip column explains most of "
+           "each figure. A check costs about 5 round trips plus 2–3 per level of hierarchy "
+           "walked; a write is 10 whatever its size. `*_below_head` rows read at "
+           "`Exact(head - 1)` through the batch map (F12).", "",
            f"Generated by `{COMMANDS['results']}`; do not edit by hand. Scenarios and datasets: "
           "`docs/07-testing.md` §7 and `benches/src/lib.rs`. All figures are µs per "
           "operation (wall clock, one call at a time, warm caches). `lookup_*` figures "
@@ -218,7 +291,9 @@ def main() -> None:
           "", "## Machine", "", "| | |", "|---|---|"]
     md += [f"| {k} | {v} |" for k, v in metadata()]
     sections = [
-        ("Rust (Criterion bench, latency pass)", "rust", r, ["memory", "sqlite"],
+        ("Rust (Criterion bench, latency pass)", "rust", r,
+         ["memory", "sqlite"] + (["postgres"] if any(k.startswith("postgres__") for k in r)
+                                 else []),
          a.target / "bench-latency"),
         ("Python (pytest-benchmark, `maturin develop --release`)", "python", py,
          ["memory", "sqlite"], a.target / "bench-py.json"),
@@ -231,6 +306,16 @@ def main() -> None:
         if key == "spicedb" and sp_meta:
             md += [f"- {k}: {v}" for k, v in sp_meta.items()] + [""]
         md += table(raw, stores, order) if raw else ["Not run."]
+    md += ["", "## Postgres (Rust, Linux)", "", f"Command: `{COMMANDS['postgres']}`", ""]
+    if pg_labels:
+        final = pg_runs[pg_labels[-1]]
+        md += [f"Measured: {final['measured']}, at commit `{final['commit']}`", "",
+               "| | |", "|---|---|"]
+        md += [f"| {k} | {v} |" for k, v in pg_machine.items()]
+        md += [f"| Postgres | {final['server']} |", ""]
+        md += pg_tables(pg_labels, pg_runs, order)
+    else:
+        md += ["Not run."]
     a.out.write_text("\n".join(md) + "\n", encoding="utf-8")
 
     summary = {
@@ -238,6 +323,13 @@ def main() -> None:
         "rust": {k: stats(v) for k, v in r.items()},
         "python": {k: stats(v) for k, v in py.items()},
         "spicedb": {"meta": sp_meta, "results": {k: stats(v) for k, v in sp.items()}},
+        "postgres_linux": {
+            "machine": pg_machine,
+            "runs": {label: {"commit": run["commit"], "server": run["server"],
+                             "latency": {k: stats(v) for k, v in run["latency"].items()},
+                             "round_trips": run["round_trips"]}
+                     for label, run in pg_runs.items()},
+        },
     }
     a.out.with_suffix(".json").write_text(json.dumps(summary, indent=1) + "\n")
     print(f"wrote {a.out} and {a.out.with_suffix('.json')}")

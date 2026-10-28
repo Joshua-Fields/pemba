@@ -6,6 +6,8 @@ by all three harnesses. Design choices: `docs/OPEN_QUESTIONS.md` OQ-038.
 | What | Command (from the repo root) | Output |
 |---|---|---|
 | Rust, memory and SQLite stores | `cargo bench -p pemba-benches` | `target/criterion/`, `target/bench-latency/` |
+| Rust, Postgres too (T5.12) | the same, with `PEMBA_PG_URL` set (a server it may create schemas on) | as above, plus `target/bench-postgres-version.txt` and `target/bench-round-trips/` |
+| Postgres on Linux, one or more commits (OQ-056) | push a `bench/<name>` branch: workflow `bench-postgres` runs `benches/pg-linux.sh` | artifact `bench-pg-linux`; unpack into `target/bench-pg-linux/` |
 | Python, memory and SQLite engines | `cd crates/pemba-py && maturin develop --release && pytest bench/test_scenarios.py --benchmark-json=../../target/bench-py.json --benchmark-save-data` | `target/bench-py.json` |
 | SpiceDB (needs Docker) | `python benches/spicedb/run.py` | `target/bench-spicedb.json` |
 | Results table | `python benches/results.py` | `benches/RESULTS.md`, `benches/RESULTS.json` |
@@ -15,6 +17,22 @@ The Python and SpiceDB benches generate the datasets into `target/bench-data/` o
 
 A quick check that every bench builds and gets the right answers, without timing anything:
 `cargo test -p pemba-benches --benches`.
+
+On Postgres every scenario runs in a fresh schema, and each check and lookup also runs as
+`<scenario>_below_head`: the same read at `Exact(head - 1)`, through the batch map
+(`docs/10-postgres.md` §1.6.2, F12). A second pass counts round trips per operation through
+a proxy that reads the wire protocol (`src/round_trips.rs`): each simple query, or each
+extended-protocol group ended by `Sync`, that the client waits on.
+
+`PEMBA_BENCH_STORES` and `PEMBA_BENCH_SCENARIOS` (comma-separated) limit a run, e.g.
+`PEMBA_BENCH_STORES=postgres PEMBA_BENCH_SCENARIOS=direct_hit,write_batch_1000`.
+
+`benches/pg-linux.sh` benches every commit listed in `benches/pg-compare-refs`
+(`<label> <commit>` per line; without the file, the current one) in turn on one machine,
+so `results.py` can print a before/after table. The Postgres figures in `RESULTS.md` come
+from it, on a GitHub-hosted Linux runner with the server in a service container: Docker
+Desktop on Windows adds about 150 µs to every round trip. The 1,000-tuple commit cost is reported by
+`cargo test -p pemba-store-postgres --test revision_order -- --nocapture`.
 
 Never publish a number without the script and machine that produced it: `RESULTS.md`
 records both.

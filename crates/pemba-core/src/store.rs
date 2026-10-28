@@ -640,6 +640,19 @@ pub trait SqlDialect: Send + Sync {
         let _ = exclusive;
         None
     }
+    /// A `FROM` item, aliased `v`, that reads many tuples from one parameter, so a write
+    /// sends one statement per op kind instead of one per op (OQ-056); `None` (the
+    /// default) where per-op statements are cheap enough (SQLite, in process).
+    ///
+    /// The `n`th placeholder holds a JSON array with one element per tuple: an array of
+    /// its six [`relationship_columns`], in that order, as strings. The item yields one
+    /// row per element, with those six columns named as in the relationships table
+    /// (`resource_type`, `resource_id`, `relation`, `subject_type`, `subject_id`,
+    /// `subject_relation`).
+    fn bulk_rows(&self, n: usize) -> Option<String> {
+        let _ = n;
+        None
+    }
 }
 
 /// A store whose writes are SQL, so the shared write algorithm can drive it.

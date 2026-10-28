@@ -27,8 +27,8 @@ reconciliation job, and no window where a document exists that nobody can open.
 
 **Status: alpha, 0.1.0-alpha.2. The API may change.** `check`, `lookup_resources`,
 `lookup_subjects`, the memory and SQLite stores, transactional writes and the Python
-bindings are implemented and tested, including against SpiceDB. Until 0.1.0, expect
-breaking changes.
+bindings are implemented and tested, including against SpiceDB. The Postgres store is on
+`main` and arrives in the next release. Until 0.1.0, expect breaking changes.
 
 ## Install
 
@@ -170,8 +170,13 @@ This is the headline feature. pemba's tables live in your database, prefixed `pe
   let rev = engine.resolve(&pending)?; // the revision, for Consistency::AtLeast(rev)
   ```
 
-  Resolve after the commit: on SQLite the number is known at once, but a store that
-  assigns it at commit (Postgres, planned) can only answer then.
+  Resolve after the commit: on SQLite the number is known at once, but Postgres assigns it
+  at commit and can only answer then.
+- **Postgres:** the same, with your Postgres transaction (see [Postgres](#postgres)). In
+  Python, `conn=` takes a psycopg 3 or psycopg2 connection, a SQLAlchemy `Session` or
+  `Connection`, or `django.db.connection`, inside a transaction. In Rust, wrap your
+  `postgres::Transaction` in `PgTxn::new(&mut tx)`. `pending.revision()` raises
+  `RevisionPending` before your commit and `WriteRolledBack` after a rollback.
 
 **Python and SQLite.** `Engine.sqlite()` stores relationships through **CPython's own
 `sqlite3` module**. It shares your interpreter's SQLite library (3.26.0 or newer) and
@@ -181,6 +186,117 @@ SQLite, such as `apsw` or `pysqlite3-binary`. On Linux and macOS, two SQLite lib
 one process release each other's file locks, and a committed transaction can be silently
 lost. See sections 2.2 and 2.3 of
 [How To Corrupt An SQLite Database File](https://www.sqlite.org/howtocorrupt.html).
+
+## Postgres
+
+pemba keeps its tables in one schema of your Postgres database (15 or newer, `UTF8`), every
+statement qualified with it, so your `search_path` cannot redirect them. Several stores can
+share a database, one schema each.
+
+```python
+engine = Engine.postgres("postgres://app@db/app", schema="authz")   # calls release the GIL
+```
+
+```rust
+let store = PostgresStore::open("postgres://app@db/app", PostgresConfig::default().with_schema("authz"))?;
+let engine = Engine::builder().store(store).build()?;
+```
+
+From async Rust, call the engine through `tokio::task::spawn_blocking`: the client is
+blocking. From async Python, read through `asyncio.to_thread(engine.check, ...)`, and join
+a transaction through `AsyncSession.run_sync(lambda s: engine.write(..., conn=s))`.
+
+**Migrations are a deploy step.** `auto_migrate` defaults to off on Postgres: run
+`PostgresStore::migrate` (Rust) or open once with `auto_migrate=True` (Python) as the role
+that owns the schema, before the app starts. An app that opens unmigrated tables gets
+`NotMigrated`.
+
+**Privileges.** Migrating needs `CREATE` on the schema. The app's role needs `USAGE` on the
+schema, `SELECT, INSERT, UPDATE` on its tables, `USAGE` on its sequences, and `DELETE` on
+`pemba_relationships`, `pemba_pending` and `pemba_revisions` if it runs `gc`. Nothing more:
+no superuser, no extension.
+
+**Revisions are assigned at commit.** Concurrent writers commit in any order, so a write's
+revision is drawn when its transaction commits, and revision order is commit order. A
+revision drawn by a commit that then fails is skipped: numbers only go up, but can have
+gaps. Reading at a skipped number gives the state of the revision before it.
+
+**Don't run `SET CONSTRAINTS ALL IMMEDIATE` in a long transaction that writes
+relationships; name your own constraints instead.** It makes pemba assign the revision
+right away, which holds a store-wide lock until that transaction ends: every other pemba
+commit waits for it. Django's `check_constraints()` does this (Django's `TestCase` calls it
+after every test). pemba still works, raises the server `WARNING`, and warns once per
+engine (`pemba.PembaWarning` in Python, a `tracing` warning in Rust).
+
+**SERIALIZABLE and REPEATABLE READ: retry with backoff.** In those isolation levels a
+transaction can fail with a serialization failure (`40001`) or a deadlock (`40P01`), at any
+statement or at `COMMIT`. pemba reports both as the retryable `TransactionConflictError`
+(`TRANSACTION_CONFLICT`). Roll back and run the **whole** transaction again, waiting a
+random 0 to min(1 s, 10 ms × 2ⁿ) before attempt n. Retrying at once, or retrying only the
+pemba call, fails again.
+
+```python
+import random, time
+import psycopg
+from pemba import TransactionConflictError
+
+RETRYABLE = (TransactionConflictError, psycopg.errors.SerializationFailure,
+             psycopg.errors.DeadlockDetected)
+
+def with_retries(attempt, tries=10):
+    for n in range(tries):
+        try:
+            return attempt()
+        except RETRYABLE:
+            if n == tries - 1:
+                raise
+            time.sleep(random.uniform(0, min(1.0, 0.01 * 2**n)))
+
+conn = psycopg.connect(dsn, autocommit=True)
+conn.isolation_level = psycopg.IsolationLevel.SERIALIZABLE
+
+def share():
+    with conn.transaction():                 # BEGIN … COMMIT, rolled back on error
+        conn.execute("INSERT INTO documents (id) VALUES ('readme')")
+        return engine.write(touch=["document:readme#viewer@user:anne"], conn=conn)
+
+pending = with_retries(share)
+```
+
+With SQLAlchemy, retry on `TransactionConflictError` and on `sqlalchemy.exc.OperationalError`
+whose `orig.sqlstate` is `40001` or `40P01`, running `with Session(db) as s, s.begin(): ...`
+afresh each attempt.
+
+**PgBouncer.** Session pooling works. Transaction pooling works too: pemba keeps no session
+state, but the engine's connections use prepared statements, which need PgBouncer 1.21 or
+newer with `max_prepared_statements` set.
+
+**Latency is round trips.** Each statement is a round trip to the server (prepared
+statements are cached per connection), so cost scales with your network, not with the
+data. A direct check costs about 5 round trips; each level of hierarchy the check walks
+adds about 3, so a document 30 folders deep costs 99. A `lookup_resources` over 10,000
+documents costs about 500. A write is 10 round trips whatever its size, up to the batch
+limit of 1,000. On a CI runner where a round trip took about 150 µs, that came to 0.76 ms
+for a direct check, 16 ms for 30 folders and 19 ms for a 1,000-tuple write
+([`benches/RESULTS.md`](benches/RESULTS.md)). Keep the database close to the app, and
+prefer shallow hierarchies on hot paths. Fewer round trips for deep hierarchies is planned
+after the first Postgres release.
+
+**Garbage collection and autovacuum.** `engine.gc(keep_from)` raises the horizon, deletes
+history below it, and compacts what is left, each step in its own short transaction off
+your write path; run it from a scheduled job. It leaves dead rows like any bulk delete:
+autovacuum's defaults handle them, and after a first GC of a large backlog a manual
+`VACUUM (ANALYZE)` of `<schema>.pemba_relationships` reclaims space sooner. A long-open
+transaction anywhere in the database holds back vacuum, as always in Postgres.
+
+**Two-phase commit.** pemba assigns the revision at `PREPARE TRANSACTION`, and a prepared
+transaction keeps its locks, so every other pemba commit waits until `COMMIT PREPARED` or
+`ROLLBACK PREPARED`. Keep the window short.
+
+**Your own deferred constraints** run in event order with pemba's, while pemba's lock is
+held. If one waits on a lock held by a transaction that is itself waiting to commit
+relationships, Postgres reports a deadlock, which pemba maps to the retryable
+`TransactionConflictError`.
 
 ## Schema guide
 
@@ -256,9 +372,11 @@ explains single checks (`pemba check`, below).
 
 ## Consistency guide
 
-Every write commits at a new **revision**: one counter per store, starting at 1. Every
-read resolves its consistency to exactly one revision when it starts, and reads only that
-snapshot, so one answer never mixes two points in time.
+Every write commits at a new **revision**: one counter per store that only goes up,
+starting at 1. On Postgres it can skip numbers (a revision is drawn at commit and lost if
+the commit then fails). Reading at a skipped number gives the state of the revision before
+it. Every read resolves its consistency to exactly one revision when it starts, and reads
+only that snapshot, so one answer never mixes two points in time.
 
 | Python | Rust | Evaluates at |
 |---|---|---|
@@ -273,6 +391,9 @@ snapshot, so one answer never mixes two points in time.
   revision. `iter_resources` (Python) does this for you.
 - **`at_exactly` is not an audit log.** It applies the *current* schema to the data as of
   that revision, not what was allowed then.
+- **One write call, one revision.** Two `write` calls in one transaction commit at two
+  consecutive revisions, and `at_exactly` the first shows the transaction half-applied.
+  Pass all of a transaction's updates to one `write` call when that matters.
 - **History** is kept until you call `gc(keep_from)`. Reads before `keep_from` then raise
   `ConsistencyError` (`REVISION_EXPIRED`).
 
@@ -335,9 +456,10 @@ Hitting a limit raises an error (`EvaluationLimitError` in Python); it never ans
 
 Also:
 
-- **SQLite only**, plus an in-memory store for tests. Postgres is planned, not started.
-- **One machine.** The engine runs in your process. Several processes can share one
-  SQLite file, but there is no distributed mode.
+- **SQLite and Postgres**, plus an in-memory store for tests.
+- **No distributed engine.** The engine runs in your process. Several processes can share
+  one SQLite file, and any number of app instances one Postgres schema, but engines do not
+  talk to each other.
 - **Read latency, measured on the author's machine** (Intel i5-14600KF, Windows 11; p50,
   one call at a time, warm caches): on SQLite, a `check` that finds a direct relationship
   takes 3.7 µs from Rust and 10.9 µs from Python, one through 30 nested folders takes
@@ -345,7 +467,9 @@ Also:
   Every scenario, the in-memory store and a SpiceDB comparison (whose figures include an
   HTTP round trip) are in
   [`benches/RESULTS.md`](https://github.com/Joshua-Fields/pemba/blob/main/benches/RESULTS.md).
-  No performance targets are set yet.
+  On Postgres each request costs a few network round trips, so latency follows your
+  network more than pemba: RESULTS.md has the figures and their caveats. No performance
+  targets are set yet.
 - **Out of scope for now:** caveats/CEL conditions, expiring relationships, Watch /
   change feeds, a server mode, and bindings other than Python.
 

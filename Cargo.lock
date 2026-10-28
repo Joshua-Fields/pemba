@@ -1130,6 +1130,7 @@ version = "0.1.0-alpha.2"
 dependencies = [
  "criterion",
  "pemba",
+ "pemba-store-postgres",
 ]
 
 [[package]]

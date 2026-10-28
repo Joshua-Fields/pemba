@@ -29,6 +29,17 @@ const META: &str = "pemba_meta";
 const PENDING: &str = "pemba_pending";
 const BATCH_SEQ: &str = "pemba_batch_seq";
 const SAVEPOINT: &str = "pemba_write";
+/// The tuple columns of the relationships table, in [`relationship_columns`] order.
+///
+/// [`relationship_columns`]: crate::store::relationship_columns
+const TUPLE_COLUMNS: [&str; 6] = [
+    "resource_type",
+    "resource_id",
+    "relation",
+    "subject_type",
+    "subject_id",
+    "subject_relation",
+];
 
 /// What a [`write()`] left in the caller's transaction, by the dialect's
 /// [`RevisionStrategy`].
@@ -93,18 +104,29 @@ where
     D: SqlDialect + ?Sized,
 {
     reject_duplicates(req)?;
-    in_savepoint(txn, |txn| {
-        if let Some(expected) = schema_version {
-            // Before reading the version, so no schema write can commit between this
-            // check and the batch's own commit (OQ-049).
-            lock_schema(txn, dialect, false)?;
-            let found = checked_schema_version(txn, dialect)?;
-            if found != expected {
-                return Err(Error::Store(StoreError::SchemaChanged { expected, found }));
+    let attempt = |txn: &mut T, bulk: bool| {
+        in_savepoint(txn, |txn| {
+            if let Some(expected) = schema_version {
+                // Before reading the version, so no schema write can commit between this
+                // check and the batch's own commit (OQ-049).
+                lock_schema(txn, dialect, false)?;
+                let found = checked_schema_version(txn, dialect)?;
+                if found != expected {
+                    return Err(Error::Store(StoreError::SchemaChanged { expected, found }));
+                }
             }
-        }
-        apply(txn, dialect, req)
-    })
+            apply(txn, dialect, req, bulk)
+        })
+    };
+    let bulk = dialect.bulk_rows(2).is_some();
+    match attempt(txn, bulk) {
+        // A bulk insert of `Create`s says only that some tuple exists, not which: undone
+        // to the savepoint, the write runs again one op at a time, which names the first
+        // in op order exactly as a per-op store would (or succeeds, if the conflicting
+        // writer rolled back meanwhile).
+        Err(Error::Store(StoreError::UniqueViolation { .. })) if bulk => attempt(txn, false),
+        other => other,
+    }
 }
 
 /// The latest schema version visible to `txn`; `0` if none.
@@ -690,8 +712,10 @@ where
     }
 }
 
-/// Steps 3–6, or step 3 and `docs/10-postgres.md` §1.6.1 steps 4–7.
-fn apply<T, D>(txn: &mut T, dialect: &D, req: &WriteRequest) -> Result<Applied, Error>
+/// Steps 3–6, or step 3 and `docs/10-postgres.md` §1.6.1 steps 4–7; with `bulk`, through
+/// [`SqlDialect::bulk_rows`], where a `Create` of an existing tuple fails as
+/// [`StoreError::UniqueViolation`] rather than [`Error::AlreadyExists`].
+fn apply<T, D>(txn: &mut T, dialect: &D, req: &WriteRequest, bulk: bool) -> Result<Applied, Error>
 where
     T: WriteTxn + ?Sized,
     D: SqlDialect + ?Sized,
@@ -709,6 +733,10 @@ where
     }
 
     let (applied, mark) = self::mark(txn, dialect, "write")?;
+    if bulk && let Some(rows) = dialect.bulk_rows(2) {
+        apply_bulk(txn, dialect, req, &mark, &rows)?;
+        return finish(txn, dialect, applied, mark, "write");
+    }
     let Marks { created, deleted } = Marks::of(dialect);
     let table = dialect.table(RELATIONSHIPS);
     let columns = format!(
@@ -757,6 +785,81 @@ where
         }
     }
     finish(txn, dialect, applied, mark, "write")
+}
+
+/// The ops of `req` as one statement per op kind, each reading its tuples from `rows`
+/// ([`SqlDialect::bulk_rows`] for placeholder 2) with the mark as placeholder 1. The ops
+/// name distinct tuples ([`reject_duplicates`]), so their order does not matter.
+fn apply_bulk<T, D>(
+    txn: &mut T,
+    dialect: &D,
+    req: &WriteRequest,
+    mark: &SqlValue,
+    rows: &str,
+) -> Result<(), Error>
+where
+    T: WriteTxn + ?Sized,
+    D: SqlDialect + ?Sized,
+{
+    let Marks { created, deleted } = Marks::of(dialect);
+    let table = dialect.table(RELATIONSHIPS);
+    let cols = TUPLE_COLUMNS.join(", ");
+    let v_cols = TUPLE_COLUMNS.map(|c| format!("v.{c}")).join(", ");
+    let p1 = dialect.placeholder(1);
+    // `CAST`: in `INSERT ... SELECT` the target column does not type the parameter.
+    let insert = format!(
+        "INSERT INTO {table} ({cols}, {created}) SELECT {v_cols}, CAST({p1} AS BIGINT) FROM {rows}"
+    );
+    let matches = TUPLE_COLUMNS
+        .map(|c| format!("{table}.{c} = v.{c}"))
+        .join(" AND ");
+    let (mut creates, mut touches, mut deletes) = (Vec::new(), Vec::new(), Vec::new());
+    for op in &req.ops {
+        match op {
+            WriteOp::Create(r) => creates.push(r),
+            WriteOp::Touch(r) => touches.push(r),
+            WriteOp::Delete(r) => deletes.push(r),
+        }
+    }
+    let statements = [
+        (creates, insert.clone()),
+        (
+            touches,
+            format!("{insert} ON CONFLICT ({cols}) WHERE {deleted} IS NULL DO NOTHING"),
+        ),
+        (
+            deletes,
+            format!(
+                "UPDATE {table} SET {deleted} = {p1} FROM {rows} WHERE {matches}                  AND {table}.{deleted} IS NULL"
+            ),
+        ),
+    ];
+    for (tuples, sql) in statements {
+        if !tuples.is_empty() {
+            txn.execute(&sql, &[mark.clone(), SqlValue::Text(tuples_json(&tuples))])?;
+        }
+    }
+    Ok(())
+}
+
+/// `tuples` in the [`SqlDialect::bulk_rows`] encoding.
+fn tuples_json(tuples: &[&Relationship]) -> String {
+    let mut out = String::from("[");
+    for (i, r) in tuples.iter().enumerate() {
+        if i > 0 {
+            out.push(',');
+        }
+        out.push('[');
+        for (j, c) in crate::store::relationship_columns(r).iter().enumerate() {
+            if j > 0 {
+                out.push(',');
+            }
+            crate::trace::json_str(&mut out, c);
+        }
+        out.push(']');
+    }
+    out.push(']');
+    out
 }
 
 /// What a write's rows are marked with.
@@ -1345,5 +1448,127 @@ mod tests {
         write(&mut txn, &d, &request(), Some(0)).unwrap();
         write_schema(&mut txn, &d, "s", "h", &|_| Ok(())).unwrap();
         assert!(!txn.0.iter().any(|(s, _)| s.starts_with("LOCK")));
+    }
+
+    /// [`Dialect`] with a [`SqlDialect::bulk_rows`] item.
+    struct Bulk(Dialect);
+
+    impl SqlDialect for Bulk {
+        fn placeholder_style(&self) -> PlaceholderStyle {
+            self.0.placeholder_style()
+        }
+        fn revision_strategy(&self) -> RevisionStrategy {
+            self.0.revision_strategy()
+        }
+        fn table(&self, name: &str) -> String {
+            self.0.table(name)
+        }
+        fn row_id(&self) -> &'static str {
+            self.0.row_id()
+        }
+        fn bulk_rows(&self, n: usize) -> Option<String> {
+            Some(format!("rows({}) AS v", self.placeholder(n)))
+        }
+    }
+
+    /// A [`Recorder`] whose first bulk `INSERT` without `ON CONFLICT` (the `Create`s)
+    /// fails as if one of its tuples existed.
+    #[derive(Default)]
+    struct CreateConflict(Recorder, bool);
+
+    impl WriteTxn for CreateConflict {
+        fn execute(&mut self, sql: &str, params: &[SqlValue]) -> Result<u64, StoreError> {
+            let n = self.0.execute(sql, params)?;
+            if !self.1
+                && sql.contains("FROM rows(")
+                && sql.starts_with("INSERT")
+                && !sql.contains("ON CONFLICT")
+            {
+                self.1 = true;
+                return Err(StoreError::UniqueViolation {
+                    message: "duplicate key".into(),
+                });
+            }
+            Ok(n)
+        }
+        fn query(
+            &mut self,
+            sql: &str,
+            params: &[SqlValue],
+        ) -> Result<Vec<Vec<SqlValue>>, StoreError> {
+            self.0.query(sql, params)
+        }
+        fn last_insert_id(&mut self) -> Result<i64, StoreError> {
+            self.0.last_insert_id()
+        }
+    }
+
+    /// A per-op statement on the relationships table.
+    fn per_op(sql: &str) -> bool {
+        sql.contains("pemba_relationships") && sql.contains("$7")
+    }
+
+    #[test]
+    fn bulk_rows_send_one_statement_per_op_kind() {
+        let mut txn = Recorder::default();
+        let d = Bulk(Dialect(
+            PlaceholderStyle::Dollar,
+            RevisionStrategy::AssignAtCommit,
+        ));
+        let mut req = request();
+        req.ops.push(WriteOp::Touch(
+            "document:d#viewer@group:eng#member".parse().unwrap(),
+        ));
+        write(&mut txn, &d, &req, None).unwrap();
+        let bulk: Vec<_> = txn
+            .0
+            .iter()
+            .filter(|(s, _)| s.contains("FROM rows($2) AS v"))
+            .collect();
+        assert_eq!(bulk.len(), 3, "{:#?}", txn.0);
+        assert!(bulk[0].0.starts_with("INSERT") && !bulk[0].0.contains("ON CONFLICT"));
+        assert!(bulk[1].0.contains("ON CONFLICT"));
+        assert!(bulk[2].0.starts_with("UPDATE"));
+        // Placeholder 1 is the mark, 2 the tuples.
+        let json = |i: usize| match &bulk[i].1[..] {
+            [SqlValue::Integer(BATCH), SqlValue::Text(j)] => j.clone(),
+            other => panic!("unexpected parameters {other:?}"),
+        };
+        let touched: Vec<Vec<String>> = serde_json::from_str(&json(1)).unwrap();
+        assert_eq!(
+            touched,
+            [
+                ["document", "b", "viewer", "user", "bob", ""],
+                ["document", "d", "viewer", "group", "eng", "member"],
+            ]
+        );
+        assert_eq!(json(2), r#"[["document","c","viewer","user","carl",""]]"#);
+        // No per-op statement ran.
+        assert!(!txn.0.iter().any(|(s, _)| per_op(s)));
+    }
+
+    #[test]
+    fn a_bulk_create_conflict_reruns_the_write_one_op_at_a_time() {
+        let mut txn = CreateConflict::default();
+        let d = Bulk(Dialect(
+            PlaceholderStyle::Dollar,
+            RevisionStrategy::AssignAtCommit,
+        ));
+        // The per-op rerun succeeds here: the recorder reports no conflict the second time,
+        // as when the conflicting writer rolled back meanwhile.
+        let applied = write(&mut txn, &d, &request(), Some(0)).unwrap();
+        assert!(matches!(applied, Applied::Pending { .. }));
+        let sql: Vec<&str> = txn.0.0.iter().map(|(s, _)| s.as_str()).collect();
+        let rollback = sql
+            .iter()
+            .position(|s| s.starts_with("ROLLBACK TO SAVEPOINT"))
+            .unwrap();
+        let rest = &sql[rollback..];
+        // The rerun starts over in a new savepoint, schema check and preconditions first,
+        // then one statement per op.
+        assert!(rest.iter().any(|s| s.starts_with("SAVEPOINT")));
+        assert!(rest.iter().any(|s| s.starts_with("SELECT 1")));
+        assert_eq!(rest.iter().filter(|s| per_op(s)).count(), 3, "{rest:#?}");
+        assert!(!rest.iter().any(|s| s.contains("FROM rows(")));
     }
 }

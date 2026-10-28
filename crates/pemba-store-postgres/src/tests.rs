@@ -103,7 +103,7 @@ impl TestStore {
     fn revision_of(&self, batch: u64) -> Option<Revision> {
         let mut lease = self.store.pool.lease().unwrap();
         self.store
-            .revision_of(lease.client().unwrap(), batch)
+            .revision_of(lease.conn().unwrap(), batch)
             .unwrap()
     }
 
@@ -562,7 +562,7 @@ fn set_constraints_immediate_fires_early_and_is_flagged() {
         let other = open(&url, s.store.schema());
         let mut lease = other.pool.lease().unwrap();
         assert_eq!(
-            other.revision_of(lease.client().unwrap(), before).unwrap(),
+            other.revision_of(lease.conn().unwrap(), before).unwrap(),
             Some(Revision(2))
         );
         assert_eq!(count.load(Ordering::SeqCst), 2);
@@ -965,4 +965,269 @@ fn serialization_failures_and_deadlocks_are_retryable_conflicts() {
     let err = Error::Store(store_err(&other));
     assert_eq!(err.code(), "STORE_ERROR");
     assert!(matches!(&err, Error::Store(e) if !e.is_retryable()));
+}
+
+/// Server-side prepared statements on `conn` (protocol-level ones included).
+fn prepared_on(conn: &mut crate::statements::Conn) -> i64 {
+    conn.client
+        .query_one(
+            "SELECT count(*) FROM pg_catalog.pg_prepared_statements",
+            &[],
+        )
+        .unwrap()
+        .get(0)
+}
+
+#[test]
+fn statements_are_prepared_once_per_connection() {
+    let Some(url) = pg_url() else { return };
+    let s = TestStore::new(&url, false);
+    let mut lease = s.store.pool.lease().unwrap();
+    let conn = lease.conn().unwrap();
+    let before = prepared_on(conn);
+    for _ in 0..3 {
+        let n: i32 = conn.query_one("SELECT 41 + 1", &[]).unwrap().get(0);
+        assert_eq!(n, 42);
+    }
+    assert!(conn.statements.contains("SELECT 41 + 1"));
+    // `prepared_on` itself is uncached, prepared and closed again; one statement stays.
+    assert_eq!(prepared_on(conn) - before, 1);
+}
+
+#[test]
+fn the_statement_cache_is_bounded_and_frees_what_it_evicts() {
+    let Some(url) = pg_url() else { return };
+    let s = TestStore::new(&url, false);
+    let mut lease = s.store.pool.lease().unwrap();
+    let conn = lease.conn().unwrap();
+    let cap = crate::statements::CAPACITY;
+    for i in 0..cap + 20 {
+        conn.query(&format!("SELECT {i}"), &[]).unwrap();
+    }
+    assert_eq!(conn.statements.len(), cap);
+    // Evicted statements are closed on the server, not just forgotten.
+    assert!(prepared_on(conn) <= i64::try_from(cap).unwrap() + 1);
+    // The least recently used went first; the newest stayed.
+    assert!(!conn.statements.contains("SELECT 0"));
+    assert!(conn.statements.contains(&format!("SELECT {}", cap + 19)));
+}
+
+#[test]
+fn a_stale_plan_fails_closed_once_and_empties_every_cache() {
+    let Some(url) = pg_url() else { return };
+    let s = TestStore::new(&url, false);
+    let t = s.table("pemba_t_stale");
+    s.app_client()
+        .batch_execute(&format!(
+            "CREATE TABLE {t} (a int); INSERT INTO {t} VALUES (1)"
+        ))
+        .unwrap();
+    let sql = format!("SELECT * FROM {t}");
+    let mut first = s.store.pool.lease().unwrap();
+    let mut second = s.store.pool.lease().unwrap();
+    first.conn().unwrap().query(&sql, &[]).unwrap();
+    second.conn().unwrap().query("SELECT 1", &[]).unwrap();
+    // DDL that changes the statement's result type: the server refuses the cached plan.
+    s.app_client()
+        .batch_execute(&format!("ALTER TABLE {t} ADD COLUMN b int"))
+        .unwrap();
+    let err = first.conn().unwrap().query(&sql, &[]).unwrap_err();
+    assert_eq!(
+        err.code(),
+        Some(&postgres::error::SqlState::FEATURE_NOT_SUPPORTED)
+    );
+    assert!(first.conn().unwrap().statements.is_empty());
+    // The next attempt prepares afresh and sees the new column.
+    let rows = first.conn().unwrap().query(&sql, &[]).unwrap();
+    assert_eq!(rows[0].len(), 2);
+    // The other connection's cache was invalidated too: its next use starts empty.
+    second.conn().unwrap().query("SELECT 2", &[]).unwrap();
+    assert!(!second.conn().unwrap().statements.contains("SELECT 1"));
+}
+
+#[test]
+fn a_replacement_connection_starts_with_an_empty_cache() {
+    let Some(url) = pg_url() else { return };
+    let s = TestStore::new(&url, false);
+    // Lease every connection the pool may open, so the one after `discard` is new.
+    let mut leases: Vec<_> = (0..4).map(|_| s.store.pool.lease().unwrap()).collect();
+    for l in &mut leases {
+        l.conn().unwrap().query("SELECT 1", &[]).unwrap();
+    }
+    leases.pop().unwrap().discard();
+    let mut fresh = s.store.pool.lease().unwrap();
+    assert!(fresh.conn().unwrap().statements.is_empty());
+}
+
+#[test]
+fn a_schema_write_empties_every_cache() {
+    let Some(url) = pg_url() else { return };
+    let s = TestStore::new(&url, false);
+    s.store.head_revision().unwrap();
+    s.store.write_schema("x", "h", &|_| Ok(())).unwrap();
+    let mut leases: Vec<_> = (0..4).map(|_| s.store.pool.lease().unwrap()).collect();
+    for l in &mut leases {
+        let conn = l.conn().unwrap();
+        conn.query("SELECT 3", &[]).unwrap();
+        assert_eq!(conn.statements.len(), 1);
+    }
+}
+
+// ---- bulk writes (OQ-056) ----
+
+#[test]
+fn a_mixed_batch_writes_one_statement_per_op_kind() {
+    let Some(url) = pg_url() else { return };
+    let s = TestStore::new(&url, false);
+    let kept = "doc:a_-=+/|.1#viewer@user:*";
+    let gone = "doc:2#viewer@group:eng#member";
+    s.write(&touch(&[kept, gone]), None).unwrap();
+    let rev = s
+        .write(
+            &request(vec![
+                WriteOp::Create(rel("doc:3#viewer@user:anne")),
+                WriteOp::Touch(rel(kept)),
+                WriteOp::Touch(rel("doc:4#viewer@group:eng#member")),
+                WriteOp::Delete(rel(gone)),
+                WriteOp::Delete(rel("doc:5#viewer@user:nobody")),
+                WriteOp::Create(rel("doc:6#viewer@user:bob")),
+            ]),
+            None,
+        )
+        .unwrap();
+    let mut got = s.read(|r| Ok(docs(r, rev))).unwrap();
+    got.sort();
+    assert_eq!(
+        got,
+        [
+            "doc:3#viewer@user:anne",
+            "doc:4#viewer@group:eng#member",
+            "doc:6#viewer@user:bob",
+            kept,
+        ]
+    );
+    // The untouched tuple keeps its first revision; the deleted one is gone only from
+    // this revision on.
+    assert!(s.read(|r| r.exists(rev, &rel(kept))).unwrap());
+    assert!(
+        s.read(|r| r.exists(Revision(rev.0 - 1), &rel(gone)))
+            .unwrap()
+    );
+    assert_eq!(s.map().len(), 2, "one revision per write");
+}
+
+#[test]
+fn a_bulk_create_conflict_names_the_first_existing_tuple_in_op_order() {
+    let Some(url) = pg_url() else { return };
+    let s = TestStore::new(&url, false);
+    let (b, c) = ("doc:1#viewer@user:bob", "doc:1#viewer@user:carl");
+    let r1 = s.write(&touch(&[b, c]), None).unwrap();
+    let err = s
+        .write(
+            &request(vec![
+                WriteOp::Touch(rel("doc:9#viewer@user:zed")),
+                WriteOp::Create(rel("doc:1#viewer@user:anne")),
+                WriteOp::Create(rel(c)),
+                WriteOp::Delete(rel("doc:1#viewer@user:dora")),
+                WriteOp::Create(rel(b)),
+            ]),
+            None,
+        )
+        .unwrap_err();
+    match err {
+        Error::AlreadyExists(t) => assert_eq!(t, c),
+        other => panic!("expected AlreadyExists, got {other:?}"),
+    }
+    // Nothing of the failed batch is visible, and it took no revision.
+    assert_eq!(s.store.head_revision().unwrap(), r1);
+    let mut got = s.read(|r| Ok(docs(r, r1))).unwrap();
+    got.sort();
+    assert_eq!(got, [b, c]);
+}
+
+#[test]
+fn bulk_writes_ignore_the_app_connections_search_path() {
+    let Some(url) = pg_url() else { return };
+    let s = TestStore::new(&url, false);
+    let mut client = s.app_client();
+    let mut tx = client.transaction().unwrap();
+    // A schema the app controls, first on its search path: nothing pemba sends may
+    // resolve a function, operator or type there.
+    let decoy = format!("{}_decoy", s.store.schema());
+    tx.batch_execute(&format!(
+        "CREATE SCHEMA \"{decoy}\"; \
+         CREATE FUNCTION \"{decoy}\".jsonb_array_elements(jsonb) RETURNS SETOF jsonb \
+             LANGUAGE sql AS 'SELECT NULL::jsonb WHERE false'; \
+         SET LOCAL search_path = \"{decoy}\", pg_catalog"
+    ))
+    .unwrap();
+    let batch = app_write(
+        &s,
+        &mut tx,
+        &touch(&["doc:1#viewer@user:anne", "doc:2#viewer@user:bob"]),
+    );
+    tx.batch_execute(&format!("DROP SCHEMA \"{decoy}\" CASCADE"))
+        .unwrap();
+    tx.commit().unwrap();
+    let rev = s.revision_of(batch).unwrap();
+    assert_eq!(s.read(|r| Ok(docs(r, rev))).unwrap().len(), 2);
+}
+
+#[test]
+fn a_bulk_create_conflict_in_the_apps_transaction_undoes_only_pembas_savepoint() {
+    let Some(url) = pg_url() else { return };
+    let s = TestStore::new(&url, false);
+    let existing = "doc:1#viewer@user:carl";
+    let r1 = s.write(&touch(&[existing]), None).unwrap();
+    let rows = s.table("pemba_t_app_rows");
+    let mut client = s.app_client();
+    client
+        .batch_execute(&format!("CREATE TABLE {rows} (id int PRIMARY KEY)"))
+        .unwrap();
+
+    let mut tx = client.transaction().unwrap();
+    tx.execute(&format!("INSERT INTO {rows} VALUES (1)"), &[])
+        .unwrap();
+    // The bulk insert of the Creates fails; the per-op rerun names the existing tuple.
+    let err = pemba_core::write::write(
+        &mut PgTxn::new(&mut tx),
+        &s.store.dialect,
+        &request(vec![
+            WriteOp::Create(rel("doc:1#viewer@user:anne")),
+            WriteOp::Touch(rel("doc:2#viewer@user:bob")),
+            WriteOp::Create(rel(existing)),
+        ]),
+        None,
+    )
+    .unwrap_err();
+    match err {
+        Error::AlreadyExists(t) => assert_eq!(t, existing),
+        other => panic!("expected AlreadyExists, got {other:?}"),
+    }
+    // The transaction is usable: the app's row is still there, and it can go on writing,
+    // pemba included.
+    let n: i64 = tx
+        .query_one(&format!("SELECT count(*) FROM {rows}"), &[])
+        .unwrap()
+        .get(0);
+    assert_eq!(n, 1);
+    tx.execute(&format!("INSERT INTO {rows} VALUES (2)"), &[])
+        .unwrap();
+    let batch = app_write(&s, &mut tx, &touch(&["doc:3#viewer@user:dora"]));
+    tx.commit().unwrap();
+
+    let ids: Vec<i32> = s
+        .app_client()
+        .query(&format!("SELECT id FROM {rows} ORDER BY id"), &[])
+        .unwrap()
+        .iter()
+        .map(|r| r.get(0))
+        .collect();
+    assert_eq!(ids, [1, 2]);
+    // Only the later write committed: nothing of the failed one, at its own revision.
+    let r2 = s.revision_of(batch).unwrap();
+    assert_eq!(r2, Revision(r1.0 + 1));
+    let mut got = s.read(|r| Ok(docs(r, r2))).unwrap();
+    got.sort();
+    assert_eq!(got, ["doc:1#viewer@user:carl", "doc:3#viewer@user:dora"]);
 }

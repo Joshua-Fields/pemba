@@ -1369,6 +1369,12 @@ it is resolved.
   paged map join (keyset cursor plus `JOIN … LEFT JOIN` over the whole type) may be the
   cause rather than the join itself.
 - Resolve by: T5.12 (benchmarks, F12).
+- T5.12: on the `docs/07-testing.md` §7 shapes through the engine (`benches/`, the
+  `*_below_head` rows), reads at `Exact(head - 1)` cost 1.1–1.3× the head form: e.g.
+  `direct_hit` 1.78 vs 1.61 ms, `folders_depth_30` 55.7 vs 45.0 ms, `lookup_resources_10k`
+  289 vs 230 ms (p50, Docker Desktop, round-trip-bound: OQ-056). So the 9× above is
+  specific to paging `read_relationships` over 100,000 tuples of one type; its plan is
+  still not investigated. Left open for that query only.
 
 ## OQ-055 — Two departures from `10` §2.3 in the Python adapters
 - Raised in: T5.9
@@ -1390,3 +1396,44 @@ it is resolved.
   desynchronise their state. So they must already be in a transaction, and the error
   names `session.begin()` / `connection.begin()` / `transaction.atomic()`.
 - Resolve by: maintainer.
+
+## OQ-056 — Postgres latency is round trips: two per statement
+- Raised in: T5.12 (`benches/RESULTS.md`)
+- Blocking: no (correct; a performance follow-up)
+- Finding: every statement the Postgres store sends is prepared, then executed: two
+  round trips (the `postgres` crate's `query(&str)`, and `PgTxn::prepare_bound`). A
+  `check` makes several statements (snapshot `BEGIN`, head and horizon, schema version,
+  the reads, `ROLLBACK`), a write one per op plus a few. Measured on Windows with the
+  server in Docker Desktop, where a round trip costs 154 µs p50 (32 µs inside the
+  container): `direct_hit` 1.6 ms, `write_batch_1000` 430 ms (SQLite: 3.8 µs and 51 ms).
+  Those mostly measure the round trips.
+- Options: (a) a per-connection prepared-statement cache (`postgres`' `Statement`s kept
+  by SQL text on each pooled `Client`), which halves round trips on every path; (b) for
+  writes, one multi-row statement per op kind (`INSERT ... SELECT * FROM unnest(...)`,
+  `UPDATE ... FROM unnest(...)`), so a 1,000-tuple batch is a handful of round trips;
+  (c) pipelining the snapshot's first statements. (a) is small and safe; (b) changes the
+  shared write algorithm and needs the conformance and equivalence suites.
+- Resolve by: maintainer, before the first Postgres release if write throughput matters
+  there; measure on Linux (CI's service container) first.
+- Resolution: Resolved by the human's direction, 2026-10-28: (a) and (b) before the first
+  Postgres release; (c) not done.
+  - (a) `statements.rs`: up to 256 statements per pooled connection, LRU, evicted ones
+    closed on the server; emptied on reconnect, on a stale plan (`0A000`, every
+    connection through a shared generation) and after a schema write; not used in the
+    app's own transaction (`10` §2.1).
+  - (b) `SqlDialect::bulk_rows` (`05` §5 step 5): one statement per op kind, the tuples
+    in one `jsonb` parameter rather than `unnest` arrays, because `WriteTxn` carries only
+    portable `SqlValue`s and the Python adapters pass a string through every driver
+    unchanged. A unique violation from the bulk `Create` rolls back to pemba's savepoint
+    and reruns the write per op, so `AlreadyExists` names the same tuple as before; the
+    app's own transaction and rows are untouched (tested in Rust and on every Python
+    driver). SQLite keeps the per-op form.
+  - Measured with `benches/pg-linux.sh` on one GitHub-hosted Linux runner (server in a
+    service container; `SELECT 1` took 146 µs there, so not much faster than Docker
+    Desktop), p50 / round trips per operation, before → cache → cache and bulk:
+    `direct_hit` 1.58 ms / 8 → 0.82 ms / 5 → 0.76 ms / 5; `folders_depth_30` 46.8 ms /
+    196 → 16.8 ms / 99 → 16.2 ms / 99; `lookup_resources_10k` 235 ms / 1,010 → 88 ms /
+    506; `write_batch_1000` 407 ms / 2,016 → 201 ms / 1,009 → 19.3 ms / 10. Full table:
+    `benches/RESULTS.md`.
+  - What is left is reads: a check costs about 5 round trips plus about 3.3 per level of
+    hierarchy (99 at 30 folder levels). That is the M10 candidate in `08`.
