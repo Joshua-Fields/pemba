@@ -8,6 +8,8 @@
 
 use std::fmt::Write as _;
 
+pub mod round_trips;
+
 /// The schema every scenario loads. A strict subset of SpiceDB's language, so the SpiceDB
 /// comparison loads it unchanged.
 pub const SCHEMA: &str = "\
