@@ -245,9 +245,26 @@ Contract details (T6.2; the crate docs are the reference):
     answers can be reproduced exactly. If it does not exist (a `/next/` build, or a
     version from before the playground), the banner says the answers may differ. The
     page never switches versions on its own.
+  - As built (T6.8): the state is `{v: 1, engine, schema, relationships, assertions,
+    query: {kind, text}}`, all keys required, no others. A link that does not decode,
+    inflates past 4 MB, or lacks or mistypes any part shows an error and loads nothing.
+    `engine` is the workspace version, injected by `vite.config.ts`; on a build whose
+    `base` ends in `/next/` it is `<version>+<short commit>`. Whether `/v/<version>/`
+    exists is a same-origin `HEAD` request to it (Pages answers 404 for a missing path;
+    the Vite server is set to `appType: 'mpa'` so it does too); an engine with `+` is
+    never probed. Loading an example or importing a file drops the fragment and the
+    banner, since the page no longer shows the link's state.
 - **Import/export fixture YAML.** Import parses with `pemba-fixtures` (in WASM). Export
   writes `schema: |-`, `relationships: |-` and the assertions verbatim. A test round-trips
   every corpus fixture through export → import → run.
+  - As built (T6.8): the header is `|-` unless the text needs otherwise to come back
+    exactly: `|` or `|+` for one or more trailing newlines, and an indentation indicator
+    (`|2-`) when the first non-blank line starts with a space. No blank line precedes the
+    assertions, because import gives a column-0 blank line to the key after it. Vitest
+    (`src/fixture.test.ts`, against the built `.wasm`) round-trips every corpus fixture:
+    the editors come back identical, the run passes with the native runner's count, and
+    exporting again gives the same file. Playwright does one round trip through the
+    page's buttons.
 - **Stack.** TypeScript (strict), Vite, CodeMirror 6 (`codemirror`,
   `@codemirror/lang-yaml`, `@codemirror/lint`), Vitest for units and Playwright for
   end-to-end tests. There is no UI framework: the UI is three editors, a form and a tree,

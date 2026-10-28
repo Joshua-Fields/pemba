@@ -1,6 +1,7 @@
 // The playground page (docs/11-playground.md §3, §4): three editors, the query bar, and the
 // result of a fresh run 300 ms after the last edit, with its diagnostics marked inline, and
-// the assertions run as a fixture (`pemba test` semantics) with a result per line.
+// the assertions run as a fixture (`pemba test` semantics) with a result per line; examples,
+// shareable links and fixture YAML import/export (§4).
 
 import { basicSetup, EditorView } from 'codemirror';
 import { yaml } from '@codemirror/lang-yaml';
@@ -12,8 +13,11 @@ import { place, readReport, type Placed, type Report } from './assertions';
 import { marks } from './diagnostics';
 import { dsl } from './dsl';
 import { EngineClient, EngineFailure } from './engine';
+import { EXAMPLES } from './examples';
+import { exportFixture, type Parts } from './fixture';
 import { outcomeGutter, showOutcomes } from './outcomes';
 import { checkLimits, describe, pageError } from './result';
+import { decodeState, ENGINE, encodeState, PREFIX, releaseOf, releaseUrl, ShareError, type State } from './share';
 import { follow, theme } from './theme';
 import { traceTree } from './trace';
 import type { QueryKind, RunRequest, View } from './types';
@@ -262,6 +266,197 @@ element<HTMLFormElement>('query').addEventListener('submit', (e) => {
   void runNow();
 });
 
+// ---------------------------------------------------------------------------------------
+// Examples, shareable links, import/export (docs/11-playground.md §4)
+// ---------------------------------------------------------------------------------------
+
+const exampleMenu = element<HTMLSelectElement>('example');
+const toolStatus = element<HTMLSpanElement>('tool-status');
+const versionBanner = element<HTMLDivElement>('version-banner');
+const notice = element<HTMLDivElement>('notice');
+const importFile = element<HTMLInputElement>('import-file');
+
+// Past this, some apps and servers cut a URL short.
+const LONG_LINK = 32_000;
+
+/** The fragment this page last wrote, so writing it is not read back as a new link. */
+let written = '';
+
+function setDoc(view: EditorView, doc: string): void {
+  view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: doc } });
+}
+
+/** Puts a whole state in the page at once, then runs it. */
+function apply(parts: Parts, query: { kind: QueryKind; text: string }): void {
+  setDoc(schema, parts.schema);
+  setDoc(relationships, parts.relationships);
+  setDoc(assertions, parts.assertions);
+  kind.value = query.kind;
+  syncPlaceholder();
+  text.value = query.text;
+  clearTimeout(timer);
+  void runNow();
+}
+
+function editors(): Parts {
+  return {
+    schema: schema.state.doc.toString(),
+    relationships: relationships.state.doc.toString(),
+    assertions: assertions.state.doc.toString(),
+  };
+}
+
+function say(message: string): void {
+  toolStatus.textContent = message;
+}
+
+function showNotice(message: string): void {
+  notice.textContent = message;
+  notice.hidden = false;
+}
+
+/** The page no longer shows a link's state: drop its fragment and its banner. */
+function leaveLink(): void {
+  notice.hidden = true;
+  versionBanner.hidden = true;
+  if (location.hash !== '') history.replaceState(null, '', location.pathname + location.search);
+  written = '';
+}
+
+/** Whether the site has a playground for `release` (a 404 means it does not). */
+async function published(release: string): Promise<boolean> {
+  try {
+    const url = releaseUrl(import.meta.env.BASE_URL, release, '');
+    const res = await fetch(url, { method: 'HEAD', cache: 'no-store', signal: AbortSignal.timeout(5000) });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+/** Names both versions; links the link's own release when it exists. Never navigates. */
+async function showMismatch(linkEngine: string, fragment: string): Promise<void> {
+  const release = releaseOf(linkEngine);
+  const exists = release !== null && (await published(release));
+  if (location.hash !== fragment) return;
+  const p = document.createElement('p');
+  p.append(`This link was made with pemba ${linkEngine}; this page runs pemba ${ENGINE}. `);
+  if (exists && release !== null) {
+    const a = document.createElement('a');
+    a.href = releaseUrl(import.meta.env.BASE_URL, release, fragment);
+    a.textContent = `Open it in the pemba ${release} playground`;
+    p.append(a, ' to reproduce its answers exactly.');
+  } else {
+    p.append(`No playground for pemba ${linkEngine} is published, so the answers here may differ from the ones the link was made with.`);
+  }
+  versionBanner.replaceChildren(p);
+  versionBanner.hidden = false;
+}
+
+/** Loads the state in the fragment, whole, or nothing and says why. */
+async function openLink(): Promise<boolean> {
+  const hash = location.hash;
+  if (!hash.startsWith(PREFIX) || hash === written) return false;
+  notice.hidden = true;
+  versionBanner.hidden = true;
+  let state: State;
+  try {
+    state = await decodeState(hash.slice(PREFIX.length));
+  } catch (e) {
+    const why = e instanceof ShareError ? e.message : String(e);
+    showNotice(`This link could not be read: ${why}. Nothing was loaded from it.`);
+    return false;
+  }
+  written = hash;
+  apply(state, state.query);
+  if (state.engine !== ENGINE) void showMismatch(state.engine, hash);
+  return true;
+}
+
+/** Splits fixture YAML with the engine; null (and a notice) when it cannot. */
+async function split(source: string, what: string): Promise<Parts | null> {
+  let out: unknown;
+  try {
+    out = JSON.parse(await client.parseFixture(source));
+  } catch (e) {
+    showNotice(`${what} could not be read: ${e instanceof Error ? e.message : String(e)}. The editors were not changed.`);
+    return null;
+  }
+  const o = (typeof out === 'object' && out !== null ? out : {}) as Record<string, unknown>;
+  if (o['ok'] === true && typeof o['schema'] === 'string' && typeof o['relationships'] === 'string' && typeof o['assertions'] === 'string') {
+    return { schema: o['schema'], relationships: o['relationships'], assertions: o['assertions'] };
+  }
+  const err = o['error'] as Record<string, unknown> | undefined;
+  const message = typeof err?.['message'] === 'string' ? err['message'] : 'the engine gave no reason';
+  showNotice(`${what} could not be imported: ${message}. The editors were not changed.`);
+  return null;
+}
+
+for (const ex of EXAMPLES) {
+  const option = document.createElement('option');
+  option.value = ex.name;
+  option.textContent = ex.label;
+  exampleMenu.append(option);
+}
+
+exampleMenu.addEventListener('change', () => {
+  const ex = EXAMPLES.find((e) => e.name === exampleMenu.value);
+  exampleMenu.value = '';
+  if (!ex) return;
+  void split(ex.source, `The ${ex.name} example`).then((parts) => {
+    if (!parts) return;
+    leaveLink();
+    apply(parts, ex.query);
+    say(`Loaded the ${ex.name} example.`);
+  });
+});
+
+element<HTMLButtonElement>('share').addEventListener('click', () => {
+  const state: State = { v: 1, engine: ENGINE, ...editors(), query: { kind: kind.value as QueryKind, text: text.value } };
+  void encodeState(state).then(async (payload) => {
+    const hash = PREFIX + payload;
+    written = hash;
+    history.replaceState(null, '', hash);
+    // The link now names this page's engine.
+    versionBanner.hidden = true;
+    notice.hidden = true;
+    const long = location.href.length > LONG_LINK ? ` It is long (${location.href.length} characters); some apps may cut it short.` : '';
+    try {
+      await navigator.clipboard.writeText(location.href);
+      say(`Link copied.${long}`);
+    } catch {
+      say(`The link is in the address bar.${long}`);
+    }
+  });
+});
+
+element<HTMLButtonElement>('export').addEventListener('click', () => {
+  const blob = new Blob([exportFixture(editors())], { type: 'application/yaml' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'pemba-playground.yaml';
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 10_000);
+});
+
+element<HTMLButtonElement>('import').addEventListener('click', () => importFile.click());
+importFile.addEventListener('change', () => {
+  const file = importFile.files?.[0];
+  importFile.value = '';
+  if (!file) return;
+  void file.text().then(async (source) => {
+    const parts = await split(source, file.name);
+    if (!parts) return;
+    leaveLink();
+    apply(parts, { kind: kind.value as QueryKind, text: text.value });
+    say(`Imported ${file.name}.`);
+  });
+});
+
+window.addEventListener('hashchange', () => void openLink());
+
 syncPlaceholder();
 text.value = PLACEHOLDERS.check;
-void runNow();
+void openLink().then((opened) => {
+  if (!opened) void runNow();
+});

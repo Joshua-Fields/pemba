@@ -257,6 +257,7 @@ expectErrors:                       # optional: schema or write must fail with t
 | `prefixed_types.yaml` | `docs/document`, `iam/user` |
 | `depth_limit.yaml` | chain of 60 folders → `MaxDepthExceeded` |
 | `non_monotone_cycle.yaml` | cycle through exclusion → `NonMonotonicCycle` |
+| `agent_authz.yaml` | AI agent tool calls (mirrors `examples/agent_authz.py`; a playground example): delegation, tool grants, revocation |
 | `schema_errors/*.yaml` | one file per schema error code (except `E_EMPTY_RELATION_TYPES`, which the parser makes unreachable from source text: `relation r:` is `E_UNEXPECTED_TOKEN`) |
 
 ### 3.2 pemba extensions (ignored by `zed`)
