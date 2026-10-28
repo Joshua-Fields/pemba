@@ -1229,15 +1229,28 @@ server and drop their schema on success.
      transaction does. Assert 0 violations. Writer wait is reported (it is expected to
      reach the long transaction's duration) and not asserted.
    - **Commit cost:** 1,000-tuple create and delete batches. Report the commit duration
-     (which is the lock hold) and fail above a generous bound (100 ms).
+     (which is the lock hold) and check it like the latency bounds below.
    - **Deterministic forced-inversion test:** rev(A) > rev(B), and the observation taken
      between the two commits is unchanged afterwards.
    - **Negative control:** an in-test raw-SQL "allocate at write" scheme on the same
      tables. The harness must report violations for it, which proves the oracle is not
      vacuous.
-   - **Asserted bounds:** visibility lag p99 < 100 ms while a long transaction is open;
-     writer wait p99 < 100 ms. These are generous bounds that catch a regression to
-     (a) or (b).
+   - **Latency bounds:** visibility lag p99 < 100 ms while a long transaction is open;
+     writer wait p99 < 100 ms. These catch a regression to (a) or (b).
+     - **Report-only by default (since 0.1.0-alpha.3).** On a shared CI runner a p99 over
+       a few thousand commits can pass 100 ms from scheduling alone: CI saw
+       serializable writer wait p99 104.8 ms with no violation, and a run pinned to two
+       CPUs went over in one run of three. So past 100 ms the test logs a "report only"
+       line and fails only past a 500 ms ceiling.
+     - **Why 500 ms rather than 1 s:** under (a) or (b) writers wait out the long
+       transaction's whole second, so their p99 lands near 1 s, and a 1 s ceiling could
+       miss that regression.
+     - **Strict mode:** `PEMBA_PG_STRICT_LATENCY=1` enforces 100 ms, for local runs on a
+       quiet machine.
+     - **What stays strict either way:** every correctness assertion (no violation, no
+       transaction that fails every retry, the negative control's violations, the long
+       transactions and the minimum workload). The `SET CONSTRAINTS` variants stay
+       unbounded: they wait by design.
    - **As built (T5.6):** each run lasts 3 s with the long transaction at 0.3 s and
      1.7 s. Readers observe through `Engine::read_relationships` at `Latest`, which
      returns a head and the state there from one snapshot. One write in ten carries a
