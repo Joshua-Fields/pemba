@@ -1,9 +1,12 @@
 name: Playground
 
-# The browser playground (docs/11-playground.md §5). Today: the conformance check (§6
-# layers 1-2, T6.3). The release .wasm must answer every fixture and 1 000 generated cases
-# exactly as the native library does, byte for byte, and the generated cases must agree
-# with the reference evaluator. Runs on PRs that can change an answer or the playground.
+# The browser playground (docs/11-playground.md §5):
+# - conformance (§6 layers 1-2, T6.3): the release .wasm must answer every fixture and
+#   1 000 generated cases exactly as the native library does, byte for byte, and the
+#   generated cases must agree with the reference evaluator;
+# - site (T6.4): type-check, Vitest, the production build within its gzip budget, a
+#   Playwright smoke test against it, and `npm audit` of the shipped dependencies.
+# Runs on PRs that can change an answer or the playground.
 on:
   pull_request:
     paths:
@@ -59,4 +62,48 @@ jobs:
           path: |
             target/conformance/*.txt
             target/conformance/generated/
+          retention-days: 7
+
+  site:
+    name: site
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: playground/web
+    steps:
+      - uses: actions/checkout@v5
+      - run: rustup target add wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: playground-site
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: playground/web/package-lock.json
+      - name: Install wasm-bindgen
+        run: |
+          version=$(cargo metadata --format-version 1 --locked             | jq -r '.packages[] | select(.name == "wasm-bindgen") | .version')
+          cargo install wasm-bindgen-cli --version "$version" --locked
+      - run: npm ci
+      # Only what ships to browsers; dev tools never reach the page.
+      - run: npm audit --omit=dev
+      - run: npm run wasm
+      - run: npm test
+      - run: npm run build
+      - name: Size budget (700 KB gzip, docs/11-playground.md §5)
+        run: npm run size
+      - run: npx playwright install --with-deps chromium
+      - run: npm run e2e
+      - name: Keep the Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-report
+          path: playground/web/playwright-report/
+          retention-days: 7
+      - uses: actions/upload-artifact@v7
+        with:
+          name: playground-site
+          path: playground/web/dist/
           retention-days: 7
