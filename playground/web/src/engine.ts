@@ -10,7 +10,17 @@ export interface WorkerLike {
   onerror: ((event: ErrorEvent) => void) | null;
 }
 
-/** A worker reply: the `run` output, or why there is none. */
+/** The WASM API function a message calls. */
+export type Op = 'run' | 'run_assertions';
+
+/** A request to the worker. */
+export interface Message {
+  id: number;
+  op: Op;
+  request: string;
+}
+
+/** A worker reply: the function's output, or why there is none. */
 export type Reply = { id: number; out: string } | { id: number; error: string };
 
 /** A failure of the worker itself, with the code the page shows. */
@@ -45,6 +55,15 @@ export class EngineClient {
 
   /** Sends one `run` request; resolves to the engine's JSON text. */
   run(request: unknown): Promise<string> {
+    return this.call('run', request);
+  }
+
+  /** Sends one `run_assertions` request; resolves to the engine's JSON text. */
+  runAssertions(request: unknown): Promise<string> {
+    return this.call('run_assertions', request);
+  }
+
+  private call(op: Op, request: unknown): Promise<string> {
     const worker = this.ensure();
     const id = this.next++;
     return new Promise((resolve, reject) => {
@@ -53,7 +72,7 @@ export class EngineClient {
         this.fail(new EngineFailure('TIMEOUT', `the engine did not answer within ${seconds} s and was stopped`));
       }, this.timeoutMs);
       this.pending.set(id, { resolve, reject, timer });
-      worker.postMessage({ id, request: JSON.stringify(request) });
+      worker.postMessage({ id, op, request: JSON.stringify(request) } satisfies Message);
     });
   }
 

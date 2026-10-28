@@ -1,16 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { EngineClient, EngineFailure, type Reply, type WorkerLike } from './engine';
+import { EngineClient, EngineFailure, type Message, type Reply, type WorkerLike } from './engine';
 
 /** A worker that records messages and answers only when told to. */
 class FakeWorker implements WorkerLike {
   onmessage: ((event: MessageEvent) => void) | null = null;
   onerror: ((event: ErrorEvent) => void) | null = null;
-  sent: { id: number; request: string }[] = [];
+  sent: Message[] = [];
   terminated = false;
 
   postMessage(message: unknown): void {
-    this.sent.push(message as { id: number; request: string });
+    this.sent.push(message as Message);
   }
 
   terminate(): void {
@@ -43,7 +43,15 @@ describe('EngineClient', () => {
   it('sends the request as JSON and resolves with the reply', async () => {
     const answer = client.run({ query: 'q' });
     const w = workers[0]!;
-    expect(w.sent).toEqual([{ id: 0, request: '{"query":"q"}' }]);
+    expect(w.sent).toEqual([{ id: 0, op: 'run', request: '{"query":"q"}' }]);
+    w.reply({ id: 0, out: '{"ok":true}' });
+    await expect(answer).resolves.toBe('{"ok":true}');
+  });
+
+  it('names the API function: run_assertions on the same worker', async () => {
+    const answer = client.runAssertions({ assertions: 'a' });
+    const w = workers[0]!;
+    expect(w.sent).toEqual([{ id: 0, op: 'run_assertions', request: '{"assertions":"a"}' }]);
     w.reply({ id: 0, out: '{"ok":true}' });
     await expect(answer).resolves.toBe('{"ok":true}');
   });

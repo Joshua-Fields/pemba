@@ -2,6 +2,7 @@ import { expect, test, type Page } from '@playwright/test';
 
 // Written by `playground/wasm/tests/schema_error_spans.rs` from the library's own spans.
 import expectations from './schema-errors.json' with { type: 'json' };
+import { setText } from './editor';
 
 // T6.5: schema errors and warnings, and rejected relationship lines, are marked inline at
 // the engine's span, with code, message and help in the tooltip.
@@ -18,18 +19,6 @@ interface Case {
 }
 
 const cases: Case[] = expectations;
-
-/** Replaces an editor's text as a paste would, so no auto-indent or bracket closing runs. */
-async function setText(page: Page, editor: string, text: string): Promise<void> {
-  const content = page.locator(`#${editor} .cm-content`);
-  await content.click();
-  await page.keyboard.press('ControlOrMeta+a');
-  await content.evaluate((el, t) => {
-    const data = new DataTransfer();
-    data.setData('text/plain', t);
-    el.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }));
-  }, text);
-}
 
 interface Mark {
   line: number;

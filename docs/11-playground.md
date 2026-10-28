@@ -186,6 +186,10 @@ Contract details (T6.2; the crate docs are the reference):
   nests past `serde_json`'s recursion limit. The worker calls `JSON.parse` on it.
 - **Lookups.** `lookup_resources` returns every page, all read at the first page's
   revision.
+- **Assertion report** (T6.6). `run_assertions` also returns `assertions_line`, the
+  1-based line of the joined fixture where the assertions text starts. The runner names
+  YAML errors (an unknown key) by their line in the joined fixture; the page subtracts
+  this to mark the assertions editor's line.
 
 ## 4. UX and frontend
 
@@ -197,6 +201,18 @@ Contract details (T6.2; the crate docs are the reference):
   3. **Assertions**: fixture YAML (`assertTrue`, `assertFalse`, `expectedLookups`,
      `expectCheckErrors`). Results appear per line (pass or fail, with the runner's
      message).
+     - As built (T6.6): the runner reports only failures, as location and assertion
+       text. The page finds the line each one names and marks it ✗, inline and in a
+       gutter. A line is marked ✓ only when the page can prove the runner checked it:
+       every failure was placed on a line, nothing stopped the fixture (a `fixture`,
+       `schema`, `relationships` or `engine` failure), and the lines it counts as checked
+       number exactly the runner's `checked`. Otherwise no line shows ✓, and the summary
+       still gives the runner's verdict and every failure.
+     - A step whose write failed, or succeeded against an `expectError`, has its
+       assertions marked "not checked" (–), as the runner skips them.
+     - A YAML error's first message line is shown with its position counted in the
+       editor's lines (the rest of the message quotes the joined fixture and is
+       dropped).
 - **Query bar.** A mode picker (check / lookup resources / lookup subjects) and one
   input in the CLI syntax (`resource#perm@subject`, `type#perm@subject`,
   `type:id#perm@subject_type`). Results show the answer and revision. Lookups list the
@@ -331,6 +347,10 @@ As built (T6.3), `playground/conformance/run.sh` runs layers 1 and 2. CI runs it
 3. **The page against WASM.** Playwright loads the built site, opens each example, runs
    its assertions, and compares the page's displayed answers with the transcript.
    This catches UI bugs such as showing the wrong field or treating an error as denied.
+   As built (T6.6), `e2e/assertions.spec.ts` loads every `testdata/fixtures` file into
+   the three editors (`e2e/corpus.json`, kept current by the `pemba-playground` test
+   `assertion_corpus`) and requires the native runner's check count, all passed, with
+   that many lines marked ✓.
 
 ---
 

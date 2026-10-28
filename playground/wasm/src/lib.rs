@@ -87,15 +87,17 @@ pub fn run(request: &str) -> String {
 ///
 /// Request: `{schema, relationships, assertions}`; `assertions` holds every fixture key
 /// but `schema` and `relationships` (`assertions`, `expectedLookups`, `steps`, ...).
-/// Answer: `{ok, passed, checked, failures: [{location, assertion, message}], warnings}`.
-/// A failing assertion is a failure in the report, not `ok: false`.
+/// Answer: `{ok, passed, checked, failures: [{location, assertion, message}], warnings,
+/// assertions_line}`. A failing assertion is a failure in the report, not `ok: false`.
+/// `assertions_line` is the 1-based line of the joined fixture where the `assertions` text
+/// starts, so a position the runner names (`line 9 column 3`) can be found in that text.
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
 pub fn run_assertions(request: &str) -> String {
     let req: AssertionsRequest = match serde_json::from_str(request) {
         Ok(r) => r,
         Err(e) => return to_json(&bad_request(&e)),
     };
-    let source = fixture_text(&req.schema, &req.relationships, &req.assertions);
+    let (source, assertions_line) = fixture_text(&req.schema, &req.relationships, &req.assertions);
     to_json(
         &match pemba_fixtures::run_str(&source, Path::new("."), StoreKind::Memory) {
             Ok(report) => json!({
@@ -108,6 +110,7 @@ pub fn run_assertions(request: &str) -> String {
                     "message": f.message,
                 })).collect::<Vec<_>>(),
                 "warnings": report.warnings,
+                "assertions_line": assertions_line,
             }),
             Err(e) => failure("FIXTURE_ERROR", "request", &e.to_string()),
         },
@@ -385,21 +388,25 @@ fn write_failure(e: &Error, chunk: &[Line]) -> Value {
 /// The three editors' text as one fixture. `|2-` fixes the block indent at two spaces, so
 /// a first line that starts with spaces cannot change it, and the scalars read back
 /// exactly as given (bar trailing newlines, which `|-` strips in fixtures too).
-fn fixture_text(schema: &str, relationships: &str, assertions: &str) -> String {
+/// Also returns the 1-based line of the result where `assertions` starts.
+fn fixture_text(schema: &str, relationships: &str, assertions: &str) -> (String, usize) {
     let mut out = String::with_capacity(schema.len() + relationships.len() + assertions.len() + 64);
+    let mut lines = 0;
     for (key, text) in [("schema", schema), ("relationships", relationships)] {
         out.push_str(key);
         out.push_str(": |2-\n");
+        lines += 1;
         for line in text.replace("\r\n", "\n").lines() {
             if !line.is_empty() {
                 out.push_str("  ");
             }
             out.push_str(line);
             out.push('\n');
+            lines += 1;
         }
     }
     out.push_str(assertions);
-    out
+    (out, lines + 1)
 }
 
 // ---------------------------------------------------------------------------------------
