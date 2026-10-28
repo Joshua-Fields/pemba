@@ -132,6 +132,13 @@ them, never `set -x` around them, and do not expose them to workflows triggered 
   `pemba-fixtures` and `pemba-playground`, then `pemba-fixtures`' `wasm_smoke` test under Node
   (`wasm-bindgen-test-runner`, the version in `Cargo.lock`): a check, a
   `check_with_trace`, both lookups and a fixture, so a call that traps on wasm32 fails CI.
+- `playground.yml` (pushes to main, manual, and PRs touching `crates/`, `playground/`,
+  `testdata/`, `Cargo.toml`, `Cargo.lock` or the workflow itself): the playground
+  conformance check (`docs/11-playground.md` §6, T6.3), `playground/conformance/run.sh`.
+  It generates 1 000 cases as fixtures and checks each against the reference evaluator.
+  It then writes the transcript of those cases and `testdata/fixtures` natively and from
+  the `wasm-release` `.wasm` under Node, and fails on any byte of difference. On failure,
+  the transcripts are uploaded as an artifact. It takes about a minute after the build.
 - `wheels.yml` (`v*` tags, manual, and pull requests touching `Cargo.lock`, any
   `Cargo.toml`, `crates/pemba-py/pyproject.toml` or the workflow itself, so a new native
   dependency fails on its PR, not at release): maturin-action builds one abi3

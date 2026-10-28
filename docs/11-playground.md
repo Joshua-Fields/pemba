@@ -296,6 +296,31 @@ library is worse than none. CI proves agreement in three layers:
 2. **The library against the oracle.** The 1 000 generated cases are also run natively
    through the testkit fixture runner, so each one is checked against the reference
    evaluator as well. Together with layer 1, this makes WASM = native = oracle.
+
+As built (T6.3), `playground/conformance/run.sh` runs layers 1 and 2. CI runs it as
+`playground.yml`.
+- **Generation.** `pemba-playground-conformance generate` draws, from a fixed seed, two
+  in five cases from each `SubSides` mode and one in five from `cyclic_case`.
+  - Each case becomes a fixture. Every `assertTrue`, `assertFalse` and `expectedLookups`
+    expectation in it is the reference evaluator's answer.
+  - A check the engine refuses with an accepted error becomes an `expectCheckErrors`
+    entry. The accepted errors are an ambiguous wildcard exclusion where the oracle shows
+    it applies (`07` §2.3), or a default limit.
+  - Lookups are left out of the fixture in three cases: they name the oracle's
+    `__fresh__` stand-in (which it leaves out of lookup answers), or the engine refuses
+    them for ambiguity or a limit. Properties 2 and 3 cover when those refusals are
+    right.
+  - Any other engine error stops the run.
+  - The seed run has 12 499 checks and 15 678 lookups in 1 000 cases.
+- **Transcript.** `pemba_playground::transcript(name, fixture)` is exported to WASM, so
+  one Rust function writes both sides. It records the API's answer to `parse_fixture`,
+  `compile`, `run_assertions`, and every top-level check (with and without explain),
+  `expectCheckErrors` entry and lookup through `run`, with trace timings zeroed.
+- **The `.wasm` is built with the `wasm-release` profile**, the one the site ships.
+- **Negative control (local only).** Building with
+  `CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUSTFLAGS="--cfg pemba_conformance_sabotage"`
+  makes the `.wasm` drop one id from multi-id `lookup_resources` answers, and `run.sh`
+  then fails.
 3. **The page against WASM.** Playwright loads the built site, opens each example, runs
    its assertions, and compares the page's displayed answers with the transcript.
    This catches UI bugs such as showing the wrong field or treating an error as denied.

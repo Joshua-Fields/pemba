@@ -21,6 +21,9 @@ pemba-schema.workspace = true
 pemba-store-memory.workspace = true
 pemba-fixtures.workspace = true
 serde.workspace = true
+# The conformance transcript reads a fixture's queries (T6.3); already in the build via
+# pemba-fixtures.
+serde-saphyr.workspace = true
 # The JSON in/out surface (docs/11-playground.md §3.1). Already in Cargo.lock (pemba-core
 # dev, pemba-difftest).
 serde_json = "1.0.154"

@@ -1,0 +1,24 @@
+[package]
+name = "pemba-playground-conformance"
+description = "Native side of the playground conformance check (docs/11-playground.md §6). Not published."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+pemba-core.workspace = true
+pemba-schema.workspace = true
+pemba-store-memory.workspace = true
+pemba-fixtures.workspace = true
+pemba-playground = { path = "../wasm" }
+# Generated cases and the oracle (docs/07-testing.md §2); a normal dependency here because
+# this crate is a tool, not a library anyone links.
+pemba-testkit.workspace = true
+proptest.workspace = true

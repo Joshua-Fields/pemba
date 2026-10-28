@@ -510,3 +510,38 @@ fn corpus_expected_errors_through_run() {
     }
     assert!(seen > 10, "only {seen} expectErrors fixtures");
 }
+
+// ---------------------------------------------------------------------------------------
+// transcript (T6.3)
+// ---------------------------------------------------------------------------------------
+
+#[test]
+fn transcript_records_every_answer_and_zeroes_timings() {
+    let path =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testdata/fixtures/google_docs.yaml");
+    let source = fs::read_to_string(path).unwrap();
+    let t = pemba_playground::transcript("google_docs", &source);
+    let lines: Vec<&str> = t.lines().collect();
+    assert_eq!(lines[0], "== google_docs");
+    assert!(lines[1].starts_with("parse_fixture: {\"assertions\""));
+    assert!(lines[2].starts_with("compile: {\"errors\":[]"));
+    assert!(lines[3].contains("\"passed\":true"));
+    let count = |prefix: &str| lines.iter().filter(|l| l.starts_with(prefix)).count();
+    assert_eq!(count("check "), count("explain "));
+    assert!(count("check ") >= 30 && count("lookup_resources ") > 0);
+    assert!(!t.contains("\"ok\":false"));
+    assert!(t.contains("duration_ns\\\":0"));
+    for key in ["duration_ns\\\":", "elapsed_ns\\\":"] {
+        for (i, _) in t.match_indices(key) {
+            assert!(t[i + key.len()..].starts_with('0'), "{}", &t[i..i + 40]);
+        }
+    }
+    assert_eq!(t, pemba_playground::transcript("google_docs", &source));
+}
+
+#[test]
+fn transcript_of_an_unreadable_fixture_stops_after_parse() {
+    let t = pemba_playground::transcript("bad", "schemaFile: x.zed\n");
+    assert_eq!(t.lines().count(), 2);
+    assert!(t.contains("parse_fixture: {\"error\""));
+}

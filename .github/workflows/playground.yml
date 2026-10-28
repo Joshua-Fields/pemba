@@ -1,0 +1,62 @@
+name: Playground
+
+# The browser playground (docs/11-playground.md §5). Today: the conformance check (§6
+# layers 1-2, T6.3). The release .wasm must answer every fixture and 1 000 generated cases
+# exactly as the native library does, byte for byte, and the generated cases must agree
+# with the reference evaluator. Runs on PRs that can change an answer or the playground.
+on:
+  pull_request:
+    paths:
+      - "crates/**"
+      - "playground/**"
+      - "testdata/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/playground.yml"
+  push:
+    branches: [main]
+    paths:
+      - "crates/**"
+      - "playground/**"
+      - "testdata/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/playground.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  conformance:
+    name: native = WASM
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: rustup target add wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: playground
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+      # The CLI must match the wasm-bindgen version in Cargo.lock.
+      - name: Install wasm-bindgen
+        run: |
+          version=$(cargo metadata --format-version 1 --locked \
+            | jq -r '.packages[] | select(.name == "wasm-bindgen") | .version')
+          cargo install wasm-bindgen-cli --version "$version" --locked
+      - run: playground/conformance/run.sh
+      - name: Keep the transcripts for diagnosis
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: conformance-transcripts
+          path: |
+            target/conformance/*.txt
+            target/conformance/generated/
+          retention-days: 7
