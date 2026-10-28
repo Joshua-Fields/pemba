@@ -1375,6 +1375,19 @@ it is resolved.
   289 vs 230 ms (p50, Docker Desktop, round-trip-bound: OQ-056). So the 9× above is
   specific to paging `read_relationships` over 100,000 tuples of one type; its plan is
   still not investigated. Left open for that query only.
+- Resolution: Resolved, 2026-10-28 (time-boxed `EXPLAIN ANALYZE`, as the human asked): a
+  plan problem, not the join. In `x.rev IS NULL OR x.rev > $rev` the planner estimates
+  `x.rev IS NULL` from the column's null fraction (0), not from outer rows with no map
+  row, so it expected almost nothing to pass and chose seq scans, a hash join and a sort
+  of the whole type (106 ms for the first 500-row page) over walking `pemba_rel_fwd` in
+  order. Later pages, narrowed by the keyset cursor, already walked the index (2 ms).
+  Fix: `(r.deleted_batch IS NULL OR x.rev IS NULL OR x.rev > $rev)`, which changes no
+  answer (no deleted batch means no `x` row) but has an estimate the planner gets right;
+  the first page drops to 0.6 ms (1.1 ms with half the rows deleted). Generic plans
+  (cached statements after five runs) already chose the index either way. `gc_measure`:
+  12 ms below head against 11 ms at head (was 87 ms against 9 ms). A `NOT EXISTS` anti
+  join measured the same and was not taken: it changes every below-head query's shape.
+  Conformance, equivalence (300 cases) and the ignored tests are green.
 
 ## OQ-055 — Two departures from `10` §2.3 in the Python adapters
 - Raised in: T5.9
@@ -1396,6 +1409,10 @@ it is resolved.
   desynchronise their state. So they must already be in a transaction, and the error
   names `session.begin()` / `connection.begin()` / `transaction.atomic()`.
 - Resolve by: maintainer.
+- Resolution: Resolved by the human, 2026-10-28: both departures approved as implemented:
+  (a) the adapter rewrites `$n` to `%s` and doubles literal `%`, with the one `Dollar`
+  dialect; (b) `allow_autocommit` applies to a raw psycopg connection only, and
+  SQLAlchemy and Django must already be in a transaction.
 
 ## OQ-056 — Postgres latency is round trips: two per statement
 - Raised in: T5.12 (`benches/RESULTS.md`)
