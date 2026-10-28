@@ -3,7 +3,11 @@
 use std::collections::HashMap;
 use std::fmt::Write as _;
 use std::sync::{Arc, PoisonError, RwLock, RwLockReadGuard, RwLockWriteGuard};
+#[cfg(not(target_arch = "wasm32"))]
 use std::time::Instant;
+// `std::time::Instant::now` traps on wasm32-unknown-unknown (T6.0 spike).
+#[cfg(target_arch = "wasm32")]
+use web_time::Instant;
 
 use pemba_schema::ir::CompiledSchema;
 use pemba_schema::{ErrorCode, SchemaError};

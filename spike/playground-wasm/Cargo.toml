@@ -1,0 +1,29 @@
+[package]
+name = "pemba-playground-spike"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+# Not a member of the pemba workspace (T6.0 spike, unmerged branch).
+[workspace]
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+pemba-core = { path = "../../crates/pemba-core" }
+pemba-schema = { path = "../../crates/pemba-schema" }
+pemba-store-memory = { path = "../../crates/pemba-store-memory" }
+pemba-fixtures = { path = "../../crates/pemba-fixtures", optional = true }
+wasm-bindgen = "=0.2.129"
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+
+[features]
+default = ["fixtures"]
+fixtures = ["dep:pemba-fixtures"]

@@ -19,6 +19,10 @@ pemba-schema.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 
+# `Instant` for the playground build (T6.0 spike).
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+web-time = "1.1.0"
+
 [dev-dependencies]
 proptest.workspace = true
 # Checks the hand-written trace JSON escaper against a real parser (dev-only; the library
