@@ -1,7 +1,7 @@
 # 11 — Playground (design)
 
-Status: **proposed** (T6.0, 2026-10-28). Nothing here is built yet. WASM stays out of
-scope (`CLAUDE.md` §6) until T6.0 is accepted and the amendment in §2 lands.
+Status: **accepted** (T6.0; D1–D4 resolved by the maintainer, 2026-10-28). Nothing here is
+built yet. ADR-016 and the `CLAUDE.md` §6 amendment (§2) are in place.
 
 Evidence: a throwaway spike on the unmerged branch `t6.0-playground-spike`,
 `spike/playground-wasm/` (wasm-bindgen 0.2.129, rustc 1.99.0, Chromium from Playwright
@@ -9,7 +9,7 @@ Evidence: a throwaway spike on the unmerged branch `t6.0-playground-spike`,
 
 ---
 
-## 0. Summary and decisions needed
+## 0. Summary and decisions
 
 1. **Run the real engine as WASM in the browser, served as static files from GitHub
    Pages.** No server, no running cost, and nothing the user types leaves their machine.
@@ -22,15 +22,19 @@ Evidence: a throwaway spike on the unmerged branch `t6.0-playground-spike`,
    generated cases and requires its answer transcript to match the native one byte for
    byte** (§6).
 
-Decisions for the maintainer:
+Decisions, resolved by the maintainer on 2026-10-28:
 
-- **D1.** Accept the WASM-in-browser approach and the §2 amendment to `CLAUDE.md` §6.
-- **D2.** The clock on wasm32 (§1.2). Recommended: `web-time` as a wasm32-only dependency
-  of `pemba-core`. The alternative is a zero-duration clock with no new dependency.
-- **D3.** Which builds deploy (§5). Recommended: deploy each release tag, so the
-  playground matches what `pip install` gives, and deploy `main` to `/next/`.
-- **D4.** The URL. The default is `joshua-fields.github.io/pemba/`. A custom subdomain
-  (e.g. `play.pemba.dev` or one under `joshuafields.uk`) would need a CNAME.
+- **D1. Accepted.** WASM in the browser, allowed for the playground build only. It is not
+  a supported, published WASM package. `CLAUDE.md` §6 carries the §2 wording, and
+  ADR-016 records the decision.
+- **D2. `web-time`, as a wasm32-only dependency of `pemba-core`** (§1.2). The
+  zero-duration clock was rejected.
+- **D3. Release tags deploy to the site root, and `main` deploys to `/next/`.** In
+  addition, every shareable link carries the pemba version, and a link whose version
+  differs from the deployed one shows a banner. Each release stays reachable at
+  `/v/<version>/`, so an old link reproduces exactly (§4, §5.1).
+- **D4. `joshua-fields.github.io/pemba/` for now.** A custom domain may come later. It
+  would need only a CNAME and the Vite `base` path, so no task depends on it.
 
 ---
 
@@ -183,9 +187,16 @@ astral characters.
 - **Shareable links.** The state `{v:1, engine:"0.1.0-…", schema, relationships,
   assertions, query}` is turned into JSON, compressed with deflate-raw (the browser's
   built-in `CompressionStream`, no library), and stored base64url-encoded in
-  `#s=<…>`. The fragment is never sent to any server. A link made with a different
-  engine version opens with a notice. The whole google_docs fixture (7 KB) encodes to
-  2.2 KB, well under common URL limits.
+  `#s=<…>`. The fragment is never sent to any server. The whole google_docs fixture
+  (7 KB) encodes to 2.2 KB, well under common URL limits.
+  - **Every link carries the pemba version** (`engine`; on `/next/` the version plus the
+    short commit), so a link always names the engine that produced its answers.
+  - **A version mismatch shows a banner.** When the link's version differs from the
+    page's, the page still loads the state, and a banner names both versions. If
+    `/v/<link version>/` exists, the banner links there with the same fragment, so the
+    answers can be reproduced exactly. If it does not exist (a `/next/` build, or a
+    version from before the playground), the banner says the answers may differ. The
+    page never switches versions on its own.
 - **Import/export fixture YAML.** Import parses with `pemba-fixtures` (in WASM). Export
   writes `schema: |-`, `relationships: |-` and the assertions verbatim. A test round-trips
   every corpus fixture through export → import → run.
@@ -213,15 +224,38 @@ playground/
   version), runs the §6 conformance check, runs `vite build`, enforces the **size budget
   of 700 KB gzip for the whole page**, and runs the Playwright tests. It uploads `dist/`
   as an artifact.
-- **Deploy (D3).** `actions/deploy-pages`:
-  - Each `v*` tag publishes to the site root.
-  - Each push to `main` publishes to `/next/`.
-  - The page footer shows the version and short commit, injected at build time from
-    `cargo metadata` and `git rev-parse`.
-  - Release checklist (`09` §4.1) gains one line: confirm the Pages deploy for the tag.
+- **Deploy (D3).** See §5.1. The page footer shows the version and short commit,
+  injected at build time from `cargo metadata` and `git rev-parse`. The release
+  checklist (`09` §4.1) gains one line: confirm the Pages deploy for the tag, and confirm
+  that `/v/<version>/` loads.
 - **Keeping in sync.** The playground is built from the same commit as the engine, from
   the workspace, with no published package in between, so it cannot drift. What can drift
-  is the deployed site against what users installed; D3 handles that.
+  is the deployed site against what users installed, and old links against the current
+  engine. §5.1 handles both.
+
+### 5.1 Site layout and versioned releases
+
+```
+joshua-fields.github.io/pemba/                 latest release (same build as its /v/ copy)
+joshua-fields.github.io/pemba/v/<version>/     every release since the first playground release
+joshua-fields.github.io/pemba/next/            the latest commit on main
+```
+
+- **Release assets are the archive.** GitHub Pages replaces the whole site on every
+  deploy, so old releases must be re-published each time. On each `v*` tag,
+  `playground.yml` builds the site with Vite `base` set to `/pemba/v/<version>/`, and
+  attaches it to that GitHub Release as `playground-<version>.tar.gz`. A release's asset
+  is never rebuilt.
+- **Every deploy assembles the whole site.** This runs on a tag, or on a push to
+  `main`. The job downloads every `playground-*.tar.gz` release asset into
+  `/v/<version>/`. It copies the newest release's build to the root, rebuilt with `base`
+  `/pemba/` from the same tag. It then builds `main` into `/next/` and runs
+  `actions/deploy-pages`. Because the old builds come from their assets, an old link at
+  `/v/<version>/` runs the very `.wasm` that version shipped.
+- **Prereleases count as releases** (all current releases are alphas). The root follows
+  the newest one until 0.1.0 exists, and after that the newest stable release.
+- **Size.** About 0.7 MB per version, so a hundred releases still fit well within the
+  Pages limit of 1 GB per site. Pruning can wait until it matters.
 
 ## 6. Correctness: the WASM build must agree with the library
 

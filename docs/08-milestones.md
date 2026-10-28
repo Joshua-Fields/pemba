@@ -473,11 +473,12 @@ AC:
 
 ## M6 — Playground
 
-Design: `docs/11-playground.md` (proposed 2026-10-28). Each task ends green: the §5 checks
+Design: `docs/11-playground.md` (accepted 2026-10-28; D1–D4 resolved by the maintainer).
+Each task ends green: the §5 checks
 of `CLAUDE.md`, plus the `wasm` CI job from T6.1 and `playground.yml` from T6.3 once they
 exist. Evidence: the unmerged spike branch `t6.0-playground-spike`.
 
-### T6.0 Accept the design (docs only)
+### T6.0 Accept the design (docs only) — done in #67
 Refs: `11` §0, §2.
 AC:
 - The maintainer records D1–D4 in `11` §0 and sets its status to accepted.
@@ -561,17 +562,26 @@ Refs: `11` §4.
 AC:
 - Example menu: `google_docs`, `github_like`, and a new `testdata/fixtures/agent_authz.yaml`
   mirroring `examples/agent_authz.py` (run by `cargo test` like every fixture).
-- Share links: versioned state, deflate-raw + base64url in the fragment; a version
-  mismatch notice; Vitest round-trip; a malformed fragment shows an error, never
+- Share links: deflate-raw + base64url state in the fragment, always carrying the pemba
+  version (`11` §4); Vitest round-trip; a malformed fragment shows an error, never
   partial state.
+- Version mismatch banner naming both versions, linking to `/v/<link version>/` with the
+  same fragment when that release exists, and saying the answers may differ when it
+  does not; never switches version on its own. Playwright: a link stamped with another
+  version shows the banner with the right target.
 - Import/export: every corpus fixture survives export → import → run unchanged.
 
 ### T6.9 Deploy and document
 Refs: `11` §5.
 AC:
-- Pages deploy per D3 (release tags to the root, `main` to `/next/`); footer shows
-  version and commit.
-- `09` §4 lists the new jobs; `09` §4.1 release checklist gains the Pages check.
+- Pages deploy per D3 and `11` §5.1: each `v*` tag attaches `playground-<version>.tar.gz`
+  (built with `base` `/pemba/v/<version>/`) to its GitHub Release; every deploy (tag or
+  push to `main`) assembles the root (newest release), `/v/<version>/` for every release
+  asset, and `/next/` (main); footer shows version and commit.
+- A workflow test: the assembled site has a `/v/<version>/` for every playground release
+  asset, and the root's footer version equals the newest release.
+- `09` §4 lists the new jobs; `09` §4.1 release checklist gains the Pages check (root and
+  `/v/<version>/` both load).
 - README: a "Try it in the browser" link; "Debugging permissions" links the playground.
 
 ---

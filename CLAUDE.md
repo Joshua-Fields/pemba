@@ -122,8 +122,11 @@ Run the full check above once, before opening or updating a PR, not after every 
 ## 6. Things that are explicitly out of scope until told otherwise
 
 Caveats / CEL, expiring relationships, `use typechecking`, `use self` / the `self` keyword,
-Watch / changefeeds, gRPC/HTTP server mode, Node bindings, WASM,
+Watch / changefeeds, gRPC/HTTP server mode, Node bindings,
 cluster/distributed dispatch, SpiceDB wire-API compatibility.
+WASM, except the playground build (`playground/`, `docs/11-playground.md`): not
+published to npm or crates.io, no API or stability promise. A supported WASM package
+stays out of scope.
 The parser must **recognise** the SpiceDB syntax for caveats, `with expiration`, `use ...`
 and `self`, and reject it with `E_UNSUPPORTED_FEATURE` rather than a generic parse error
 (`docs/03-schema-language.md` §7).

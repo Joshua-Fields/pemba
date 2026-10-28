@@ -32,6 +32,7 @@ pemba/
 ├── benches/                    # criterion benches, spicedb/ comparison scripts, RESULTS.md
 ├── examples/                   # runnable Python examples, each run by pemba-py/tests/test_examples.py
 ├── fuzz/                       # cargo-fuzz targets + corpus
+├── playground/                 # browser playground (docs/11-playground.md): wasm/ (crate pemba-playground, publish = false), web/ (Vite + TS), conformance/
 └── .github/workflows/          # ci.yml, wheels.yml, difftest.yml, fuzz.yml (manual)
 ```
 
@@ -70,6 +71,9 @@ Check crates.io for the current version when adding; record the reason in the su
 | Python | `pyo3` (abi3 feature), built with `maturin` |
 | HTTP (difftest only) | `ureq` |
 | Benchmarks | `criterion` |
+| Clock on wasm32 | `web-time`, in `pemba-core` under `cfg(target_arch = "wasm32")` only (ADR-016): `std::time::Instant::now` traps on `wasm32-unknown-unknown`; on native targets it re-exports `std::time`, so native builds are unchanged |
+| WASM bindings (playground only) | `wasm-bindgen`, in `pemba-playground` only (ADR-016); the CLI pinned to the same version in CI |
+| Playground frontend (npm, `playground/web`) | `typescript`, `vite`, `codemirror` + `@codemirror/lang-yaml` + `@codemirror/lint`, `vitest`, `@playwright/test`; lockfile committed, Dependabot, `npm audit --omit=dev` in CI |
 
 Not allowed without asking: async runtimes (`tokio`, `async-std`) in library crates, ORMs,
 anything with a non-permissive licence (`deny.toml` allows MIT, Apache-2.0, BSD-2/3,

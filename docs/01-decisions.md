@@ -175,3 +175,23 @@ Postgres. There is no `assign_now`. Python's `int(pending)` works for one releas
 **Consequences.** Breaking change on the foreign-write path (T5.1). Reads below head on
 Postgres join the batch map. Full design, evidence and tasks: `docs/10-postgres.md`,
 milestone M5 in `docs/08-milestones.md`.
+
+## ADR-016 — WASM for the playground build only
+
+**Context.** The M6 playground needs the real engine in a browser. A spike compiled
+`pemba-core`, `pemba-schema`, `pemba-store-memory` and `pemba-fixtures` to
+`wasm32-unknown-unknown` unchanged, apart from `std::time::Instant`, which traps there
+(`docs/11-playground.md` §1).
+**Decision.** (D1–D4, resolved by the maintainer, 2026-10-28)
+- The playground runs the engine as WASM in a Web Worker. It is a static site on GitHub
+  Pages: release tags at the root, `main` at `/next/`, and every release kept at
+  `/v/<version>/`.
+- WASM is allowed for that build only, and is not a supported, published package.
+- `pemba-core` takes `Instant` from `web-time` on wasm32 only.
+**Consequences.**
+- The four engine crates must keep compiling and running on wasm32, enforced in CI
+  (T6.1).
+- A JavaScript toolchain joins the repository under `playground/`.
+- Shareable links carry the pemba version, and old links reproduce at `/v/<version>/`.
+- Full design and tasks: `docs/11-playground.md`, milestone M6 in
+  `docs/08-milestones.md`.
