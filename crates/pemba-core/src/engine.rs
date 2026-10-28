@@ -3,7 +3,6 @@
 use std::collections::HashMap;
 use std::fmt::Write as _;
 use std::sync::{Arc, PoisonError, RwLock, RwLockReadGuard, RwLockWriteGuard};
-use std::time::Instant;
 
 use pemba_schema::ir::CompiledSchema;
 use pemba_schema::{ErrorCode, SchemaError};
@@ -22,6 +21,7 @@ use crate::store::{
     WritableStore, WriteTxn,
 };
 use crate::subjects::{self, Gatherer, LookupSubjectsRequest, LookupSubjectsResponse, SubjectSet};
+use crate::time::Instant;
 use crate::trace::{CheckTrace, Recorder, Tracer};
 use crate::validate::{subject_kind, validate_filter, validate_ops, validate_relationship};
 

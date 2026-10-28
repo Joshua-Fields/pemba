@@ -90,6 +90,40 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
+  wasm:
+    # The engine crates must build and run on wasm32-unknown-unknown for the playground
+    # (ADR-016, docs/11-playground.md §2). The smoke test runs under Node, so a call that
+    # traps there (std's Instant::now did) fails here, not in a browser.
+    name: wasm32
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    env:
+      CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER: wasm-bindgen-test-runner
+    steps:
+      - uses: actions/checkout@v5
+      - run: rustup target add wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: wasm32
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+      # The runner must match the wasm-bindgen version in Cargo.lock.
+      - name: Install wasm-bindgen-test-runner
+        run: |
+          version=$(cargo metadata --format-version 1 --locked \
+            | jq -r '.packages[] | select(.name == "wasm-bindgen") | .version')
+          cargo install wasm-bindgen-cli --version "$version" --locked
+      - run: >-
+          cargo clippy --locked --target wasm32-unknown-unknown
+          -p pemba-core -p pemba-schema -p pemba-store-memory -p pemba-fixtures
+          -- -D warnings
+      - run: >-
+          cargo clippy --locked --target wasm32-unknown-unknown
+          -p pemba-fixtures --test wasm_smoke -- -D warnings
+      - run: cargo test --locked --target wasm32-unknown-unknown -p pemba-fixtures --test wasm_smoke
+
   test:
     name: test (${{ matrix.os }})
     needs: changes

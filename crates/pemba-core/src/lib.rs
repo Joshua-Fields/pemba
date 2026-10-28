@@ -13,6 +13,7 @@ pub mod model;
 mod scc;
 pub mod store;
 mod subjects;
+mod time;
 mod trace;
 mod validate;
 pub mod write;

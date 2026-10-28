@@ -10,6 +10,13 @@ The Rust crates and the Python package share one version: `0.1.0-alpha.3` on cra
 
 ## [Unreleased]
 
+### Changed
+
+- `pemba-core`, `pemba-schema`, `pemba-store-memory` and `pemba-fixtures` build and run on
+  `wasm32-unknown-unknown`, for the browser playground (ADR-016). It is not a supported
+  WASM package. On wasm32 only, `pemba-core` takes `Instant` from `web-time`, because
+  std's `Instant::now` traps there. Other targets gain no dependency.
+
 ## [0.1.0-alpha.3] - 2026-10-28
 
 The first release with the Postgres store.

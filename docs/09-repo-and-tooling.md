@@ -126,7 +126,11 @@ them, never `set -x` around them, and do not expose them to workflows triggered 
   3.26.0, `python-oldest`), and `cargo publish --workspace --dry-run` for every
   publishable crate (`publish`), and that the published crates and `pemba-py` carry
   byte-identical copies of the root `LICENSE` and `NOTICE` (`package-files`). Publishing to
-  crates.io is a manual human step.
+  crates.io is a manual human step. The `wasm` job (ADR-016, T6.1) runs `cargo clippy
+  --target wasm32-unknown-unknown` on `pemba-core`, `pemba-schema`, `pemba-store-memory`
+  and `pemba-fixtures`, then `pemba-fixtures`' `wasm_smoke` test under Node
+  (`wasm-bindgen-test-runner`, the version in `Cargo.lock`): a check, a
+  `check_with_trace`, both lookups and a fixture, so a call that traps on wasm32 fails CI.
 - `wheels.yml` (`v*` tags, manual, and pull requests touching `Cargo.lock`, any
   `Cargo.toml`, `crates/pemba-py/pyproject.toml` or the workflow itself, so a new native
   dependency fails on its PR, not at release): maturin-action builds one abi3

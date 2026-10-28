@@ -243,8 +243,10 @@ joshua-fields.github.io/pemba/next/            the latest commit on main
 
 - **Release assets are the archive.** GitHub Pages replaces the whole site on every
   deploy, so old releases must be re-published each time. On each `v*` tag,
-  `playground.yml` builds the site with Vite `base` set to `/pemba/v/<version>/`, and
-  attaches it to that GitHub Release as `playground-<version>.tar.gz`. A release's asset
+  `playground.yml` builds the site with Vite `base` set to `/pemba/v/<version>/`. It
+  creates that version's GitHub Release, or updates it if it exists. The release notes
+  are the version's `CHANGELOG.md` section, and the release is marked pre-release. The
+  workflow then attaches the site as `playground-<version>.tar.gz`. A release's asset
   is never rebuilt.
 - **Every deploy assembles the whole site.** This runs on a tag, or on a push to
   `main`. The job downloads every `playground-*.tar.gz` release asset into

@@ -574,6 +574,10 @@ AC:
 ### T6.9 Deploy and document
 Refs: `11` §5.
 AC:
+- The tag workflow creates the GitHub Release itself, or updates it if it exists. The
+  release notes are the version's `CHANGELOG.md` section, and the release is marked
+  pre-release. Only then does it attach `playground-<version>.tar.gz`. No workflow
+  creates releases today.
 - Pages deploy per D3 and `11` §5.1: each `v*` tag attaches `playground-<version>.tar.gz`
   (built with `base` `/pemba/v/<version>/`) to its GitHub Release; every deploy (tag or
   push to `main`) assembles the root (newest release), `/v/<version>/` for every release
