@@ -3,7 +3,7 @@ import { expect, test, type Page } from '@playwright/test';
 // Written by `playground/wasm/tests/assertion_corpus.rs`: every `testdata/fixtures` file,
 // split into the three editors, and how many checks the native runner counts in it.
 import corpus from './corpus.json' with { type: 'json' };
-import { setText } from './editor';
+import { settle, settled, setText } from './editor';
 
 // T6.6 (docs/11-playground.md §6 layer 3): the assertions editor runs the three editors as
 // one fixture, `pemba test` semantics, and marks each line with its result.
@@ -14,10 +14,13 @@ test.use({ viewport: { width: 1280, height: 4000 } });
 async function load(page: Page, parts: { schema: string; relationships: string; assertions: string }) {
   await page.goto('/');
   await page.addStyleTag({ content: '#assertions .cm-editor { max-height: none; }' });
-  await expect(page.locator('#assertions-result .verdict')).toHaveText(/passed|fail/);
-  await setText(page, 'schema', parts.schema);
-  await setText(page, 'relationships', parts.relationships);
-  await setText(page, 'assertions', parts.assertions);
+  await settled(page);
+  // The counts of 0 below would pass on a stale pane: wait for the run of these editors.
+  await settle(page, async () => {
+    await setText(page, 'schema', parts.schema);
+    await setText(page, 'relationships', parts.relationships);
+    await setText(page, 'assertions', parts.assertions);
+  });
 }
 
 const marks = (page: Page, state: string) => page.locator(`#assertions .cm-assert-gutter .assert-${state}`);

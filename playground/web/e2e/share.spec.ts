@@ -3,7 +3,7 @@ import { deflateRawSync } from 'node:zlib';
 
 import { expect, test, type Page } from '@playwright/test';
 
-import { setText } from './editor';
+import { settle, settled, setText } from './editor';
 
 // T6.8 (docs/11-playground.md §4): examples, shareable links with the version banner, and
 // fixture YAML import/export through the page.
@@ -35,12 +35,14 @@ const editorText = (page: Page, id: string) => page.locator(`#${id} .cm-content`
 test('a shared link restores the whole state, with no banner for the same version', async ({ page }) => {
   await page.goto('/');
   await expect(page.locator('#result .verdict')).toHaveText('allowed');
-  await setText(page, 'schema', SCHEMA);
-  await setText(page, 'relationships', 'doc:mine#viewer@user:amy');
-  await setText(page, 'assertions', 'assertions:\n  assertFalse:\n    - doc:mine#view@user:bob\n');
-  await page.locator('#kind').selectOption('lookup_subjects');
-  await page.locator('#text').fill('doc:mine#view@user');
-  await page.getByRole('button', { name: 'Run' }).click();
+  await settle(page, async () => {
+    await setText(page, 'schema', SCHEMA);
+    await setText(page, 'relationships', 'doc:mine#viewer@user:amy');
+    await setText(page, 'assertions', 'assertions:\n  assertFalse:\n    - doc:mine#view@user:bob\n');
+    await page.locator('#kind').selectOption('lookup_subjects');
+    await page.locator('#text').fill('doc:mine#view@user');
+    await page.getByRole('button', { name: 'Run' }).click();
+  });
   await expect(page.locator('#result .ids li')).toHaveText(['amy']);
 
   await page.getByRole('button', { name: 'Share link' }).click();
@@ -50,6 +52,7 @@ test('a shared link restores the whole state, with no banner for the same versio
 
   const other = await page.context().newPage();
   await other.goto(url);
+  await settled(other);
   await expect(other.locator('#result .ids li')).toHaveText(['amy']);
   await expect(other.locator('#kind')).toHaveValue('lookup_subjects');
   await expect(other.locator('#text')).toHaveValue('doc:mine#view@user');
@@ -120,6 +123,7 @@ test('a link from a /next/ build is never linked to a release', async ({ page })
 
 test('each example loads and runs', async ({ page }) => {
   await page.goto('/');
+  await settled(page);
   await expect(page.locator('#result .verdict')).toHaveText('allowed');
   const expected = {
     google_docs: /checks, all passed/,
@@ -127,7 +131,8 @@ test('each example loads and runs', async ({ page }) => {
     agent_authz: /checks, all passed/,
   };
   for (const [name, verdict] of Object.entries(expected)) {
-    await page.locator('#example').selectOption(name);
+    // Each verdict pattern also matches the previous example's result.
+    await settle(page, () => page.locator('#example').selectOption(name));
     await expect(page.locator('#tool-status')).toHaveText(`Loaded the ${name} example.`);
     await expect(page.locator('#assertions-result .verdict')).toHaveText(verdict);
     await expect(page.locator('#result .verdict')).not.toHaveText(/^Error/);
@@ -138,7 +143,9 @@ test('each example loads and runs', async ({ page }) => {
 
 test('export then import gives back the same editors and the same run', async ({ page }) => {
   await page.goto('/');
-  await page.locator('#example').selectOption('github_like');
+  await settled(page);
+  // The default state also reads "… checks, all passed": read only the example's own run.
+  await settle(page, () => page.locator('#example').selectOption('github_like'));
   await expect(page.locator('#assertions-result .verdict')).toHaveText(/checks, all passed/);
   const verdict = await page.locator('#assertions-result .verdict').textContent();
 
@@ -149,8 +156,11 @@ test('export then import gives back the same editors and the same run', async ({
 
   // Clear the editors, then import the file.
   await page.reload();
+  await settled(page);
   await expect(page.locator('#result .verdict')).toHaveText('allowed');
-  await page.locator('#import-file').setInputFiles({ name: 'github_like.yaml', mimeType: 'application/yaml', buffer: Buffer.from(yaml) });
+  await settle(page, () =>
+    page.locator('#import-file').setInputFiles({ name: 'github_like.yaml', mimeType: 'application/yaml', buffer: Buffer.from(yaml) }),
+  );
   await expect(page.locator('#tool-status')).toHaveText('Imported github_like.yaml.');
   await expect(page.locator('#assertions-result .verdict')).toHaveText(verdict ?? '');
 

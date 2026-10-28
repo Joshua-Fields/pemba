@@ -1,10 +1,13 @@
 import { expect, test } from '@playwright/test';
 
+import { settle, settled } from './editor';
+
 // T6.7: a check shows its explain tree, and "copy as text" gives `CheckTrace::render`.
 test.use({ permissions: ['clipboard-read', 'clipboard-write'] });
 
 test('a check shows its explain tree, and copies it as text', async ({ page }) => {
   await page.goto('/');
+  await settled(page);
   const result = page.locator('#result');
   await expect(result.locator('.verdict')).toHaveText('allowed');
 
@@ -29,10 +32,10 @@ test('a check shows its explain tree, and copies it as text', async ({ page }) =
 
   // A denied check has a tree too, never an error in its place; a lookup has none.
   await page.locator('#text').fill('document:readme#edit@user:anne');
-  await page.getByRole('button', { name: 'Run' }).click();
+  await settle(page, () => page.getByRole('button', { name: 'Run' }).click());
   await expect(result.locator('.verdict')).toHaveText('denied');
   await expect(rows.first()).toHaveText('✗ document:readme#edit = owner');
-  await page.locator('#kind').selectOption('lookup_resources');
+  await settle(page, () => page.locator('#kind').selectOption('lookup_resources'));
   await expect(result.locator('.ids li')).toHaveText(['readme']);
   await expect(result.locator('.trace')).toHaveCount(0);
 });
