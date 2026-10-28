@@ -5,10 +5,14 @@ All notable changes to pemba are recorded here. The format is based on
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). While pemba is an alpha
 (0.1.0 pre-releases), any release may break the API.
 
-The Rust crates and the Python package share one version: `0.1.0-alpha.2` on crates.io is
-`0.1.0a2` on PyPI.
+The Rust crates and the Python package share one version: `0.1.0-alpha.3` on crates.io is
+`0.1.0a3` on PyPI.
 
 ## [Unreleased]
+
+## [0.1.0-alpha.3] - 2026-10-28
+
+The first release with the Postgres store.
 
 ### Breaking
 
@@ -43,7 +47,16 @@ The Rust crates and the Python package share one version: `0.1.0-alpha.2` on cra
   calls release the GIL; `write(conn=)` on it joins a psycopg 3 or psycopg2 transaction,
   a SQLAlchemy `Session` / `Connection`, or `django.db.connection`, and works from async
   code through `AsyncSession.run_sync`. `pemba.PembaWarning`. `Engine::store()` in Rust.
-
+- Postgres: a prepared-statement cache per pooled connection (up to 256 statements,
+  least recently used evicted and closed on the server). It is emptied on reconnect,
+  after a schema write, and on every connection when the server reports a stale plan
+  after DDL. It is not used inside your own transaction.
+- Postgres: batched writes. A write sends one statement per kind of operation (creates,
+  touches, deletes), however many tuples it holds. If a create hits an existing tuple, the
+  write is undone to pemba's savepoint and rerun one operation at a time, so
+  `AlreadyExists` names the same tuple as before and your transaction stays usable. For
+  store implementers: `SqlDialect` gains `bulk_rows`, defaulting to none (one statement
+  per operation, as before; SQLite keeps that).
 - `pemba check --color <auto|always|never>`. `auto`, the default, is the previous
   behaviour: colour only on a terminal, and not when `NO_COLOR` is set. `always` colours
   even a pipe and overrides `NO_COLOR` (for `less -R`); `never` turns colour off.
@@ -67,6 +80,23 @@ The Rust crates and the Python package share one version: `0.1.0-alpha.2` on cra
 - The README is written for newcomers: no internal task or decision numbers, the
   specification linked once under "Design documents", and a diagram comparing a separate
   authorisation service (two databases, dual writes) with pemba (one transaction).
+
+### Performance
+
+- On Postgres, latency is round trips. A direct check costs about 5 round trips. Each
+  level of hierarchy it walks adds about 3, so a document 30 folders deep costs 99. A
+  write costs 10 whatever its size. On a Linux CI runner where one round trip took about
+  150 µs, p50 was 0.76 ms for a direct check (1.58 ms without the statement cache),
+  16 ms for 30 folders (47 ms) and 19 ms for a 1,000-tuple write (407 ms). Full figures,
+  with round trips for every scenario: `benches/RESULTS.md`. Fewer round trips for deep
+  hierarchies is planned.
+
+### Fixed
+
+- Postgres: paging `read_relationships` at an older revision no longer sorts every tuple
+  of the type for each page. The first 500-tuple page over 100,000 tuples went from
+  106 ms to under 1 ms, because the planner had misjudged how many rows the
+  older-revision filter keeps. Answers are unchanged.
 
 ## [0.1.0-alpha.2] - 2026-10-27
 
@@ -146,6 +176,7 @@ First public pre-release.
 - The `pemba` CLI (`pemba-cli`): `schema validate`, `schema fmt` (experimental; keeps
   comments) and `test`, which runs YAML fixture files.
 
-[Unreleased]: https://github.com/Joshua-Fields/pemba/compare/v0.1.0-alpha.2...HEAD
+[Unreleased]: https://github.com/Joshua-Fields/pemba/compare/v0.1.0-alpha.3...HEAD
+[0.1.0-alpha.3]: https://github.com/Joshua-Fields/pemba/compare/v0.1.0-alpha.2...v0.1.0-alpha.3
 [0.1.0-alpha.2]: https://github.com/Joshua-Fields/pemba/compare/v0.1.0-alpha.1...v0.1.0-alpha.2
 [0.1.0-alpha.1]: https://github.com/Joshua-Fields/pemba/releases/tag/v0.1.0-alpha.1
