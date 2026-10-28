@@ -7,7 +7,8 @@ use std::path::{Path, PathBuf};
 use pemba_core::model::{ObjectRef, RelName, Relationship, SubjectRef};
 use pemba_core::{LookupResourcesRequest, LookupSubjectsRequest};
 use pemba_fixtures::{
-    Oracle, OracleError, OracleView, StoreKind, SubjectsAnswer, run, run_str, run_str_with_oracle,
+    FixtureError, Oracle, OracleError, OracleView, StoreKind, SubjectsAnswer, parse_str, run,
+    run_str, run_str_with_oracle,
 };
 use pemba_schema::ir::CompiledSchema;
 
@@ -156,4 +157,35 @@ fn a_failing_oracle_is_a_failure() {
             .iter()
             .all(|f| f.message.ends_with("stub failed: broken"))
     );
+}
+
+/// `parse_str` (the playground's import): the three sections, and its refusals.
+#[test]
+fn parse_str_splits_a_fixture() {
+    let s = parse_str(
+        "# header\r\nschema: |-\r\n  definition user {}\r\nrelationships: |-\r\n  // none\r\n\r\n# lookups\r\nexpectedLookups:\r\n  resources: []\r\nassertions:\r\n  assertTrue: []\r\n",
+    )
+    .unwrap();
+    assert_eq!(s.schema, "definition user {}");
+    assert_eq!(s.relationships, "// none");
+    assert_eq!(
+        s.assertions,
+        "# header\n\n# lookups\nexpectedLookups:\n  resources: []\nassertions:\n  assertTrue: []\n"
+    );
+    let rejoined = format!(
+        "schema: |-\n  {}\nrelationships: |-\n  {}\n{}",
+        s.schema, s.relationships, s.assertions
+    );
+    assert_eq!(parse_str(&rejoined).unwrap(), s);
+    for bad in [
+        "schemaFile: a.zed\n",
+        "relationships: x\n",
+        "assertTure: []\nschema: x\n",
+        "[1]\n",
+    ] {
+        assert!(
+            matches!(parse_str(bad), Err(FixtureError::Malformed { .. })),
+            "{bad}"
+        );
+    }
 }

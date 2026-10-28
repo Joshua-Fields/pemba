@@ -118,7 +118,7 @@ jobs:
       - run: >-
           cargo clippy --locked --target wasm32-unknown-unknown
           -p pemba-core -p pemba-schema -p pemba-store-memory -p pemba-fixtures
-          -- -D warnings
+          -p pemba-playground -- -D warnings
       - run: >-
           cargo clippy --locked --target wasm32-unknown-unknown
           -p pemba-fixtures --test wasm_smoke -- -D warnings

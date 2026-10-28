@@ -1,0 +1,30 @@
+[package]
+name = "pemba-playground"
+description = "The browser playground's WASM API over pemba (docs/11-playground.md §3.1). Not published."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+pemba-core.workspace = true
+pemba-schema.workspace = true
+pemba-store-memory.workspace = true
+pemba-fixtures.workspace = true
+serde.workspace = true
+# The JSON in/out surface (docs/11-playground.md §3.1). Already in Cargo.lock (pemba-core
+# dev, pemba-difftest).
+serde_json = "1.0.154"
+
+# The JS boundary, for the browser build only (ADR-016).
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "0.2.129"

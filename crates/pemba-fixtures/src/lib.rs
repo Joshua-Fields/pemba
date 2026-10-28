@@ -142,6 +142,12 @@ pub enum FixtureError {
         /// What is wrong.
         message: String,
     },
+    /// [`parse_str`] only: the text is not a fixture it can split.
+    #[error("{message}")]
+    Malformed {
+        /// What is wrong.
+        message: String,
+    },
 }
 
 /// A fixture's schema and `relationships` (its step 0), for loading into a store by hand,
@@ -185,6 +191,112 @@ pub fn load(path: &Path) -> Result<Loaded, FixtureError> {
         schema,
         relationships,
     })
+}
+
+/// A fixture split into the parts an editor shows separately: [`parse_str`].
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct Sections {
+    /// The `schema` text.
+    pub schema: String,
+    /// The `relationships` text as written, comments and blank lines included; empty if
+    /// absent.
+    pub relationships: String,
+    /// Every other top-level key (`assertions`, `expectedLookups`, `expectCheckErrors`,
+    /// `steps`, `expectErrors`, `validation`, ...), verbatim YAML in file order with its
+    /// comments, so that `schema` + `relationships` + this is the same fixture again.
+    pub assertions: String,
+}
+
+/// Splits fixture text into its schema, relationships and assertion sections, without
+/// compiling or running anything (the playground's import, `docs/11-playground.md` §4).
+///
+/// The whole text is first parsed as a fixture, so anything [`run_str`] would report as
+/// not a valid fixture is an error here too. Comment lines before the first key go to
+/// `assertions`; a later comment line at column 0 belongs to the key that follows it.
+///
+/// # Errors
+///
+/// [`FixtureError::Malformed`] if the text is not a valid fixture, uses `schemaFile`
+/// (there is no file to read), or is not a block mapping at the top level.
+pub fn parse_str(source: &str) -> Result<Sections, FixtureError> {
+    let malformed = |message: String| FixtureError::Malformed { message };
+    let source = lf(source);
+    let fixture: FixtureFile = serde_saphyr::from_str(&source)
+        .map_err(|e| malformed(format!("not a valid fixture: {e}")))?;
+    let Some(schema) = fixture.schema else {
+        return Err(malformed(if fixture.schema_file.is_some() {
+            "`schemaFile` is not supported here: paste the schema into `schema`".to_owned()
+        } else {
+            "needs exactly one of `schema` and `schemaFile`".to_owned()
+        }));
+    };
+    let mut assertions = String::new();
+    let mut found_schema = false;
+    for (key, block) in top_level_blocks(&source) {
+        match key {
+            Some("schema") => found_schema = true,
+            Some("relationships") => {}
+            // A leading `---` would start a second document once the parts are rejoined.
+            None => block
+                .split_inclusive('\n')
+                .filter(|l| l.trim_end() != "---")
+                .for_each(|l| assertions.push_str(l)),
+            Some(_) => assertions.push_str(block),
+        }
+    }
+    if !found_schema {
+        return Err(malformed(
+            "the top level must be a block mapping (`schema: ...` at the start of a line)"
+                .to_owned(),
+        ));
+    }
+    Ok(Sections {
+        schema,
+        relationships: fixture.relationships.unwrap_or_default(),
+        assertions,
+    })
+}
+
+/// The text of each top-level entry of a block mapping, with the key it starts with
+/// (`None` for comments or blank lines before the first key). Later comment and blank
+/// lines at column 0 go with the entry after them, not the one before.
+fn top_level_blocks(source: &str) -> Vec<(Option<&str>, &str)> {
+    let mut starts: Vec<(usize, Option<&str>)> = vec![(0, None)];
+    // Where the comment/blank run just before the current line began, if any.
+    let mut run_start: Option<usize> = None;
+    let mut offset = 0;
+    for line in source.split_inclusive('\n') {
+        let first = line.chars().next();
+        match first {
+            Some('#' | '\n') | None => {
+                run_start.get_or_insert(offset);
+            }
+            Some(c) if c.is_whitespace() || c == '-' => run_start = None,
+            Some(_) => {
+                let key = line
+                    .split_once(':')
+                    .map(|(k, _)| k.trim().trim_matches(|c| c == '"' || c == '\''));
+                let run = run_start.take();
+                // Before the first key, the run stays in the leading `None` block.
+                let at = if starts.len() == 1 {
+                    offset
+                } else {
+                    run.unwrap_or(offset)
+                };
+                starts.push((at, key));
+            }
+        }
+        offset += line.len();
+    }
+    let mut blocks = Vec::with_capacity(starts.len());
+    for (i, &(start, key)) in starts.iter().enumerate() {
+        let end = starts.get(i + 1).map_or(source.len(), |&(s, _)| s);
+        if start < end {
+            blocks.push((key, &source[start..end]));
+        }
+    }
+    blocks
 }
 
 /// One failing assertion, or a fixture problem that stopped part of it from running.

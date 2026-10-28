@@ -72,6 +72,7 @@ Check crates.io for the current version when adding; record the reason in the su
 | HTTP (difftest only) | `ureq` |
 | Benchmarks | `criterion` |
 | Clock on wasm32 | `web-time`, in `pemba-core` under `cfg(target_arch = "wasm32")` only (ADR-016): `std::time::Instant::now` traps on `wasm32-unknown-unknown`; on native targets it re-exports `std::time`, so native builds are unchanged |
+| JSON (playground API only) | `serde_json`, in `pemba-playground` only (T6.2); already in the tree as a dev-dependency of `pemba-core` and `pemba-difftest` |
 | WASM bindings (playground only) | `wasm-bindgen`, in `pemba-playground` only (ADR-016); the CLI pinned to the same version in CI |
 | Playground frontend (npm, `playground/web`) | `typescript`, `vite`, `codemirror` + `@codemirror/lang-yaml` + `@codemirror/lint`, `vitest`, `@playwright/test`; lockfile committed, Dependabot, `npm audit --omit=dev` in CI |
 
@@ -127,8 +128,8 @@ them, never `set -x` around them, and do not expose them to workflows triggered 
   publishable crate (`publish`), and that the published crates and `pemba-py` carry
   byte-identical copies of the root `LICENSE` and `NOTICE` (`package-files`). Publishing to
   crates.io is a manual human step. The `wasm` job (ADR-016, T6.1) runs `cargo clippy
-  --target wasm32-unknown-unknown` on `pemba-core`, `pemba-schema`, `pemba-store-memory`
-  and `pemba-fixtures`, then `pemba-fixtures`' `wasm_smoke` test under Node
+  --target wasm32-unknown-unknown` on `pemba-core`, `pemba-schema`, `pemba-store-memory`,
+  `pemba-fixtures` and `pemba-playground`, then `pemba-fixtures`' `wasm_smoke` test under Node
   (`wasm-bindgen-test-runner`, the version in `Cargo.lock`): a check, a
   `check_with_trace`, both lookups and a fixture, so a call that traps on wasm32 fails CI.
 - `wheels.yml` (`v*` tags, manual, and pull requests touching `Cargo.lock`, any
