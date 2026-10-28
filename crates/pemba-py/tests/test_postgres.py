@@ -332,6 +332,27 @@ def test_a_failed_write_leaves_the_transaction_usable(
     assert engine.check("document:readme#view@user:bob")
 
 
+def test_a_bulk_create_conflict_undoes_only_pembas_savepoint(
+    engine: pemba.Engine, schema: str, driver: Driver
+) -> None:
+    # One statement for the Creates fails (OQ-056); pemba reruns per op inside its own
+    # savepoint. The app's rows before and after, and the transaction, are untouched.
+    carl = "document:readme#viewer@user:carl"
+    engine.write(touch=[carl])
+    driver.execute(f"INSERT INTO \"{schema}\".documents (id) VALUES ('readme')")
+    with pytest.raises(pemba.WriteConflictError) as exc:
+        engine.write(create=[ANNE, carl], touch=[BOB], conn=driver.conn())
+    assert "carl" in str(exc.value)
+    driver.execute(f"INSERT INTO \"{schema}\".documents (id) VALUES ('notes')")
+    pending = engine.write(touch=["document:notes#viewer@user:dora"], conn=driver.conn())
+    driver.commit()
+    pending.revision()
+    assert documents(schema) == ["notes", "readme"]
+    assert not engine.check("document:readme#view@user:anne")
+    assert not engine.check("document:readme#view@user:bob")
+    assert engine.check("document:notes#view@user:dora")
+
+
 # ---- guard rails ----
 
 

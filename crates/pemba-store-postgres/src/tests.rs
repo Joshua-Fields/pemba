@@ -1172,3 +1172,62 @@ fn bulk_writes_ignore_the_app_connections_search_path() {
     let rev = s.revision_of(batch).unwrap();
     assert_eq!(s.read(|r| Ok(docs(r, rev))).unwrap().len(), 2);
 }
+
+#[test]
+fn a_bulk_create_conflict_in_the_apps_transaction_undoes_only_pembas_savepoint() {
+    let Some(url) = pg_url() else { return };
+    let s = TestStore::new(&url, false);
+    let existing = "doc:1#viewer@user:carl";
+    let r1 = s.write(&touch(&[existing]), None).unwrap();
+    let rows = s.table("pemba_t_app_rows");
+    let mut client = s.app_client();
+    client
+        .batch_execute(&format!("CREATE TABLE {rows} (id int PRIMARY KEY)"))
+        .unwrap();
+
+    let mut tx = client.transaction().unwrap();
+    tx.execute(&format!("INSERT INTO {rows} VALUES (1)"), &[])
+        .unwrap();
+    // The bulk insert of the Creates fails; the per-op rerun names the existing tuple.
+    let err = pemba_core::write::write(
+        &mut PgTxn::new(&mut tx),
+        &s.store.dialect,
+        &request(vec![
+            WriteOp::Create(rel("doc:1#viewer@user:anne")),
+            WriteOp::Touch(rel("doc:2#viewer@user:bob")),
+            WriteOp::Create(rel(existing)),
+        ]),
+        None,
+    )
+    .unwrap_err();
+    match err {
+        Error::AlreadyExists(t) => assert_eq!(t, existing),
+        other => panic!("expected AlreadyExists, got {other:?}"),
+    }
+    // The transaction is usable: the app's row is still there, and it can go on writing,
+    // pemba included.
+    let n: i64 = tx
+        .query_one(&format!("SELECT count(*) FROM {rows}"), &[])
+        .unwrap()
+        .get(0);
+    assert_eq!(n, 1);
+    tx.execute(&format!("INSERT INTO {rows} VALUES (2)"), &[])
+        .unwrap();
+    let batch = app_write(&s, &mut tx, &touch(&["doc:3#viewer@user:dora"]));
+    tx.commit().unwrap();
+
+    let ids: Vec<i32> = s
+        .app_client()
+        .query(&format!("SELECT id FROM {rows} ORDER BY id"), &[])
+        .unwrap()
+        .iter()
+        .map(|r| r.get(0))
+        .collect();
+    assert_eq!(ids, [1, 2]);
+    // Only the later write committed: nothing of the failed one, at its own revision.
+    let r2 = s.revision_of(batch).unwrap();
+    assert_eq!(r2, Revision(r1.0 + 1));
+    let mut got = s.read(|r| Ok(docs(r, r2))).unwrap();
+    got.sort();
+    assert_eq!(got, ["doc:1#viewer@user:carl", "doc:3#viewer@user:dora"]);
+}
