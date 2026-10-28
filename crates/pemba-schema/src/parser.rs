@@ -33,9 +33,13 @@ const SEMICOLON_HINT: &str = "remove ';' — the schema language does not use se
 /// Returns the first lexical or syntax error: `E_UNEXPECTED_CHAR`,
 /// `E_UNTERMINATED_COMMENT`, `E_UNEXPECTED_TOKEN`, `E_AMBIGUOUS_OPERATORS`,
 /// `E_ARROW_CHAIN` or `E_UNSUPPORTED_FEATURE`.
-#[expect(
-    clippy::result_large_err,
-    reason = "public API returns the diagnostic by value; parsing a schema is a cold path"
+// 64-bit only: with 4-byte pointers (wasm32) the error is under the lint's threshold.
+#[cfg_attr(
+    target_pointer_width = "64",
+    expect(
+        clippy::result_large_err,
+        reason = "public API returns the diagnostic by value; parsing a schema is a cold path"
+    )
 )]
 pub fn parse(source: &str) -> Result<Schema, SchemaError> {
     let (tokens, lex_error) = lex(source);

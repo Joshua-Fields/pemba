@@ -22,3 +22,7 @@ pemba-store-memory.workspace = true
 serde.workspace = true
 serde-saphyr.workspace = true
 thiserror.workspace = true
+
+# The wasm32 smoke test (tests/wasm_smoke.rs, T6.1), run under Node by wasm-bindgen-test-runner.
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+wasm-bindgen-test = "0.3.79"

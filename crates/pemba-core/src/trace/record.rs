@@ -10,9 +10,11 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use pemba_schema::ir::{ArrowMode, CompiledSchema, Expr, Member, TypeId};
+
+use crate::time::Instant;
 
 use super::{TraceKind, TraceNode, TraceRole, TraceSource};
 use crate::eval::{NodeKey, name};
