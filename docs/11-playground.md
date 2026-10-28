@@ -310,15 +310,20 @@ joshua-fields.github.io/pemba/next/            the latest commit on main
   deploy, so old releases must be re-published each time. On each `v*` tag,
   `playground.yml` builds the site with Vite `base` set to `/pemba/v/<version>/`. It
   creates that version's GitHub Release, or updates it if it exists. The release notes
-  are the version's `CHANGELOG.md` section, and the release is marked pre-release. The
-  workflow then attaches the site as `playground-<version>.tar.gz`. A release's asset
-  is never rebuilt.
+  are the version's `CHANGELOG.md` section. The release is marked pre-release only when
+  the version has a prerelease part (`-alpha.N`, `-rc.N`); 0.1.0 and other plain
+  versions are full releases (OQ-057). The workflow then attaches the site as
+  `playground-<version>.tar.gz`. A release's asset is never rebuilt: a re-run for a tag
+  whose release already has it only refreshes the notes.
 - **Every deploy assembles the whole site.** This runs on a tag, or on a push to
   `main`. The job downloads every `playground-*.tar.gz` release asset into
   `/v/<version>/`. It copies the newest release's build to the root, rebuilt with `base`
   `/pemba/` from the same tag. It then builds `main` into `/next/` and runs
   `actions/deploy-pages`. Because the old builds come from their assets, an old link at
-  `/v/<version>/` runs the very `.wasm` that version shipped.
+  `/v/<version>/` runs the very `.wasm` that version shipped. Until the first tag with a
+  playground asset, the root is a redirect to `/next/` (OQ-057).
+- **`/next/` says it is main.** Its header carries a visible "development build (main)"
+  label, which no release build has; the deploy's site check enforces both.
 - **Prereleases count as releases** (all current releases are alphas). The root follows
   the newest one until 0.1.0 exists, and after that the newest stable release.
 - **Size.** About 0.7 MB per version, so a hundred releases still fit well within the

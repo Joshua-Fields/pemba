@@ -30,6 +30,11 @@ reconciliation job, and no window where a document exists that nobody can open.
 Python bindings are implemented and tested, including against SpiceDB. Until 0.1.0,
 expect breaking changes.
 
+**[Try it in the browser](https://joshua-fields.github.io/pemba/)**: the playground runs
+the real engine, compiled to WebAssembly, in your browser. Write a schema and
+relationships, run checks and lookups, see why an answer was reached, and share a link.
+Nothing you type leaves your machine.
+
 ## Install
 
 ```bash
@@ -437,6 +442,10 @@ it; `--at-exactly REV` checks an older revision and `--json` prints the same tre
 From code: `engine.check_with_trace(...)` in Python (`.render()` gives this text,
 `.to_dict()` the JSON) and `Engine::check_with_trace` in Rust. Tracing never changes the
 answer, and costs nothing when you call plain `check`.
+
+To try a model without writing any code, paste the schema and relationships into the
+[playground](https://joshua-fields.github.io/pemba/): its explain tree shows the same
+steps for any check, and a shared link reproduces it exactly.
 
 ## Limits
 

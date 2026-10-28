@@ -1454,3 +1454,25 @@ it is resolved.
     `benches/RESULTS.md`.
   - What is left is reads: a check costs about 5 round trips plus about 3.3 per level of
     hierarchy (99 at 30 folder levels). That is the M10 candidate in `08`.
+
+## OQ-057 — Pages deploy: the root before the first release, and stable releases
+- Raised in: T6.9
+- Blocking: no
+- (a) `11` §5.1 has the root serve the newest release, but no tag has a
+  `playground-<version>.tar.gz` yet (v0.1.0-alpha.3 predates the playground), so until
+  the next tag there is nothing to serve there. Current choice: the root is a page that
+  redirects to `/next/`; `scripts/check-site.mjs` only asks that it exists. The first
+  `v*` tag after T6.9 replaces it with that release.
+- (b) The T6.9 AC say the tag workflow marks the release pre-release, with no
+  exception. Current choice: always pre-release, as written, so 0.1.0 would also be
+  marked pre-release and need promoting by hand. Option: mark pre-release only when the
+  version has a prerelease part (`-alpha.N`).
+- (c) A release's asset is never rebuilt (§5.1): on a re-run for a tag whose release
+  already has the asset, the workflow updates the notes and skips the build.
+- Resolve by: maintainer.
+- Resolution: Resolved by the human, 2026-10-28: (a) accepted: the root redirects to
+  `/next/` until the first tag with a playground archive, and `/next/` shows a visible
+  "development build (main)" label; (b) changed: a release is marked pre-release only
+  when its version has a prerelease suffix (a hyphen, e.g. `-alpha.N`, `-rc.N`), so 0.1.0
+  and other plain versions are full releases; (c) accepted: an attached archive is never
+  rebuilt, a re-run only refreshes the notes.

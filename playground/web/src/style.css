@@ -113,6 +113,27 @@ h1 span {
   cursor: pointer;
 }
 
+.dev-label {
+  display: inline-block;
+  margin: 6px 0 0;
+  padding: 2px 8px;
+  border: 1px solid var(--denied);
+  border-radius: 4px;
+  color: var(--denied);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.foot {
+  padding: 12px 16px 16px;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.foot a {
+  color: var(--accent);
+}
+
 .tool-status {
   color: var(--muted);
   font-size: 0.9rem;

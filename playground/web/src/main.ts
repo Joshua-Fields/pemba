@@ -67,8 +67,18 @@ const result = element<HTMLDivElement>('result');
 const assertionsResult = element<HTMLDivElement>('assertions-result');
 
 let timer: ReturnType<typeof setTimeout> | undefined;
+
+// For tests (e2e/editor.ts `settled`), never read by the page: `data-run` on <body> is
+// `busy` from any change of the inputs until the run for them has painted, then `idle`;
+// `data-run-id` names the run painted last. A pane's `data-state` alone cannot tell a
+// finished run from the one before it.
+function busy(): void {
+  document.body.dataset['run'] = 'busy';
+}
+
 const schedule = () => {
   clearTimeout(timer);
+  busy();
   timer = setTimeout(() => void runNow(), DEBOUNCE_MS);
 };
 
@@ -106,6 +116,10 @@ function annotate(view: EditorView, sent: Text, diagnostics: Diagnostic[]): void
 type Checked = { report: Report; placed: Placed } | { code: string; message: string };
 
 async function runNow(): Promise<void> {
+  // This run reads the inputs as they are now, so a pending debounced one is redundant.
+  clearTimeout(timer);
+  timer = undefined;
+  busy();
   const mine = ++generation;
   const sent = {
     schema: schema.state.doc,
@@ -156,6 +170,11 @@ async function runNow(): Promise<void> {
   renderAssertions(checked);
   if (assertions.state.doc === sent.assertions) {
     showOutcomes(assertions, 'report' in checked ? checked.placed.outcomes : []);
+  }
+  // An edit during the run left a debounced run pending: that one will settle the page.
+  if (timer === undefined) {
+    document.body.dataset['runId'] = String(mine);
+    document.body.dataset['run'] = 'idle';
   }
 }
 
@@ -457,6 +476,7 @@ window.addEventListener('hashchange', () => void openLink());
 
 syncPlaceholder();
 text.value = PLACEHOLDERS.check;
+busy();
 void openLink().then((opened) => {
   if (!opened) void runNow();
 });

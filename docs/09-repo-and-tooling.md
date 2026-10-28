@@ -145,6 +145,24 @@ them, never `set -x` around them, and do not expose them to workflows triggered 
   - `vite build`, with a **700 KB gzip budget** for the whole site (`scripts/size.mjs`);
   - a Playwright smoke test against the build;
   - it uploads `dist/` as an artifact.
+  The workflow also runs on `v*` tags (T6.9, `docs/11-playground.md` §5.1). The `release`
+  job (tags only, after `conformance` and `site`) checks the tag names the workspace
+  version, creates the tag's GitHub Release or updates it if it exists (pre-release only
+  for a version with a prerelease part such as `-alpha.N`, `scripts/release.mjs
+  prerelease`; notes from the version's `CHANGELOG.md` section, `scripts/release.mjs
+  notes`; a release made by hand keeps its title), and only then attaches
+  `playground-<version>.tar.gz`, built with `base` `/pemba/v/<version>/`. An asset
+  already attached is never rebuilt; a re-run only refreshes the notes. The
+  `deploy` job (tags and pushes to main, after `release` on a tag) assembles the whole
+  Pages site: every release's `playground-*.tar.gz` unpacked at `/v/<version>/`, the
+  newest release (`scripts/release.mjs newest`) rebuilt from its tag with `base`
+  `/pemba/` at the root (a redirect to `/next/` before the first one, OQ-057), and main
+  at `/next/`. Its workflow test, `scripts/check-site.mjs`, fails unless every release
+  asset has its `/v/<version>/`, each page's own URLs stay under its path, the root's
+  footer version is the newest release, and only `/next/` carries the "development
+  build (main)" label; then `actions/deploy-pages` publishes it.
+  One deploy runs at a time (`concurrency: pages`). The page footer shows the version and
+  commit (`vite.config.ts`).
   Dependabot (`.github/dependabot.yml`) updates the npm dependencies weekly. Cargo
   crates are still updated by hand.
 - `wheels.yml` (`v*` tags, manual, and pull requests touching `Cargo.lock`, any
@@ -197,6 +215,10 @@ manual human steps after it merges.
    branch is the same thing, for when the PR run was cancelled or is stale.
 6. After merge (human): tag `v<version>` on main (`wheels.yml` uploads to PyPI after
    review), then `cargo publish` the crates.
+7. Pages (`playground.yml` on the tag): the GitHub Release has
+   `playground-<version>.tar.gz`, the deploy is green, and both
+   `https://joshua-fields.github.io/pemba/` and `…/pemba/v/<version>/` load, with
+   `<version>` in their footers.
 
 ## 5. Git conventions
 
