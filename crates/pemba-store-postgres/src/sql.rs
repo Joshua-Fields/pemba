@@ -88,9 +88,14 @@ impl<'a> Query<'a> {
             Form::Head => self.sql.push_str(" AND r.deleted_batch IS NULL"),
             Form::At(rev) => {
                 let ph = self.bind(P::Int(rev));
+                // `r.deleted_batch IS NULL` changes no answer (no batch, no `x` row, so
+                // `x.rev IS NULL` anyway) but lets the planner see that most rows pass:
+                // it estimates `x.rev IS NULL` from the column, not from unmatched outer
+                // rows, so without it it sorted the whole type for a 500-row page (OQ-054).
                 let _ = write!(
                     self.sql,
-                    " AND c.rev <= {ph} AND (x.rev IS NULL OR x.rev > {ph})"
+                    " AND c.rev <= {ph} \
+                     AND (r.deleted_batch IS NULL OR x.rev IS NULL OR x.rev > {ph})"
                 );
             }
         }
@@ -306,8 +311,9 @@ mod tests {
             q.sql
         );
         assert!(
-            q.sql
-                .contains("c.rev <= $4 AND (x.rev IS NULL OR x.rev > $4)")
+            q.sql.contains(
+                "c.rev <= $4 AND (r.deleted_batch IS NULL OR x.rev IS NULL OR x.rev > $4)"
+            )
         );
         assert_eq!(q.params[3], P::Int(7));
         assert_dense(&q);

@@ -31,6 +31,12 @@ Coverage target (`cargo llvm-cov`): ≥ 90% lines for `pemba-schema` and `pemba-
   different IR.
 - **SubjectSet algebra**: all 12 cells of `docs/04` §6.1 plus a property test against a
   model over a finite universe `{0..8}` with explicit complement.
+- **Wall-clock figures in tests**: correctness is always asserted strictly. A latency
+  bound is reported when exceeded and fails only past a ceiling well above a healthy run
+  and still below what the regression it guards against would cost. Shared CI runners
+  are noisy enough to push a p99 over a tight bound with nothing wrong. A strict switch
+  restores the tight bound for local runs: `PEMBA_PG_STRICT_LATENCY=1` for
+  `pemba-store-postgres`'s `revision_order` (`docs/10` §4.4).
 
 ---
 

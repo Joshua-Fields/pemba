@@ -1116,7 +1116,7 @@ dependencies = [
 
 [[package]]
 name = "pemba"
-version = "0.1.0-alpha.2"
+version = "0.1.0-alpha.3"
 dependencies = [
  "pemba-core",
  "pemba-store-memory",
@@ -1126,7 +1126,7 @@ dependencies = [
 
 [[package]]
 name = "pemba-benches"
-version = "0.1.0-alpha.2"
+version = "0.1.0-alpha.3"
 dependencies = [
  "criterion",
  "pemba",
@@ -1135,7 +1135,7 @@ dependencies = [
 
 [[package]]
 name = "pemba-cli"
-version = "0.1.0-alpha.2"
+version = "0.1.0-alpha.3"
 dependencies = [
  "clap",
  "insta",
@@ -1147,7 +1147,7 @@ dependencies = [
 
 [[package]]
 name = "pemba-core"
-version = "0.1.0-alpha.2"
+version = "0.1.0-alpha.3"
 dependencies = [
  "pemba-schema",
  "proptest",
@@ -1158,7 +1158,7 @@ dependencies = [
 
 [[package]]
 name = "pemba-difftest"
-version = "0.1.0-alpha.2"
+version = "0.1.0-alpha.3"
 dependencies = [
  "pemba-core",
  "pemba-schema",
@@ -1174,7 +1174,7 @@ dependencies = [
 
 [[package]]
 name = "pemba-fixtures"
-version = "0.1.0-alpha.2"
+version = "0.1.0-alpha.3"
 dependencies = [
  "pemba-core",
  "pemba-schema",
@@ -1186,7 +1186,7 @@ dependencies = [
 
 [[package]]
 name = "pemba-py"
-version = "0.1.0-alpha.2"
+version = "0.1.0-alpha.3"
 dependencies = [
  "pemba",
  "pemba-schema",
@@ -1198,7 +1198,7 @@ dependencies = [
 
 [[package]]
 name = "pemba-schema"
-version = "0.1.0-alpha.2"
+version = "0.1.0-alpha.3"
 dependencies = [
  "insta",
  "proptest",
@@ -1208,14 +1208,14 @@ dependencies = [
 
 [[package]]
 name = "pemba-sqlite-common"
-version = "0.1.0-alpha.2"
+version = "0.1.0-alpha.3"
 dependencies = [
  "pemba-core",
 ]
 
 [[package]]
 name = "pemba-store-memory"
-version = "0.1.0-alpha.2"
+version = "0.1.0-alpha.3"
 dependencies = [
  "pemba-core",
  "pemba-testkit",
@@ -1223,7 +1223,7 @@ dependencies = [
 
 [[package]]
 name = "pemba-store-postgres"
-version = "0.1.0-alpha.2"
+version = "0.1.0-alpha.3"
 dependencies = [
  "pemba-core",
  "pemba-store-memory",
@@ -1240,7 +1240,7 @@ dependencies = [
 
 [[package]]
 name = "pemba-store-pysqlite"
-version = "0.1.0-alpha.2"
+version = "0.1.0-alpha.3"
 dependencies = [
  "pemba-core",
  "pemba-sqlite-common",
@@ -1252,7 +1252,7 @@ dependencies = [
 
 [[package]]
 name = "pemba-store-sqlite"
-version = "0.1.0-alpha.2"
+version = "0.1.0-alpha.3"
 dependencies = [
  "pemba-core",
  "pemba-sqlite-common",
@@ -1262,7 +1262,7 @@ dependencies = [
 
 [[package]]
 name = "pemba-testkit"
-version = "0.1.0-alpha.2"
+version = "0.1.0-alpha.3"
 dependencies = [
  "insta",
  "pemba-core",
