@@ -1,0 +1,182 @@
+[
+  {
+    "before": "    permission view = viewer + editor ",
+    "code": "E_AMBIGUOUS_OPERATORS",
+    "fixture": "ambiguous_operators",
+    "help": "add parentheses to say which grouping you mean, either\n    (viewer + editor) & member\nor\n    viewer + (editor & member)",
+    "line": 6,
+    "message": "`+` and `&` cannot be mixed without parentheses",
+    "schema": "definition user {}\ndefinition doc {\n    relation viewer: user\n    relation editor: user\n    relation member: user\n    permission view = viewer + editor & member\n}",
+    "text": "&"
+  },
+  {
+    "before": "    permission view = ",
+    "code": "E_ARROW_CHAIN",
+    "fixture": "arrow_chain",
+    "help": "add an intermediate permission to the types allowed on `parent`:\n    permission view_via_parent = parent->view\nthen write `parent->view_via_parent` here",
+    "line": 9,
+    "message": "arrows cannot be chained: the right side of an arrow must be a single relation or permission name",
+    "schema": "definition user {}\ndefinition folder {\n    relation parent: folder\n    relation viewer: user\n    permission view = viewer\n}\ndefinition doc {\n    relation parent: folder\n    permission view = parent->parent->view\n}",
+    "text": "parent->parent->view"
+  },
+  {
+    "before": "    permission view = ",
+    "code": "E_ARROW_LEFT_NOT_RELATION",
+    "fixture": "arrow_left_not_relation",
+    "help": "an arrow follows stored relationships to related objects; start it from the relation that links to them, e.g. `parent->view`",
+    "line": 5,
+    "message": "the left side of an arrow must be a relation, but `edit` is a permission",
+    "schema": "definition user {}\ndefinition doc {\n    relation owner: user\n    permission edit = owner\n    permission view = edit->view\n}",
+    "text": "edit"
+  },
+  {
+    "before": "    permission view = ",
+    "code": "E_ARROW_OVER_WILDCARD",
+    "fixture": "arrow_over_wildcard",
+    "help": "an arrow cannot walk a wildcard; move `folder:*` to a separate relation and keep `parent` for concrete `folder` objects",
+    "line": 3,
+    "message": "arrow over `parent`, which allows the wildcard `folder:*`",
+    "schema": "definition folder {\n    relation parent: folder | folder:*\n    permission view = parent->view\n}",
+    "text": "parent"
+  },
+  {
+    "before": "    permission view = owner->",
+    "code": "E_ARROW_TARGET_MISSING",
+    "fixture": "arrow_target_missing",
+    "help": "define `member` on at least one of `user`, `team`",
+    "line": 5,
+    "message": "`owner->member`: types `user`, `team` have no relation or permission named `member`",
+    "schema": "definition user {}\ndefinition team {}\ndefinition doc {\n    relation owner: user | team\n    permission view = owner->member\n}",
+    "text": "member"
+  },
+  {
+    "before": "    permission ",
+    "code": "E_DIRECT_CYCLE",
+    "fixture": "direct_cycle",
+    "help": "recursion is only allowed through a relation or an arrow (e.g. `parent->view`); rewrite one of these permissions so it does not refer back to the others",
+    "line": 4,
+    "message": "permission `aaa` depends on itself: `aaa` → `bbb` → `aaa`",
+    "schema": "definition user {}\ndefinition doc {\n    relation x_rel: user\n    permission aaa = bbb\n    permission bbb = aaa + x_rel\n}",
+    "text": "aaa"
+  },
+  {
+    "before": "    relation viewer: user | ",
+    "code": "E_DUPLICATE_ALLOWED_TYPE",
+    "fixture": "duplicate_allowed_type",
+    "help": "remove the duplicate",
+    "line": 3,
+    "message": "`user` is listed more than once on relation `viewer`",
+    "schema": "definition user {}\ndefinition doc {\n    relation viewer: user | user\n}",
+    "text": "user"
+  },
+  {
+    "before": "    permission ",
+    "code": "E_DUPLICATE_MEMBER",
+    "fixture": "duplicate_member",
+    "help": "`viewer` was first defined on line 3",
+    "line": 4,
+    "message": "`viewer` is defined more than once on `doc`",
+    "schema": "definition user {}\ndefinition doc {\n    relation viewer: user\n    permission viewer = viewer\n}",
+    "text": "viewer"
+  },
+  {
+    "before": "definition ",
+    "code": "E_DUPLICATE_TYPE",
+    "fixture": "duplicate_type",
+    "help": "`user` was first defined on line 1; merge the two definitions",
+    "line": 3,
+    "message": "type `user` is defined more than once",
+    "schema": "definition user {}\n\ndefinition user {}",
+    "text": "user"
+  },
+  {
+    "before": "definition ",
+    "code": "E_IDENT_FORMAT",
+    "fixture": "ident_format",
+    "help": "identifiers are 3 to 64 characters of `a-z`, `0-9` and `_`, start with a letter or `_`, and end with a letter or digit; each `/`-separated prefix follows the same rule",
+    "line": 1,
+    "message": "type name `ab` must be at least 3 characters",
+    "schema": "definition ab {}",
+    "text": "ab"
+  },
+  {
+    "before": "    relation ",
+    "code": "E_RESERVED_NAME",
+    "fixture": "reserved_name",
+    "help": "reserved words are `definition`, `relation`, `permission`, `self`, `nil`, `caveat`, `use`, `with`, `any`, `all`",
+    "line": 3,
+    "message": "`nil` is a reserved word and cannot name a relation",
+    "schema": "definition user {}\ndefinition doc {\n    relation nil: user\n}",
+    "text": "nil"
+  },
+  {
+    "before": "",
+    "code": "E_UNEXPECTED_CHAR",
+    "fixture": "unexpected_char",
+    "help": null,
+    "line": 2,
+    "message": "unexpected character `$`",
+    "schema": "definition user {}\n$",
+    "text": "$"
+  },
+  {
+    "before": "    relation viewer: user",
+    "code": "E_UNEXPECTED_TOKEN",
+    "fixture": "unexpected_token",
+    "help": "remove ';' — the schema language does not use semicolons",
+    "line": 3,
+    "message": "expected `relation`, `permission` or `}`, found `;`",
+    "schema": "definition user {}\ndefinition doc {\n    relation viewer: user;\n}",
+    "text": ";"
+  },
+  {
+    "before": "    permission view = ",
+    "code": "E_UNKNOWN_MEMBER",
+    "fixture": "unknown_member",
+    "help": "did you mean `viewer`?",
+    "line": 4,
+    "message": "`viewr` is not a relation or permission on `doc`",
+    "schema": "definition user {}\ndefinition doc {\n    relation viewer: user\n    permission view = viewr\n}",
+    "text": "viewr"
+  },
+  {
+    "before": "    relation viewer: group#",
+    "code": "E_UNKNOWN_SUBJECT_RELATION",
+    "fixture": "unknown_subject_relation",
+    "help": "did you mean `member`?",
+    "line": 6,
+    "message": "`group` has no relation or permission named `membr`",
+    "schema": "definition user {}\ndefinition group {\n    relation member: user\n}\ndefinition doc {\n    relation viewer: group#membr\n}",
+    "text": "membr"
+  },
+  {
+    "before": "    relation viewer: ",
+    "code": "E_UNKNOWN_TYPE",
+    "fixture": "unknown_type",
+    "help": "did you mean `user`?",
+    "line": 3,
+    "message": "unknown type `usr`",
+    "schema": "definition user {}\ndefinition doc {\n    relation viewer: usr\n}",
+    "text": "usr"
+  },
+  {
+    "before": "",
+    "code": "E_UNSUPPORTED_FEATURE",
+    "fixture": "unsupported_feature",
+    "help": "pemba stores unconditional relationships only; remove the caveat definition and any `with` clause that uses it",
+    "line": 1,
+    "message": "caveats are not supported (`caveat ip_allowed`)",
+    "schema": "caveat ip_allowed(ip ipaddress) {\n    ip.in_cidr('10.0.0.0/8')\n}\ndefinition user {}",
+    "text": "caveat ip_allowed"
+  },
+  {
+    "before": "",
+    "code": "E_UNTERMINATED_COMMENT",
+    "fixture": "unterminated_comment",
+    "help": "add `*/` to close the comment (comments do not nest)",
+    "line": 2,
+    "message": "unterminated block comment",
+    "schema": "definition user {}\n/* never closed\ndefinition team {}",
+    "text": "/*"
+  }
+]

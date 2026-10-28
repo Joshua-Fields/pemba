@@ -1,10 +1,14 @@
 // The playground page (docs/11-playground.md §3, §4): three editors, the query bar, and the
-// result of a fresh run 300 ms after the last edit.
+// result of a fresh run 300 ms after the last edit, with its diagnostics marked inline.
 
 import { basicSetup, EditorView } from 'codemirror';
 import { yaml } from '@codemirror/lang-yaml';
+import { lintGutter, setDiagnostics, type Diagnostic } from '@codemirror/lint';
+import type { Extension, Text } from '@codemirror/state';
 
 import './style.css';
+import { marks } from './diagnostics';
+import { dsl } from './dsl';
 import { EngineClient, EngineFailure } from './engine';
 import { checkLimits, describe, pageError } from './result';
 import { follow, theme } from './theme';
@@ -63,7 +67,7 @@ const onChange = EditorView.updateListener.of((u) => {
   if (u.docChanged) schedule();
 });
 
-function editor(id: string, doc: string, extra: ReturnType<typeof yaml>[] = []): EditorView {
+function editor(id: string, doc: string, extra: Extension[] = []): EditorView {
   const view = new EditorView({
     doc,
     parent: element(id),
@@ -73,8 +77,8 @@ function editor(id: string, doc: string, extra: ReturnType<typeof yaml>[] = []):
   return view;
 }
 
-const schema = editor('schema', SCHEMA);
-const relationships = editor('relationships', RELATIONSHIPS);
+const schema = editor('schema', SCHEMA, [dsl, lintGutter()]);
+const relationships = editor('relationships', RELATIONSHIPS, [lintGutter()]);
 const assertions = editor('assertions', ASSERTIONS, [yaml()]);
 
 const client = new EngineClient(
@@ -84,8 +88,14 @@ const client = new EngineClient(
 // Only the newest run may paint: an older one can finish later.
 let generation = 0;
 
+/** Shows `diagnostics` in `view`, unless its text changed since the run (a newer run will). */
+function annotate(view: EditorView, sent: Text, diagnostics: Diagnostic[]): void {
+  if (view.state.doc === sent) view.dispatch(setDiagnostics(view.state, diagnostics));
+}
+
 async function runNow(): Promise<void> {
   const mine = ++generation;
+  const sent = { schema: schema.state.doc, relationships: relationships.state.doc };
   const editors = {
     schema: schema.state.doc.toString(),
     relationships: relationships.state.doc.toString(),
@@ -99,12 +109,16 @@ async function runNow(): Promise<void> {
   };
   const limit = checkLimits(editors);
   let view: View;
+  // Without an answer there is nothing to mark, so old marks are cleared, not kept.
+  let found = { schema: [] as Diagnostic[], relationships: [] as Diagnostic[] };
   if (limit) {
     view = limit;
   } else {
     result.dataset['state'] = 'running';
     try {
-      view = describe(queryKind, await client.run(request));
+      const out = await client.run(request);
+      view = describe(queryKind, out);
+      found = marks(out, editors);
     } catch (e) {
       view =
         e instanceof EngineFailure
@@ -112,7 +126,10 @@ async function runNow(): Promise<void> {
           : pageError('INTERNAL', String(e));
     }
   }
-  if (mine === generation) render(view);
+  if (mine !== generation) return;
+  render(view);
+  annotate(schema, sent.schema, found.schema);
+  annotate(relationships, sent.relationships, found.relationships);
 }
 
 function render(view: View): void {

@@ -205,3 +205,19 @@ code {
   clip: rect(0 0 0 0);
   white-space: nowrap;
 }
+
+/* Inline diagnostics (T6.5): code, message, note and help in the lint tooltip and panel. */
+.diag {
+  max-width: 60ch;
+  font-family: var(--mono);
+  font-size: 0.85rem;
+}
+
+.diag-code {
+  font-weight: 600;
+}
+
+.diag-note,
+.diag-help {
+  color: var(--muted);
+}
