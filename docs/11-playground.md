@@ -222,6 +222,13 @@ Contract details (T6.2; the crate docs are the reference):
   node shown in full. Cycles show their pass count, and `truncated` is shown as a banner.
   A "copy as text" button gives the `pemba check --explain` rendering
   (`CheckTrace::render`).
+  - As built (T6.7): every check asks `run` for its trace. Each node's line is the text
+    `render()` writes for it (`src/trace.ts` follows `trace/render.rs`), including the
+    granting path and `(not needed)`; Vitest holds the tree to the four T4.1 snapshots
+    node for node (`src/trace-snapshots.json`, kept current by the `pemba-playground`
+    test `trace_snapshots`). The granting path starts open and other branches closed; a
+    "see above / see below" reference opens and highlights the node it names. A trace
+    that is not exactly the answer's shape is an `INTERNAL` error, never a tree.
 - **Examples** (a menu): `google_docs`, `github_like` (both from `testdata/fixtures`) and
   `agent_authz`, which becomes a new fixture mirroring `examples/agent_authz.py`.
   Examples are fixtures, so `cargo test` keeps them correct.

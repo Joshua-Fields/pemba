@@ -8,7 +8,35 @@ group('describe', () => {
       kind: 'check',
       allowed: false,
       revision: 2,
+      explain: null,
     });
+  });
+
+  it('reads a check trace and its text, and fails closed on one that does not fit', () => {
+    const root = {
+      id: 0, node: 'doc:a#viewer', kind: 'relation', expr: null, role: null, result: true, source: 'evaluated',
+      ref: null, passes: null, provisional: false, tuple: null, duration_ns: 5, truncated: false, children: [],
+    };
+    const trace = (over: object) =>
+      JSON.stringify({
+        format: 'pemba.check_trace', version: 1, resource: 'doc:a', permission: 'viewer', subject: 'user:b',
+        allowed: true, revision: 2, truncated: false, stats: {}, root, ...over,
+      });
+    const answer = (t: string, explain: unknown = 'text') =>
+      JSON.stringify({ ok: true, allowed: true, revision: 2, trace: t, explain });
+    const v = describe('check', answer(trace({})));
+    expect(v).toMatchObject({ kind: 'check', allowed: true, explain: { text: 'text', trace: { revision: 2 } } });
+    for (const bad of [
+      answer(trace({ allowed: false })),
+      answer(trace({ revision: 3 })),
+      answer(trace({ version: 2 })),
+      answer(trace({ root: { ...root, result: null } })),
+      answer(trace({ root: { ...root, kind: 'nope' } })),
+      answer(trace({}), null),
+      answer('not json'),
+    ]) {
+      expect(describe('check', bad)).toMatchObject({ kind: 'error', code: 'INTERNAL' });
+    }
   });
 
   it('shows lookups', () => {

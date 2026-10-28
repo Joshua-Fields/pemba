@@ -256,3 +256,91 @@ code {
 .results h2 + .result + h2 {
   margin-top: 16px;
 }
+
+/* The explain tree (T6.7): the granting path bold and coloured, as `--explain --color`
+   draws it; skipped nodes and memo references dimmed. */
+.trace {
+  margin-top: 12px;
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+
+.trace-banner {
+  background: var(--error-bg);
+  border: 1px solid var(--error);
+  border-radius: 4px;
+  padding: 6px 8px;
+}
+
+.trace-tools {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 6px;
+  font-weight: 600;
+}
+
+.trace-copy {
+  font: inherit;
+  font-weight: 400;
+  font-size: 0.85rem;
+}
+
+.trace-copied {
+  color: var(--muted);
+  font-weight: 400;
+  font-size: 0.85rem;
+}
+
+.trace-tree,
+.trace-tree ul {
+  list-style: none;
+  margin: 0;
+  padding-left: 1.1rem;
+  font-family: var(--mono);
+  font-size: 0.85rem;
+}
+
+.trace-tree {
+  padding-left: 0;
+  overflow-x: auto;
+}
+
+.trace-tree li {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.trace-tree li:not(:has(> details)) {
+  padding-left: 1.1em;
+}
+
+.trace-tree summary {
+  cursor: pointer;
+}
+
+.trace-row.on {
+  font-weight: 600;
+}
+
+.trace-row.on[data-result='true'] {
+  color: var(--allowed);
+}
+
+.trace-row.on[data-result='false'] {
+  color: var(--denied);
+}
+
+.trace-row.reference:not(.on) {
+  color: var(--muted);
+}
+
+.trace-ref {
+  color: inherit;
+}
+
+.trace-target > details > summary,
+.trace-target > .trace-row {
+  outline: 2px solid var(--selection);
+  border-radius: 2px;
+}

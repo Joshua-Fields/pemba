@@ -2,7 +2,8 @@
 // an error, or an answer that is not exactly the expected shape, is shown as an error with
 // its code, never as "denied" or an empty list.
 
-import type { QueryKind, View } from './types';
+import { readTrace } from './trace';
+import type { Explain, QueryKind, View } from './types';
 
 /** An error the page itself raises (not the engine's). */
 export function pageError(code: string, message: string, stage = 'request'): View {
@@ -42,10 +43,12 @@ export function describe(kind: QueryKind, text: string): View {
   if (answer['ok'] !== true || !isRevision(answer['revision'])) return unexpected;
   const revision = answer['revision'];
   switch (kind) {
-    case 'check':
-      return typeof answer['allowed'] === 'boolean'
-        ? { kind, allowed: answer['allowed'], revision }
-        : unexpected;
+    case 'check': {
+      const allowed = answer['allowed'];
+      if (typeof allowed !== 'boolean') return unexpected;
+      const explain = explained(answer, allowed, revision);
+      return explain === undefined ? unexpected : { kind, allowed, revision, explain };
+    }
     case 'lookup_resources':
       return isStrings(answer['ids']) ? { kind, ids: answer['ids'], revision } : unexpected;
     case 'lookup_subjects': {
@@ -55,6 +58,19 @@ export function describe(kind: QueryKind, text: string): View {
         : unexpected;
     }
   }
+}
+
+/**
+ * A check answer's trace and its text: null when it has none (no `explain` asked for), and
+ * undefined when it has one that is not exactly a trace of this answer.
+ */
+function explained(answer: Record<string, unknown>, allowed: boolean, revision: number): Explain | null | undefined {
+  const { trace, explain } = answer;
+  if (trace === undefined && explain === undefined) return null;
+  if (typeof trace !== 'string' || typeof explain !== 'string') return undefined;
+  const t = readTrace(trace);
+  if (!t || t.allowed !== allowed || t.revision !== revision) return undefined;
+  return { trace: t, text: explain };
 }
 
 /** Per-editor size cap (docs/11-playground.md §3): 1 MB of UTF-8. */
