@@ -123,13 +123,17 @@ them, never `set -x` around them, and do not expose them to workflows triggered 
   publishable crate (`publish`), and that the published crates and `pemba-py` carry
   byte-identical copies of the root `LICENSE` and `NOTICE` (`package-files`). Publishing to
   crates.io is a manual human step.
-- `wheels.yml` (`v*` tags + manual only, not PRs): maturin-action builds one abi3
+- `wheels.yml` (`v*` tags, manual, and pull requests touching `Cargo.lock`, any
+  `Cargo.toml`, `crates/pemba-py/pyproject.toml` or the workflow itself, so a new native
+  dependency fails on its PR, not at release): maturin-action builds one abi3
   (`cp311-abi3`) wheel per ADR-014 platform (manylinux 2_17 x86_64 and aarch64, macOS
   arm64 and x86_64, Windows x86_64), checks it contains no SQLite
   (`ci/check_no_sqlite.py`) and that its Postgres TLS is rustls with no OpenSSL
-  (`ci/check_tls.py`, T5.10), then installs each wheel on its platform (aarch64 under QEMU,
-  macOS x86_64 under Rosetta 2) with CPython 3.11 and 3.14 and runs the whole pytest suite
-  against it. `smoke-postgres` installs the Linux x86_64 wheel and runs
+  (`ci/check_tls.py`, T5.10), then installs each wheel on its platform (macOS x86_64
+  under Rosetta 2) with CPython 3.11 and 3.14 and runs the whole pytest suite against it.
+  Linux aarch64 is built and tested natively on an `ubuntu-24.04-arm` runner, in the
+  manylinux2014 aarch64 image: the cross-compiling image's GCC could not build `ring`'s
+  ARM assembly (0.1.0-alpha.3). `smoke-postgres` installs the Linux x86_64 wheel and runs
   `tests/test_postgres.py` with every driver against a Postgres 15 and 18 service
   container, plus a TLS server with an untrusted certificate that the wheel must refuse.
   It also builds an sdist and checks a wheel built from it imports. On a `v*`
@@ -163,8 +167,10 @@ manual human steps after it merges.
    update the version note and the compare links.
 4. README status and install lines; copy `README.md` to `crates/pemba-py/README.md`
    (`package-files` checks they match).
-5. Full local check (`CLAUDE.md` §5), `cargo publish --workspace --dry-run`, and a manual
-   `wheels.yml` run on the release branch.
+5. Full local check (`CLAUDE.md` §5) and `cargo publish --workspace --dry-run`. The
+   release PR changes `Cargo.lock`, so `wheels.yml` runs on it by itself (build and smoke
+   on every platform, no upload). It must be green before merge; a manual run on the
+   branch is the same thing, for when the PR run was cancelled or is stale.
 6. After merge (human): tag `v<version>` on main (`wheels.yml` uploads to PyPI after
    review), then `cargo publish` the crates.
 

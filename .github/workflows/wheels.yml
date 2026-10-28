@@ -3,17 +3,26 @@ name: wheels
 # abi3 wheels for every ADR-014 platform (docs/09-repo-and-tooling.md §4), each one
 # installed and tested on its own platform, plus an sdist. On a v* tag, `publish` uploads
 # them to PyPI by trusted publishing once every smoke test passes; the `pypi` environment's
-# required reviewers approve that upload. A manual run builds and tests only. Not run on
-# PRs: the macOS jobs are billed at 10x, and ci.yml already builds and tests the extension
-# on all three OSes.
+# required reviewers approve that upload. A manual run builds and tests only, and so does a
+# pull request that can change what the wheels contain (dependencies, packaging, this
+# file), so a new native dependency fails on its PR rather than first at release time (as
+# ring did on linux-aarch64 for 0.1.0-alpha.3). Other PRs skip it: the macOS jobs are
+# billed at 10x, and ci.yml already builds and tests the extension on all three OSes.
 on:
   push:
     tags: ["v*"]
+  pull_request:
+    paths:
+      - "Cargo.lock"
+      - "**/Cargo.toml"
+      - "crates/pemba-py/pyproject.toml"
+      - ".github/workflows/wheels.yml"
   workflow_dispatch:
 
+# A newer push to the same PR cancels the older run; tag and manual runs always finish.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -28,7 +37,10 @@ jobs:
       matrix:
         include:
           - { platform: linux-x86_64, os: ubuntu-latest, target: x86_64, manylinux: "2_17" }
-          - { platform: linux-aarch64, os: ubuntu-latest, target: aarch64, manylinux: "2_17" }
+          # Native, not cross-compiled: on an arm64 runner maturin-action builds in the
+          # manylinux2014 aarch64 image (glibc 2.17, ADR-014), whose GCC builds ring's ARM
+          # assembly; the cross image's older GCC does not define __ARM_ARCH for it.
+          - { platform: linux-aarch64, os: ubuntu-24.04-arm, target: aarch64, manylinux: "2_17" }
           - { platform: macos-arm64, os: macos-latest, target: aarch64 }
           - { platform: macos-x86_64, os: macos-latest, target: x86_64 }
           - { platform: windows-x86_64, os: windows-latest, target: x64 }
@@ -93,10 +105,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        platform: [linux-x86_64, macos-arm64, macos-x86_64, windows-x86_64]
+        platform: [linux-x86_64, linux-aarch64, macos-arm64, macos-x86_64, windows-x86_64]
         python: ["3.11", "3.14"]
         include:
           - { platform: linux-x86_64, os: ubuntu-latest, arch: x64, machine: x86_64 }
+          - { platform: linux-aarch64, os: ubuntu-24.04-arm, arch: arm64, machine: aarch64 }
           - { platform: macos-arm64, os: macos-latest, arch: arm64, machine: arm64 }
           # The python.org universal2 CPython forced to its x86_64 half (Rosetta 2) on an
           # Apple-silicon runner: without `arch -x86_64` it runs as arm64.
@@ -129,39 +142,6 @@ jobs:
           $RUN python -c "import pemba, sys; assert 'site-packages' in pemba.__file__, pemba.__file__; print(pemba.__file__)"
           $RUN python ci/check_no_sqlite.py
           $RUN python -m pytest -q
-
-  smoke-aarch64:
-    # No arm64 Linux runner is assumed: the manylinux aarch64 wheel runs under QEMU.
-    name: smoke (linux-aarch64, Python ${{ matrix.python }})
-    needs: build
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    strategy:
-      fail-fast: false
-      matrix:
-        python: ["3.11", "3.14"]
-    steps:
-      - uses: actions/checkout@v5
-      - uses: docker/setup-qemu-action@v3
-        with:
-          platforms: arm64
-      - uses: actions/download-artifact@v5
-        with:
-          name: wheel-linux-aarch64
-          path: crates/pemba-py/dist
-      - name: install the wheel, test it (arm64 container)
-        run: |
-          docker run --rm --platform linux/arm64 -v "$PWD:/src" -w /src/crates/pemba-py \
-            python:${{ matrix.python }}-slim-bookworm sh -euxc '
-              python -c "import platform, sqlite3, sys; print(sys.version, platform.machine(), sqlite3.sqlite_version)"
-              python -m venv /tmp/venv
-              . /tmp/venv/bin/activate
-              pip install pytest==9.1.1
-              pip install --no-index --find-links dist pemba
-              python -c "import pemba; assert \"site-packages\" in pemba.__file__, pemba.__file__"
-              python ci/check_no_sqlite.py
-              pytest -q -p no:cacheprovider
-            '
 
   smoke-postgres:
     # T5.10: the built Linux wheel (not a dev build) against a Postgres service container:
@@ -230,7 +210,7 @@ jobs:
     # `pemba` project; no API token is stored. Waits for every smoke test as well as the
     # builds, so a wheel that fails its tests is never uploaded.
     name: publish to PyPI
-    needs: [build, sdist, smoke, smoke-aarch64, smoke-postgres]
+    needs: [build, sdist, smoke, smoke-postgres]
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     timeout-minutes: 15
