@@ -1,0 +1,5 @@
+# The commits benches/pg-linux.sh benches, in order, as `<label> <commit>`. These produced
+# the before/after table in benches/RESULTS.md (OQ-056).
+before 7278215
+cache 2798c07
+cache+bulk 75e3236
