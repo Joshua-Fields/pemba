@@ -1221,8 +1221,22 @@ dependencies = [
  "pemba-schema",
  "pemba-store-memory",
  "serde",
+ "serde-saphyr",
  "serde_json",
  "wasm-bindgen",
+]
+
+[[package]]
+name = "pemba-playground-conformance"
+version = "0.1.0-alpha.3"
+dependencies = [
+ "pemba-core",
+ "pemba-fixtures",
+ "pemba-playground",
+ "pemba-schema",
+ "pemba-store-memory",
+ "pemba-testkit",
+ "proptest",
 ]
 
 [[package]]

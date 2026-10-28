@@ -16,6 +16,8 @@
 
 #![forbid(unsafe_code)]
 
+mod transcript;
+
 use std::path::Path;
 
 use pemba_core::model::{Consistency, ObjectRef, Relationship, SubjectRef, WriteOp, WriteRequest};
@@ -29,6 +31,8 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::wasm_bindgen;
+
+pub use transcript::transcript;
 
 /// Compiles `schema` without storing it:
 /// `{ok, errors: [Diagnostic], warnings: [Diagnostic]}`, `ok` when there are no errors.
@@ -245,6 +249,12 @@ fn lookup_resources(engine: &Engine<MemoryStore>, text: &str) -> Result<Value, V
             .lookup_resources(req.clone())
             .map_err(|e| engine_failure(&e, "query"))?;
         ids.extend(page.resource_ids.iter().map(ToString::to_string));
+        // The conformance check's negative control (T6.3, `playground/conformance/run.sh`):
+        // a wrong WASM answer, never built except by hand.
+        #[cfg(all(pemba_conformance_sabotage, target_arch = "wasm32"))]
+        if page.next_cursor.is_none() && ids.len() > 1 {
+            ids.pop();
+        }
         match page.next_cursor {
             Some(cursor) => {
                 req.cursor = Some(cursor);
