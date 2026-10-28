@@ -1,0 +1,50 @@
+name: bench-postgres
+
+# The Rust benches' Postgres group on Linux, with round trips per operation (T5.12,
+# OQ-056), against a server in a service container on the same runner. On demand only:
+# push a branch named bench/<anything>. Every commit in benches/pg-compare-refs is benched
+# in turn on this one runner (benches/pg-linux.sh), so before/after rows compare like with
+# like. Download the artifact into target/bench-pg-linux/ and run benches/results.py.
+on:
+  push:
+    branches: ["bench/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  postgres:
+    name: Postgres benches (Linux)
+    runs-on: ubuntu-24.04
+    # Each commit takes about 40 minutes: the latency pass times 2,000 of every operation.
+    timeout-minutes: 330
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 30
+    env:
+      PEMBA_PG_URL: postgres://postgres@localhost:5432/postgres
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # pg-compare-refs names earlier commits.
+          fetch-depth: 0
+      # Copied out first: checking out an earlier commit may change or remove it.
+      - run: cp benches/pg-linux.sh "$RUNNER_TEMP/" && bash "$RUNNER_TEMP/pg-linux.sh"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bench-pg-linux
+          path: target/bench-pg-linux/
