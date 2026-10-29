@@ -1,8 +1,8 @@
 # 0.1.0 release evidence
 
 This is the evidence index required by M7. No stable release is approved or published.
-T7.2–T7.8 implementation evidence is recorded here; T7.9–T7.17 remain separate
-tasks and gates. T7.7 is merged; see T7.8 evidence below.
+T7.2–T7.9 implementation evidence is recorded here; T7.10–T7.17 remain separate
+tasks and gates. T7.8 is merged; see T7.9 evidence below.
 
 ## Preceding gates
 
@@ -623,6 +623,76 @@ runs, long properties/differential/fuzz/mutation and public deployment verificat
 remain T7.11/T7.13/T7.16 gates. Nothing here supplies release sign-off or launch approval.
 No settings, APIs, on-disk formats, versions, releases, tags or deployed artifacts were
 changed. Human review/merge of this PR is required; T7.9 is not started.
+
+## T7.9 issue triage and public roadmap
+
+Sources: T7.9 all AC; M8–M10 outline; CLAUDE §§2,6; `09` §§5–6; approved OQ-060.
+
+### Preceding gates and acceptance coverage
+
+Fresh clone, `git checkout main` and `git pull` produced clean main
+`b7263629f0aecd87287e0b2baa4415cb7d3cfd30`. First-parent history confirms T7.0–T7.8
+PRs #80–#88 merged; GitHub metadata confirms previous implementation
+[PR #88](https://github.com/Joshua-Fields/pemba/pull/88) merged 2026-10-29 at that SHA.
+Earlier acceptance/verification evidence is indexed above. Required T7.1 human
+decisions remain in PR #81/OQ-044/OQ-058–OQ-060; merged T7.6 includes OQ-063's
+conservative empty/legacy-docs presentation. OQ-062 remains non-blocking for the
+documented no-rename path. No new specification ambiguity or product decision arose.
+The maintainer explicitly authorizes continuing while other Actions checks run;
+pending/skipped prior runs are not reclassified as passes.
+
+| Acceptance criterion | Evidence |
+|---|---|
+| Safe bug and feature intake | `.github/ISSUE_TEMPLATE/bug.yml` and `feature.yml` require version, store/platform, minimal synthetic schema/tuples (or explanation of non-applicability), expected/actual behavior and safe reproduction. Both direct suspected vulnerabilities to SECURITY/private reporting; config disables blank issues and exposes the private contact. No auto-labels or assignments. |
+| Labels, severity/priority and ownership | `docs/TRIAGE.md` documents existing labels, impact-based severity and textual priority, owner Joshua-Fields, best-effort support without SLA, duplicate handling, regression fixtures, specification/task promotion and closure with release-version accuracy. Read-only `gh label list --repo Joshua-Fields/pemba --limit 100 --json name,description` confirmed all 12 documented labels exist. No labels/settings changed. |
+| Roadmap scope and status | `ROADMAP.md` distinguishes shipped alpha.1–alpha.4 from unapproved/unpublished stable 0.1.0, remaining M7 gates, M8/M9/M10 candidates and T5.13 after stable per T7.1. Links the known Postgres round-trip follow-up/OQ-056/benchmark context, known differences, limitations and no-rename restriction. No dates, new supported scope or performance promises. |
+| Site integration | Selected-source roadmap/triage pages and sidebar links appear only when that source contains them. Internal links route locally; repository material stays pinned to the selected commit. Existing single Pages workflow includes both source paths. No deployment mechanism or existing playground routes changed. |
+| Human boundaries | Label setup, triage/roadmap activation and any response commitments remain human work at T7.17. Reporting usability and authenticated registry access/publisher confirmation remain the T7.8 release safeguards before T7.14/T7.15. No merge, tag, publication, announcement or deployment performed. |
+
+### Verification, 2026-10-29
+
+Source commit [`93a8c1ddb698198aff7d6ece73ba109f391ae341`](https://github.com/Joshua-Fields/pemba/commit/93a8c1ddb698198aff7d6ece73ba109f391ae341).
+Subsequent edits change this evidence index only. Windows x86_64, Rust 1.99.0,
+CPython 3.12.10, Node 24.20.0, wasm-bindgen 0.2.129. Disposable PostgreSQL 18.6
+services bind loopback 57532/57533 (second server has an untrusted TLS certificate);
+required-service flags are set for Rust and the separate all-driver venv.
+Fresh tool-only venv uses CI-pinned maturin/pytest/mypy; a separate disposable
+PyYAML environment validates forms, never contaminating the Python test venv.
+Logs/harness under ignored `target/t7.9-*`; no generated output or credentials committed.
+
+| Command / check | Actual result |
+|---|---|
+| Focused selected-source regression, then `node --test docs/site/scripts/*.test.mjs` | New regression observed failing before implementation, then passed; all nine docs tests pass, including older sources, current stable/development content, no-stable metadata, pinned/local links and older-tag assembly preserving playground bytes. Initial full docs attempt preceded `npm ci` and failed for missing VitePress; passed after locked dependencies installed. |
+| Strict `npm run build --prefix docs/site`; `node docs/site/scripts/build.mjs --channel stable --empty true --out target/t7.9-docs-stable` | Both passed with warnings and broken local links treated as failures. Development source metadata names the source commit; no-stable placeholder retains the approved policy. |
+| Headless Chromium docs verification | Roadmap/triage pages passed at desktop 1280×900 and mobile 390×844: HTTP 200, content/development label, sidebar navigation, keyboard focus and no page errors. Initial preview omitted DOCS_BASE and returned 404 for the project path; corrected preview base passed without source changes. |
+| Disposable PyYAML validation and Markdown target/heading-anchor check | All three issue YAML files parse; five required input groups/private route/no auto-label or assignment validated for both forms, blank-issue/private contact configuration checked, workflow source filters occur for PR and push, and new documents' relative links/anchors resolve. |
+| Full §5 once: `cargo fmt --all -- --check`; `cargo clippy --workspace --all-targets --all-features -- -D warnings`; `cargo test --workspace --all-features` | Passed: 687 Rust tests/doctests, zero failures, required PG18 including normal-role and hostile-search-path paths. 18 ignored tests unrun; slow/property tests and runtime implementation were not changed. |
+| `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --all-features`; separate fuzz `cargo fmt -- --check` and `cargo check --all-targets` | Passed strict docs and separate workspace format/build. Fuzz targets not executed; long fuzz/property/differential runs remain the release rehearsal/candidate gates. |
+| Fresh tool-only venv: `maturin develop`; `python -m pytest -q -rs`; `python -m mypy --strict tests` | Passed build, 168 tests and strict typing of 15 files. One skipped Postgres module without service URL/drivers in this venv; not counted as a service pass. |
+| wasm32 lint and smoke: portable-crate Clippy, fixture smoke-target Clippy and four smoke tests | Passed both Clippy commands with `-D warnings` and all four Node-run wasm32 smoke tests. |
+| `bash playground/conformance/run.sh` | Passed after the linker correction below: 1,000 generated cases agree with the reference evaluator, 1,037 fixtures total, 45,323 identical native/WASM transcript lines. Native DLL builds print a `linker stdout: Creating library` warning; this is not a test failure or a claim of a warning-free release build. |
+| Playground WASM generation; `npm test`, `npm run build`, `npm run size`, `npm run e2e` in `playground/web` | Passed after linker correction: 170 unit tests, TypeScript/production build, 578.2 KB gzip within 700 KB budget, 72 Chromium browser tests. |
+| Separate all-driver PG18/TLS venv: `maturin develop`; `pytest -q -rs tests/test_postgres.py tests/test_errors.py`; `mypy --strict tests` | Passed build, 63 tests, zero skips, strict typing of 15 files. Uses CI-pinned psycopg3, psycopg2, SQLAlchemy, Django and greenlet, required PG URL and untrusted-certificate TLS URL. |
+| `cargo test -p pemba-store-postgres --no-default-features`; `ci/check_tls.py`; `ci/check_no_sqlite.py` | Passed required-service plaintext Rust configuration and installed-extension rustls/no-OpenSSL and no-SQLite probes. |
+| `npm audit --omit=dev --prefix playground/web`; `npm audit --prefix docs/site` | Both passed: zero vulnerabilities. No dependencies or lockfiles changed. |
+| Attribution/mirrors; workflow syntax; independent review | All 20 LICENSE/NOTICE copies and Python README mirror match. actionlint passed with unavailable shellcheck disabled (no shellcheck pass claimed). Fresh independent implementation/AC review found no actionable issues; reviewer also ran seven content tests successfully. |
+
+The first Git Bash conformance/WASM build selected Git's `/usr/bin/link.exe` instead
+of MSVC and failed. Missing WASM then caused unit/typecheck/build, size and browser
+checks to fail downstream. Explicitly setting
+`CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER` to the installed MSVC x64 linker fixed
+the test environment; only those affected checks were rerun and all passed.
+The complete §5 check was run once, not repeated after evidence-only edits.
+
+Remote PR CI/platform/service/Pages checks are pending/not observed at preparation;
+none is claimed passed here. All-platform wheels, oldest supported runtimes, PG15,
+long properties/differential/fuzz runs and live/public artifact verification remain
+T7.11/T7.13/T7.16 gates. This documentation task changes no runtime API, on-disk
+format, dependency, package version, release, tag or deployed artifact.
+
+Human review/merge of this PR is required. Label setup, reporting/triage activation
+and new response commitments remain T7.17 human actions. No new OPEN_QUESTIONS entry
+was needed. T7.10 is not started; no release or launch approval is supplied here.
 
 An ad-hoc final log-summary reader initially failed on Windows console encoding while
 printing cargo-deny's Unicode diagnostic tree. Explicit UTF-8 output rerun succeeded
