@@ -23,7 +23,10 @@ export function prepare(source, out, info) {
     ? info.version ? `Stable release ${info.version}` : 'No stable release is available'
     : `development build (main) — ${info.version} — ${info.commit.slice(0, 7)}`;
   const complete = available && (!published || !!info.version);
-  const metadata = { ...info, label, complete };
+  const contributing = complete && fs.existsSync(path.join(source, 'CONTRIBUTING.md'));
+  const sourcePages = new Map(pages);
+  if (contributing) sourcePages.set('CONTRIBUTING.md', 'contributing');
+  const metadata = { ...info, label, complete, contributing };
   fs.writeFileSync(path.join(out, 'build-info.json'), JSON.stringify(metadata));
   const next = '[Development documentation](https://joshua-fields.github.io/pemba/docs/next/)';
   if (!complete) {
@@ -33,7 +36,7 @@ export function prepare(source, out, info) {
     fs.writeFileSync(path.join(out, 'index.md'), `# ${label}\n\n${message}\n\n${next}\n`);
     return metadata;
   }
-  for (const [file, route] of pages) {
+  for (const [file, route] of sourcePages) {
     let text = fs.readFileSync(path.join(source, file), 'utf8');
     text = text.replace(/^```zed$/gm, '```text');
     if (file === 'README.md') text = text.replace(/<p\b[^>]*>[\s\S]*?<\/p>/g, '');
@@ -45,7 +48,7 @@ export function prepare(source, out, info) {
       const [target, anchor] = (own?.[1] ?? href).split('#');
       const resolved = own ? target : path.posix.normalize(path.posix.join(path.posix.dirname(file), target));
       if (!fs.existsSync(path.join(source, resolved))) throw new Error(`${file}: missing ${href}`);
-      const local = pages.get(resolved);
+      const local = sourcePages.get(resolved);
       const sourceUrl = fs.statSync(path.join(source, resolved)).isDirectory() ? repo.replace('/blob/', '/tree/') : repo;
       const url = local ? `/${local}` : `${sourceUrl}/${resolved}`;
       return `](${url}${anchor ? `#${anchor}` : ''})`;

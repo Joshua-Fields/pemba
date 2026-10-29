@@ -48,6 +48,14 @@ try {
     await expect(page.getByRole('heading', { level: 1 })).toContainText('Commit app data and permissions together');
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
     assert.match(await page.locator('.VPSidebar').innerText(), /development build \(main\)/);
+    if (viewport.width < 600) await page.getByRole('button', { name: 'Menu', exact: true }).click();
+    const contributing = page.locator('.VPSidebar').getByRole('link', { name: 'Contributing', exact: true });
+    await contributing.focus();
+    await page.keyboard.press('Enter');
+    await page.waitForURL('**/contributing.html');
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Contributing to pemba');
+    await expect(page.getByRole('note')).toContainText('development build (main)');
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
     await page.screenshot({ path: path.join(root, `docs-${viewport.width}.png`), fullPage: false });
     await page.goto(`${origin}/pemba/docs/`);
     assert.match(await page.getByRole('heading', { level: 1 }).innerText(), /No stable release/);
