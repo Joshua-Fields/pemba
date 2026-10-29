@@ -1,8 +1,8 @@
 # 0.1.0 release evidence
 
 This is the evidence index required by M7. No stable release is approved or published.
-T7.2–T7.7 implementation evidence is recorded here; T7.8–T7.17 remain separate
-tasks and gates. T7.6 is merged; see T7.7 evidence below.
+T7.2–T7.8 implementation evidence is recorded here; T7.9–T7.17 remain separate
+tasks and gates. T7.7 is merged; see T7.8 evidence below.
 
 ## Preceding gates
 
@@ -515,7 +515,7 @@ performed by this PR.
 ## T7.8 security reporting and release safeguards
 
 Sources: T7.8 all AC; CLAUDE §2; ADR-008/ADR-011; `07` §5; `09` §4;
-`10` §3.3; approved OQ-060. Verification results will be recorded below before PR.
+`10` §3.3; approved OQ-060. Verification results and limitations are recorded below.
 
 ### Preceding gates and implementation
 
@@ -558,3 +558,68 @@ and triage activation at T7.17. Enabled settings alone do not supply human appro
 Existing required `pypi` reviewer is observed; do not bypass it. Main/tag protection,
 SHA-pinned actions and additional scanning are recorded hardening choices for the owner,
 not silently activated or treated as newly approved policy.
+
+### Reviewed security regression coverage
+
+Reviewed existing assertions instead of duplicating tests: `crates/pemba/tests/check.rs`
+checks store failures, union/intersection/exclusion error propagation, stale schema
+subjects, depth, fanout and read budgets as typed errors; `lookup.rs` fails the whole
+page on a candidate-check error and `lookup_subjects.rs` enforces depth/fanout.
+`pemba-testkit` trace/cycle/cost tests and fixture/oracle comparisons cover bounded
+cyclic evaluation without changing fail-closed semantics. These ran in the workspace
+suite below. No evaluator optimization or regression fix was introduced.
+
+Postgres `tests/migrate.rs::a_hostile_search_path_cannot_redirect_the_store` checks
+qualified tables, spoofed functions and trigger `search_path=pg_catalog, pg_temp`;
+`bad_configuration_is_an_invalid_request` checks invalid configuration and password
+redaction. `tests/foreign.rs::an_unprivileged_role_can_write_in` creates a NOSUPERUSER
+NOINHERIT app role with limited schema/table/sequence privileges and commits a foreign
+write; migrations use the separate privileged test connection. All passed against
+required PG18. This verifies the tested normal-role path, not every possible production
+grant configuration. No schema rename/repair capability is added (OQ-062 remains).
+
+Reviewed the SQLite-symbol and rustls/no-OpenSSL byte probes in `crates/pemba-py/ci/`
+and their installed-extension/wheel CI call sites. The Python TLS test requires an
+untrusted TLS server, asserts a certificate handshake error, then proves the same
+server is reachable without TLS. It ran with both service URLs and all drivers below;
+no TLS skip is counted as a pass. Wheel/platform execution remains the release matrix.
+The three fuzz targets match `07` §5 and existing manual fuzz CI; only build checks ran
+here. Fresh >=10-minute runs per target remain T7.11/T7.13.
+
+### Verification, 2026-10-29
+
+Source commit [`3c94b6901565bb412b7930b2f09dd4dff7ec2172`](https://github.com/Joshua-Fields/pemba/commit/3c94b6901565bb412b7930b2f09dd4dff7ec2172).
+Subsequent edits change release evidence only. Windows x86_64, Rust 1.99.0, CPython
+3.12.10, Node 24.20.0, wasm-bindgen 0.2.129, cargo-deny 0.20.2. Disposable PostgreSQL
+18.6 and untrusted-certificate TLS services bind loopback 57432/57433; required-service
+flags are set for Rust and the separate driver venv. Logs/harness under ignored
+`target/t7.8-*`; fresh venvs and generated assets are not committed.
+
+| Command / check | Actual result |
+|---|---|
+| Full §5 once: `cargo fmt --all -- --check`; `cargo clippy --workspace --all-targets --all-features -- -D warnings`; `cargo test --workspace --all-features` | Passed: 687 Rust tests/doctests, zero failures, required PG18 including privileged/normal-role and hostile-search-path tests. 18 ignored tests unrun; slow/property tests and implementation were not changed. |
+| `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --all-features`; separate fuzz `cargo fmt -- --check` and `cargo check --all-targets` | Passed strict docs and fuzz workspace build/format checks; fuzz targets not executed. |
+| Fresh tool-only venv, CI-pinned tools: `maturin develop`; `python -m pytest -q -rs`; `python -m mypy --strict tests` | Passed build, 168 tests and typing (15 files). One skipped Postgres module with no drivers/service URL in this venv; not a service pass. |
+| `cargo deny check` | Passed: advisories, bans, licences and sources all OK. Seven duplicate-version warnings (base64, const-oid, fallible-iterator, getrandom, syn, wasi, windows-sys), allowed by the existing warn policy; reviewed transitive/dev/platform overlap, no dependency or policy changes. |
+| `npm audit --omit=dev --prefix playground/web`; `npm audit --prefix docs/site` | Both passed: zero vulnerabilities; shipping playground graph and full documentation-tooling graph respectively. |
+| `npm test --prefix docs/site`; strict development and no-stable builds; `node docs/site/scripts/browser.mjs` | Eight regressions passed, including expected red-before-green security generation. Both builds and local link/anchor/asset checks passed without warnings. Wide/narrow keyboard navigation reaches Security with the correct heading, channel label and private-reporting URL; no browser/asset errors or horizontal overflow. Screenshots inspected. |
+| wasm32 Clippy for engine/playground and smoke target; wasm32 `wasm_smoke` under Node | Passed; four smoke tests, zero failures. |
+| `bash playground/conformance/run.sh` | Passed: 1,000 generated reference-checked cases, 1,037 fixtures; 45,323 native/WASM transcript lines byte-identical (12,499 checks, three expected check errors, 15,678 lookups). |
+| Playground WASM generation; `npm test`; production/typecheck build; size; Chromium e2e | Passed: 170 unit tests, 72 browser tests; 578.2 KB total gzip within 700 KB budget. |
+| Fresh separate CI-pinned all-driver venv with required PG18/TLS: maturin, `python -m pytest -q -rs tests/test_postgres.py tests/test_errors.py`, strict mypy, `ci/check_tls.py`, `ci/check_no_sqlite.py` | Passed: 63 Python tests, zero skips, all four driver families installed; build/typing and both binary probes passed on the built development extension. No all-platform wheel claim. |
+| `cargo test -p pemba-store-postgres --no-default-features` with required PG18 | Passed plaintext-only configuration, including conformance, equivalence, foreign writes and migrations. Full-feature paths ran in the workspace run above. |
+| CI package-file copy check; actionlint (`-shellcheck=`); final whitespace/scope check | All 20 LICENSE/NOTICE copies and README mirror byte-identical; actionlint passed with unavailable shellcheck disabled, not claimed. Whitespace/scope checks passed. |
+| Independent review of implementation and acceptance coverage | No actionable findings; reviewed approved policy, selected-source navigation, older sources, workflow filters and qualified safeguard findings. Verification results were completed afterwards. |
+
+The first container readiness probe ran before startup and reported unavailable;
+a later explicit readiness probe and `SHOW ssl=on` succeeded before test execution.
+No application fix or service skip was hidden. No confirmed release-blocking security
+finding or genuine specification ambiguity arose; no OPEN_QUESTIONS entry was added.
+Unobservable account controls remain explicit human verification gates above.
+
+Remote checks for this PR are unobserved at preparation; docs-only skips are not release
+evidence. PG15, oldest supported Python/SQLite, all-platform wheel/sdist/package dry
+runs, long properties/differential/fuzz/mutation and public deployment verification
+remain T7.11/T7.13/T7.16 gates. Nothing here supplies release sign-off or launch approval.
+No settings, APIs, on-disk formats, versions, releases, tags or deployed artifacts were
+changed. Human review/merge of this PR is required; T7.9 is not started.
