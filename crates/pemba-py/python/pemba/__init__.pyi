@@ -436,8 +436,9 @@ class Engine:
 
         `None` matches anything; `subject_relation=""` matches only subjects without a
         relation. Call again while the result's `more` is true.
-        `limit` defaults to 10,000 and must be between 1 and 10,000 inclusive, else
-        `InvalidRequestError`. Filter names must exist in the schema; permissions are
+        `limit` defaults to 10,000; zero or a representable value above 10,000 raises
+        `InvalidRequestError`. Negative or unrepresentable integers raise `OverflowError`
+        during argument conversion. Filter names must exist in the schema; permissions are
         not relations. Malformed names raise `ValueError`."""
     @overload
     def check(
@@ -525,8 +526,9 @@ class Engine:
 
         For the next page pass `cursor=result.cursor` and `at_exactly=result.revision`;
         stop when `cursor` is `None`. Any page may be empty. `iter_resources` does this for
-        you. `limit` defaults to 1,000 and must be between 1 and 1,000 inclusive
-        (`InvalidRequestError` otherwise). Exceeding 200,000 candidate nodes raises
+        you. `limit` defaults to 1,000; zero or a representable value above 1,000 raises
+        `InvalidRequestError`. Negative or unrepresentable integers raise `OverflowError`
+        during argument conversion. Exceeding 200,000 candidate nodes raises
         `EvaluationLimitError` (LOOKUP_TOO_LARGE); a candidate's evaluation error fails
         the whole page. Wildcard query subjects are invalid."""
     def iter_resources(

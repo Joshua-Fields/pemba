@@ -337,7 +337,7 @@ impl Engine {
 impl Engine {
     /// Opens (and by default migrates) a SQLite database file through CPython's sqlite3.
     ///
-    /// Requires SQLite >= MIN_SQLITE_VERSION (3.26.0). Use only connections sharing
+    /// Requires SQLite >= `MIN_SQLITE_VERSION` (3.26.0). Use only connections sharing
     /// CPython's SQLite library for this file in this process. `auto_migrate=False`
     /// requires an already migrated database (`StorageError` with `NOT_MIGRATED`).
     /// Reader pool and timeout configure engine connections, not application connections.
@@ -462,29 +462,29 @@ impl Engine {
         })
     }
 
-    /// Applies touch/create/delete atomically; without conn returns a committed Revision.
+    /// Applies touch/create/delete atomically; without conn returns a committed `Revision`.
     ///
-    /// At most 1,000 operations; larger batches raise InvalidRequestError
-    /// (BATCH_TOO_LARGE). Preconditions run before operations. Conflicts raise
-    /// WriteConflictError; schema-invalid tuples raise InvalidRelationshipError.
+    /// At most 1,000 operations; larger batches raise `InvalidRequestError`
+    /// (`BATCH_TOO_LARGE`). Preconditions run before operations. Conflicts raise
+    /// `WriteConflictError`; schema-invalid tuples raise `InvalidRelationshipError`.
     ///
-    /// With conn, returns PendingRevision and joins the caller's transaction on the
+    /// With conn, returns `PendingRevision` and joins the caller's transaction on the
     /// same database. SQLite takes a sqlite3.Connection (prefer BEGIN IMMEDIATE);
-    /// Postgres takes psycopg 3/psycopg2 connections, SQLAlchemy Session/Connection,
-    /// or django.db.connection. Async connections are unsupported (TypeError).
+    /// Postgres takes psycopg 3/psycopg2 connections, `SQLAlchemy` Session/Connection,
+    /// or django.db.connection. Async connections are unsupported (`TypeError`).
     /// The caller commits or rolls back; on error roll back the whole transaction.
-    /// Engine reads use engine connections and cannot read uncommitted application writes.
+    /// `Engine` reads use engine connections and cannot read uncommitted application writes.
     ///
-    /// After commit call pending.revision() or pass pending as at_least=. On SQLite the
+    /// After commit call `pending.revision()` or pass pending as `at_least=`. On SQLite the
     /// number is known immediately but is void after rollback and may be reused. On
-    /// Postgres resolution raises RevisionPending before commit and WriteRolledBack
+    /// Postgres resolution raises `RevisionPending` before commit and `WriteRolledBack`
     /// after rollback (including rollback to a savepoint covering the write).
     ///
-    /// No open transaction raises ValueError unless allow_autocommit=True, which lets
-    /// pemba commit its own transaction on a raw connection. SQLAlchemy and Django must
-    /// already be inside their managed transaction even with allow_autocommit=True.
-    /// A memory engine rejects conn with ValueError. A different database raises
-    /// StorageError (FOREIGN_CONNECTION_MISMATCH). TransactionConflictError requires
+    /// No open transaction raises `ValueError` unless `allow_autocommit=True`, which lets
+    /// pemba commit its own transaction on a raw connection. `SQLAlchemy` and Django must
+    /// already be inside their managed transaction even with `allow_autocommit=True`.
+    /// A memory engine rejects conn with `ValueError`. A different database raises
+    /// `StorageError` (`FOREIGN_CONNECTION_MISMATCH`). `TransactionConflictError` requires
     /// retrying the entire transaction with backoff, re-reading application state.
     #[pyo3(signature = (*, touch=None, create=None, delete=None, preconditions=None, conn=None, allow_autocommit=false))]
     #[allow(clippy::too_many_arguments)]
@@ -558,8 +558,9 @@ impl Engine {
     ///
     /// `None` matches anything; `subject_relation=""` matches only subjects without a
     /// relation. Call again while the result's `more` is true.
-    /// `limit` defaults to 10,000 and must be between 1 and 10,000 inclusive, else
-    /// `InvalidRequestError`. Filter names must exist in the schema; permissions are
+    /// `limit` defaults to 10,000; zero or a representable value above 10,000 raises
+    /// `InvalidRequestError`. Negative or unrepresentable integers raise `OverflowError`
+    /// during argument conversion. Filter names must exist in the schema; permissions are
     /// not relations. Malformed names raise `ValueError`.
     #[pyo3(signature = (*, resource_type, resource_id=None, relation=None, subject_type=None, subject_id=None, subject_relation=None, limit=None))]
     #[allow(clippy::too_many_arguments)]
@@ -661,7 +662,7 @@ impl Engine {
     /// Returns one entry per item, in order: `True`/`False`, or the `PembaError` that
     /// item failed with. Schema absence, consistency errors, storage errors and history
     /// expired by GC fail the whole call. Other evaluation errors belong to each item.
-    /// Malformed strings raise ValueError before any checks; no partial list is returned.
+    /// Malformed strings raise `ValueError` before any checks; no partial list is returned.
     #[pyo3(signature = (items, /, *, at_least=None, at_exactly=None))]
     #[allow(clippy::needless_pass_by_value)] // PyO3 extracts arguments as owned values
     fn check_bulk<'py>(
@@ -691,9 +692,10 @@ impl Engine {
     ///
     /// For the next page pass `cursor=result.cursor` and `at_exactly=result.revision`;
     /// stop when `cursor` is `None`. Any page may be empty. `iter_resources` does this for
-    /// you. `limit` defaults to 1,000 and must be between 1 and 1,000 inclusive
-    /// (`InvalidRequestError` otherwise). Exceeding 200,000 candidate nodes raises
-    /// `EvaluationLimitError` (LOOKUP_TOO_LARGE); a candidate's evaluation error fails
+    /// you. `limit` defaults to 1,000; zero or a representable value above 1,000 raises
+    /// `InvalidRequestError`. Negative or unrepresentable integers raise `OverflowError`
+    /// during argument conversion. Exceeding 200,000 candidate nodes raises
+    /// `EvaluationLimitError` (`LOOKUP_TOO_LARGE`); a candidate's evaluation error fails
     /// the whole page. Wildcard query subjects are invalid.
     #[pyo3(signature = (resource_type, permission, subject, /, *, limit=None, cursor=None, at_least=None, at_exactly=None))]
     #[allow(clippy::too_many_arguments)]
@@ -754,7 +756,7 @@ impl Engine {
     /// The result lists `ids`, or, if `wildcard` is true, means every object of the type
     /// except `excluded`; test membership with `id in result`.
     /// Not paginated; bounded by the same depth, fan-out and store-read limits as check.
-    /// Resolves every reached stored subject set: it can raise StaleRelationshipError
+    /// Resolves every reached stored subject set: it can raise `StaleRelationshipError`
     /// at historical revisions where check short-circuits past that tuple.
     #[pyo3(signature = (resource, permission, subject_type, /, *, at_least=None, at_exactly=None))]
     fn lookup_subjects(
@@ -781,8 +783,8 @@ impl Engine {
     ///
     /// Filters as in `delete_relationships`. Returns all matches, so bound the read with
     /// filters. Only relation names are valid filters, not permissions. Malformed names
-    /// raise ValueError; unknown schema names raise InvalidRequestError. Pages pin the
-    /// first revision internally; GC expiry raises ConsistencyError, never a partial list.
+    /// raise `ValueError`; unknown schema names raise `InvalidRequestError`. Pages pin the
+    /// first revision internally; GC expiry raises `ConsistencyError`, never a partial list.
     #[pyo3(signature = (*, resource_type, resource_id=None, relation=None, subject_type=None, subject_id=None, subject_relation=None, at_least=None, at_exactly=None))]
     #[allow(clippy::too_many_arguments)]
     fn read_relationships(

@@ -7,6 +7,7 @@ from pathlib import Path
 import pydoc
 
 import pemba
+import pytest
 
 
 def test_public_help_coverage() -> None:
@@ -49,3 +50,14 @@ def test_engine_stub_keywords_match_native_signatures() -> None:
         expected = {p.name for p in signature.parameters.values() if p.kind == p.KEYWORD_ONLY}
         actual = {arg.arg for arg in node.args.kwonlyargs}
         assert expected == actual, node.name
+
+
+def test_limit_help_matches_integer_conversion_errors() -> None:
+    """Native integer conversion precedes engine limit validation."""
+    engine = pemba.Engine.memory()
+    for method in (pemba.Engine.delete_relationships, pemba.Engine.lookup_resources):
+        assert "OverflowError" in (inspect.getdoc(method) or "")
+    with pytest.raises(OverflowError):
+        engine.delete_relationships(resource_type="document", limit=-1)
+    with pytest.raises(OverflowError):
+        engine.lookup_resources("document", "view", "user:anne", limit=-1)

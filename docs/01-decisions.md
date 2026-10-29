@@ -173,7 +173,8 @@ skipped. (OQ-045) Foreign-mode writes (`Engine::write_in`, Python `write(conn=..
 `PendingRevision` on every store; it is resolved at return on SQLite and after commit on
 Postgres. There is no `assign_now`. Python's `int(pending)` and index conversion worked
 with a `DeprecationWarning` in alpha.3 and were removed in alpha.4; call
-`pending.revision()` after commit, or pass the pending object as `at_least=`. (OQ-003) The engine stays sync (ADR-003).
+`pending.revision()` after commit, or pass the pending object as `at_least=`.
+(OQ-003) The engine stays sync (ADR-003).
 **Consequences.** Breaking change on the foreign-write path (T5.1). Reads below head on
 Postgres join the batch map. Full design, evidence and tasks: `docs/10-postgres.md`,
 milestone M5 in `docs/08-milestones.md`.
