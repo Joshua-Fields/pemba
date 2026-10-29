@@ -623,3 +623,7 @@ runs, long properties/differential/fuzz/mutation and public deployment verificat
 remain T7.11/T7.13/T7.16 gates. Nothing here supplies release sign-off or launch approval.
 No settings, APIs, on-disk formats, versions, releases, tags or deployed artifacts were
 changed. Human review/merge of this PR is required; T7.9 is not started.
+
+An ad-hoc final log-summary reader initially failed on Windows console encoding while
+printing cargo-deny's Unicode diagnostic tree. Explicit UTF-8 output rerun succeeded
+and verified every recorded check's zero exit code; no test or source change was needed.
