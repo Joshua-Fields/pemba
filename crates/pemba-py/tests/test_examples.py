@@ -73,3 +73,16 @@ def test_agent_authz_fixture_mirrors_the_example(tmp_path: Path, monkeypatch: py
     source = (ROOT / "examples" / "agent_authz.py").read_text(encoding="utf-8")
     touched = source[source.index("engine.write(touch=[") : source.index("])")]
     assert tuples == [line.strip().strip('",') for line in touched.splitlines()[1:] if line.strip().startswith('"')]
+
+
+def test_transactional_sqlite_tutorial(tmp_path: Path) -> None:
+    import sqlite3
+
+    path = tmp_path / "app.db"
+    scope = runpy.run_path(str(ROOT / "examples" / "transactional_sqlite.py"), run_name="example")
+    scope["run"](path)
+    with sqlite3.connect(path) as app:
+        assert app.execute("SELECT id FROM documents").fetchall() == [("committed",)]
+    engine = pemba.Engine.sqlite(path)
+    assert engine.check("document:committed", "view", "user:anne") is True
+    assert engine.check("document:rolled_back", "view", "user:anne") is False

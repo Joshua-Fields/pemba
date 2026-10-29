@@ -402,3 +402,36 @@ fn write_in_accepts_another_spelling_of_the_same_path() {
     tx.commit().unwrap();
     assert!(check(&e, Consistency::AtLeast(rev)).unwrap());
 }
+
+#[path = "../../../examples/transactional_sqlite.rs"]
+mod tutorial;
+
+#[test]
+fn transactional_tutorial_commits_one_document_and_rolls_back_the_other() {
+    let dir = TempDir::new();
+    tutorial::run(&dir.db()).unwrap();
+    let app = Connection::open(dir.db()).unwrap();
+    let rows: i64 = app
+        .query_row("SELECT count(*) FROM documents", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(rows, 1);
+    let e = engine(&dir.db());
+    assert!(
+        e.check_str(
+            "document:committed",
+            "view",
+            "user:anne",
+            Consistency::Latest
+        )
+        .unwrap()
+    );
+    assert!(
+        !e.check_str(
+            "document:rolled_back",
+            "view",
+            "user:anne",
+            Consistency::Latest
+        )
+        .unwrap()
+    );
+}

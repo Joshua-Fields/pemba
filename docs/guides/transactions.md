@@ -21,6 +21,9 @@ pending token; handle commit errors too. No open transaction normally means
 `ValueError`. `allow_autocommit=True` explicitly opts out of atomicity with app data
 and is supported for SQLite/raw psycopg, not SQLAlchemy or Django.
 
+Run the [transactional-write tutorial](transactional-tutorial.md) for executable
+Rust/Python examples on both stores, including forced rollback and regression checks.
+
 ## SQLite
 
 Use a file-backed database and a `sqlite3.Connection` with an explicit transaction

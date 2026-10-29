@@ -36,3 +36,7 @@ pemba-store-sqlite.workspace = true
 proptest.workspace = true
 # Only for the test that pins how the blocking client behaves inside a runtime.
 tokio = { version = "1.54.1", default-features = false, features = ["rt-multi-thread", "macros"] }
+
+[[example]]
+name = "transactional_postgres"
+path = "../../examples/transactional_postgres.rs"

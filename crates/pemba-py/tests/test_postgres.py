@@ -10,6 +10,7 @@ SQLAlchemy 2, Django).
 from __future__ import annotations
 
 import asyncio
+import importlib
 import os
 import uuid
 import warnings
@@ -29,7 +30,12 @@ if not URL:
         raise RuntimeError("PEMBA_PG_REQUIRED is set but PEMBA_PG_URL is not")
     pytest.skip("not run: set PEMBA_PG_URL (docs/10-postgres.md §4)", allow_module_level=True)
 
-psycopg = pytest.importorskip("psycopg")
+# Required service runs must fail rather than silently skip the tutorial without its driver.
+psycopg = (
+    importlib.import_module("psycopg")
+    if os.environ.get("PEMBA_PG_REQUIRED")
+    else pytest.importorskip("psycopg")
+)
 
 T = TypeVar("T")
 
@@ -522,3 +528,16 @@ def test_async_session_run_sync(engine: pemba.Engine, schema: str) -> None:
     pending = run_async(run())
     assert engine.check("document:readme#view@user:anne", at_least=pending)
     assert documents(schema) == ["readme"]
+
+
+def test_transactional_postgres_tutorial(schema: str) -> None:
+    import runpy
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[3]
+    scope = runpy.run_path(str(root / "examples" / "transactional_postgres.py"), run_name="example")
+    scope["run"](URL, schema)
+    assert documents(schema) == ["committed"]
+    e = pemba.Engine.postgres(URL, schema=schema)
+    assert e.check("document:committed", "view", "user:anne") is True
+    assert e.check("document:rolled_back", "view", "user:anne") is False

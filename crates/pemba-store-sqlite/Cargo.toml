@@ -23,3 +23,7 @@ rusqlite = { version = "0.40.2", default-features = false, features = ["bundled"
 
 [dev-dependencies]
 pemba-testkit.workspace = true
+
+[[example]]
+name = "transactional_sqlite"
+path = "../../examples/transactional_sqlite.rs"

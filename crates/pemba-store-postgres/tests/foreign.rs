@@ -362,3 +362,18 @@ fn an_unprivileged_role_can_write_in() {
     let rev = result.unwrap();
     assert!(f.can_view("anne", Consistency::AtLeast(rev)).unwrap());
 }
+
+#[path = "../../../examples/transactional_postgres.rs"]
+mod tutorial;
+
+#[test]
+fn transactional_tutorial_commits_one_document_and_rolls_back_the_other() {
+    let Some(url) = pg_url() else { return };
+    let schema = TestSchema::new(&url);
+    tutorial::run(&url, &schema.name).unwrap();
+    let rows = admin(&url)
+        .query(&format!("SELECT id FROM {}.documents", schema.q()), &[])
+        .unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].get::<_, String>(0), "committed");
+}

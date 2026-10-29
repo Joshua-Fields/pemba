@@ -1,8 +1,8 @@
 # 0.1.0 release evidence
 
 This is the evidence index required by M7. No stable release is approved or published.
-T7.2–T7.4 implementation evidence is recorded here; T7.5–T7.17 remain separate
-tasks and gates. T7.3 is merged; T7.4 requires PR review/merge.
+T7.2–T7.5 implementation evidence is recorded here; T7.6–T7.17 remain separate
+tasks and gates. T7.4 is merged; T7.5 requires PR review/merge.
 
 ## Preceding gates
 
@@ -305,3 +305,76 @@ not passes. Oldest Python/SQLite, PG15, all-platform wheels, package dry runs an
 property/differential/fuzz checks remain their existing CI/release gates; this is not
 T7.11/T7.13 rehearsal evidence. Human review/merge is required before T7.5. No next task,
 merge, tag, publication or deployment is authorised by this evidence.
+
+## T7.5 transactional-write tutorial and regression examples
+
+Sources: T7.5 all AC; ADR-006, ADR-008, ADR-015; `05` §10;
+`06` §1, §2.1–§2.3; `07` §3, §6; `10` §1.6.4, §2.3, §4 item 1.
+Implementation source: [`257875f1c8b3b448e104a5ce4d0ab404f989628a`](https://github.com/Joshua-Fields/pemba/commit/257875f1c8b3b448e104a5ce4d0ab404f989628a)
+on `t7.5-transactional-write-tutorial`. This subsequent evidence-only change does not
+alter any source exercised by the checks. No runtime/API, dependency, storage format,
+version, tag, publication or deployment changes.
+
+### Preceding gates
+
+Main was checked out and pulled to `5fa7024328b1e92208eba7a50c751f5a3e706aff`.
+[T7.4 PR #84](https://github.com/Joshua-Fields/pemba/pull/84) is merged at that commit
+(GitHub metadata and first-parent history verified). T7.0 plan PR #80, T7.1 decisions
+PR #81, T7.2 audit PR #82 and T7.3 docs PR #83 are merged in the same main history;
+acceptance/verification evidence is recorded above. Required T7.1 scope/helper/docs/
+security decisions remain in force. Private reporting activation and final release/
+launch approvals remain at their later human gates, not prerequisites to this tutorial.
+
+The maintainer explicitly authorised continuing T7.5 even while other Actions checks
+were still running. Prior T7.4 remote runs were not reclassified as passed here; its
+merge and recorded local AC evidence were verified. OQ-062 remains the existing
+non-blocking no-schema-rename restriction. No new specification ambiguity or product
+decision was required, and no OPEN_QUESTIONS entry was added.
+
+### Acceptance coverage
+
+| Requirement | Implementation / evidence |
+|---|---|
+| Runnable app-row + permission examples, both languages/stores | `examples/transactional_sqlite.rs`, `transactional_postgres.rs`, `transactional_sqlite.py`, `transactional_postgres.py`. The Rust examples are registered on their existing store crates, using only existing dependencies; Python Postgres uses the already supported psycopg 3 driver. |
+| Successful commit and forced rollback | All four insert `committed` plus its owner tuple, then insert `rolled_back` plus its tuple and deliberately cause an app duplicate-primary-key failure. Explicit Rust/SQLite rollback or the psycopg transaction context removes both app and permission data; surviving app row and allow/deny outcomes are asserted. |
+| Pending, resolution, consistency and error distinction | SQLite asserts resolved number plus precommit `RevisionNotYetAvailable`; Postgres asserts unresolved/`RevisionPending`. Both assert Latest cannot see the uncommitted grant, resolve after commit, allow Anne with AtLeast and deny Bob. Postgres asserts `WriteRolledBack`; SQLite discards the void/reusable token. Errors propagate distinctly from denial. |
+| Tests execute the real examples on temporary databases | Existing Rust SQLite `write_in` and PG `foreign` suites import the same Rust source as the CLI targets; Python `test_examples.py` / `test_postgres.py` execute the same scripts via runpy. Existing TempDir/TestSchema/schema fixtures provide temporary files/schemas. CLI entry points were also run directly. |
+| Required service and driver | Existing CI PG15/18 jobs run `foreign` and `test_postgres.py` with `PEMBA_PG_REQUIRED=1`. Required runs now fail on missing psycopg instead of silently skipping the module. Local PG18 driver suite has zero skips; new tutorial paths also passed on PG15. |
+| Reuse guard/rollback/savepoint coverage | Existing Rust write_in/foreign and Python foreign/postgres suites retain mismatched database, savepoint, rollback, autocommit and supported-driver guards. Only tutorial execution paths and required-driver enforcement were added. |
+| Focused guide and related examples | [Tutorial](guides/transactional-tutorial.md), linked from the existing transactions guide, documents commands, local disposable database setup, same-SQLite-copy rule, caller ownership, store-specific pending/rollback and error semantics. Links existing agent script/fixture, Google-Docs-style sharing and GitHub-like fixtures; explains memory/WASM playground cannot demonstrate real database transactions. |
+
+### Verification, 2026-10-29
+
+Windows x86_64, pinned Rust 1.99.0, CPython 3.12.10, Node 24.20.0,
+wasm-bindgen 0.2.129; all implementation checks below use `257875f`.
+The full §5 command sequence ran once. Subsequent checks cover separate graphs/services
+or correct only environment isolation; the full suite was not repeated after each edit.
+
+| Command / evidence | Result |
+|---|---|
+| Test-first example regressions | SQLite Rust compilation and SQLite/PG Python execution first failed for the absent example files. Implemented scripts then passed. No runtime library behavior was changed. |
+| Focused Rust tests / Clippy | `cargo test -p pemba-store-sqlite --test write_in -p pemba-store-postgres --test foreign`: 20 passed; `cargo clippy -p pemba-store-sqlite -p pemba-store-postgres --all-targets --all-features -- -D warnings` passed. |
+| Focused Python examples/foreign/PG | Initially 52 passed, one TLS test skipped because TLS URL was unset; that skip is not a pass. TLS was configured for the separate service run below. |
+| `cargo fmt --all -- --check` | Passed. |
+| `cargo clippy --workspace --all-targets --all-features -- -D warnings` | Passed. |
+| `cargo test --workspace --all-features` | 687 tests/doctests passed; PG18 present, `PEMBA_PG_REQUIRED=1`. 18 ignored tests unrun, not counted as passes. No slow/property tests or implementation touched; §5 conditional ignored-suite rerun is not applicable. |
+| Strict all-feature workspace docs and doctests | `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --all-features` and `cargo test --workspace --all-features --doc` passed. |
+| Separate fuzz workspace | `cargo fmt --manifest-path fuzz/Cargo.toml -- --check`; `cargo check --manifest-path fuzz/Cargo.toml --all-targets` passed. No fuzz target run. |
+| Fresh tool-only Python venv | Only maturin 1.15.0, pytest 9.1.1, mypy 2.4.0 and dependencies, then source pemba via `maturin develop`. Build passed. Initial pytest inherited required-PG variables and failed collection on missing psycopg, proving the new required-driver guard; not a pass. Removed service variables for this isolated environment and reran pytest: **168 passed, one absent-service PG module skipped**, not counted as a PG pass. `mypy --strict tests` from Python crate passed for 15 files. |
+| Separate required PG18 driver suite | Rebuilt extension in separate all-driver venv; `PEMBA_PG_URL`, `PEMBA_PG_TLS_URL`, `PEMBA_PG_REQUIRED=1`. `pytest -q -rs tests/test_postgres.py tests/test_errors.py tests/test_documentation.py tests/test_examples.py`: **70 passed, zero skips**, including psycopg 3, psycopg2, SQLAlchemy, Django, tutorial and untrusted TLS rejection. Driver versions retained from the existing CI-matched venv (psycopg 3.3.6, psycopg2 2.9.13, SQLAlchemy 2.1.6, Django 6.1.2, greenlet 3.5.6). |
+| Driver typing and probes | `mypy --strict tests` passed (15 files); `ci/check_tls.py` and `ci/check_no_sqlite.py` passed (rustls, no OpenSSL, no bundled SQLite). |
+| PG15 tutorial compatibility | Required-service `cargo test -p pemba-store-postgres --all-features --test foreign`: 10 passed; Python `test_postgres.py -k tutorial`: one passed, 33 intentionally deselected, zero skips. This is focused coverage, not the later complete PG15 release matrix. |
+| Direct example entry points | Both documented Cargo example commands and both Python scripts passed with separate fresh SQLite files / disposable PG18 schemas. No credentials embedded in source. |
+| wasm32 Clippy and smoke | Main five playground-compatible crates plus wasm_smoke Clippy passed with `-D warnings`; all 4 Node WASM smoke tests passed. |
+| Native/WASM conformance | `playground/conformance/run.sh`: 1,000 generated cases agree with reference (12,499 checks, 3 expected check errors, 15,678 lookups); 1,037 fixtures; identical native/WASM transcripts across 45,323 lines. |
+| Playground builds/tests/size/audit | WASM build, web build, 169 unit tests/10 files, 72 Chromium tests all passed; gzip 578.2 KB <700 KB; `npm audit --omit=dev`: zero shipping vulnerabilities. |
+| Package boundary spot check | `cargo package -p pemba-store-sqlite --no-verify --allow-dirty` and corresponding Postgres command succeeded. Cargo warns that root external example sources are omitted; normalized package manifests omit their targets. Tutorials intentionally describe the current checkout. This is not package build verification or publishing, and does not replace later package dry runs. |
+| Links/copies/review | Local guide file links and anchors resolve; existing README mirror test remains green; `git diff --check` passed. Fresh read-only whole-branch reviewer found no actionable correctness/scope/AC issue. |
+
+Logs and harnesses remain ignored in `target/t7.5-*`; temporary database containers
+are removed after verification. No generated output or credentials committed. New PR
+CI/platform/service/playground runs are **pending/not yet observed** at preparation;
+no skipped or unobserved remote job is counted as passed. Oldest Python/SQLite,
+all-platform wheels, package-build dry runs and long release/property/differential/fuzz
+matrix remain their existing later gates. Human review/merge is required before T7.6;
+this task does not approve a release candidate or authorise later tasks/actions.
