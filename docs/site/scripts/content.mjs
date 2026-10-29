@@ -40,12 +40,14 @@ export function prepare(source, out, info) {
     // Resolve Markdown links from the source file, preserving anchors and routing
     // copied guides locally. Other repository material stays pinned to this commit.
     text = text.replace(/\]\(([^\s)]+)\)/g, (all, href) => {
-      if (/^(?:[a-z]+:|\/|#)/i.test(href)) return all;
-      const [target, anchor] = href.split('#');
-      const resolved = path.posix.normalize(path.posix.join(path.posix.dirname(file), target));
+      const own = /^https:\/\/github\.com\/Joshua-Fields\/pemba\/(?:blob|tree)\/main\/(.+)$/.exec(href);
+      if (!own && /^(?:[a-z]+:|\/|#)/i.test(href)) return all;
+      const [target, anchor] = (own?.[1] ?? href).split('#');
+      const resolved = own ? target : path.posix.normalize(path.posix.join(path.posix.dirname(file), target));
       if (!fs.existsSync(path.join(source, resolved))) throw new Error(`${file}: missing ${href}`);
       const local = pages.get(resolved);
-      const url = local ? `/${local}` : `${repo}/${resolved}`;
+      const sourceUrl = fs.statSync(path.join(source, resolved)).isDirectory() ? repo.replace('/blob/', '/tree/') : repo;
+      const url = local ? `/${local}` : `${sourceUrl}/${resolved}`;
       return `](${url}${anchor ? `#${anchor}` : ''})`;
     });
     const dest = path.join(out, `${route}.md`);

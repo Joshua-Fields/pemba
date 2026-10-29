@@ -37,3 +37,14 @@ test('before stable and for legacy stable tags, placeholders never claim current
     fs.rmSync(out, { recursive: true, force: true });
   }
 });
+
+test('stable quick starts route absolute main guide links locally and pin other repo material', () => {
+  const out = fs.mkdtempSync(path.join(os.tmpdir(), 'pemba-stable-links-'));
+  try {
+    prepare(fileURLToPath(new URL('../../..', import.meta.url)), out, { channel: 'stable', version: '0.1.0', commit: 'released123' });
+    const readme = fs.readFileSync(path.join(out, 'quick-starts.md'), 'utf8');
+    assert.doesNotMatch(readme, /github\.com\/Joshua-Fields\/pemba\/(?:blob|tree)\/main\//);
+    assert.match(readme, /\]\(\/guides\/installation\)/);
+    assert.match(readme, /github.com\/Joshua-Fields\/pemba\/blob\/released123\/crates\/pemba-difftest\/KNOWN_DIFFERENCES.md/);
+  } finally { fs.rmSync(out, { recursive: true, force: true }); }
+});

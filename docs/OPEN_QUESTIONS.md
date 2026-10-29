@@ -1589,4 +1589,3 @@ it is resolved.
   tag's source; an older tag dispatch still selects the newest available stable tag.
 - Maintainer review: confirm these empty/legacy states with the T7.6 PR; no version,
   release, historical asset or approved route is changed by this interpretation.
-

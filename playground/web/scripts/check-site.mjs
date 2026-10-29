@@ -81,6 +81,7 @@ export function checkSite(site, versions, { docs = false } = {}) {
         }
         const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
         if (!html.includes(`name="pemba-docs-channel" content="${channel}"`)) problems.push(`${dir}: missing channel label`);
+        if (!html.includes(`name="pemba-docs-version" content="${info.version ?? 'none'}"`)) problems.push(`${dir}: wrong HTML version label`);
         if (channel === 'next' && !html.includes(DEV_LABEL)) problems.push(`${dir}: missing development label`);
         problems.push(...linkProblems(root, `/pemba/${dir}/`).map(p => `${dir}: ${p}`));
       } catch (error) { problems.push(`${dir}: ${error.message}`); }
