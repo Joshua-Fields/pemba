@@ -1162,6 +1162,9 @@ it is resolved.
   suitable constructors/builders; stable value types remain exhaustive with explicit
   rationale. Preserve downstream usability. This resolves the choice, not the audit;
   T7.2 implements it. T7.1 changes documentation only.
+  Implementation: T7.2 now implements `check_str` and the inventory in
+  `docs/PUBLIC_API_AUDIT.md`; verification is indexed in `docs/RELEASE-0.1.0.md`.
+  OQ-061 records the conservative Python mapping clarification for review.
 
 ## OQ-045 — What a foreign-mode write returns (D1)
 - Raised in: Postgres design (`docs/10-postgres.md` §0, §1.6.4)
