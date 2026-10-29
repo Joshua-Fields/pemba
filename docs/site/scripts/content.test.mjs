@@ -48,3 +48,30 @@ test('stable quick starts route absolute main guide links locally and pin other 
     assert.match(readme, /github.com\/Joshua-Fields\/pemba\/blob\/released123\/crates\/pemba-difftest\/KNOWN_DIFFERENCES.md/);
   } finally { fs.rmSync(out, { recursive: true, force: true }); }
 });
+
+test('contributors follow the selected revision, including older sources without the guide', () => {
+  const source = fs.mkdtempSync(path.join(os.tmpdir(), 'pemba-contributors-'));
+  const out = fs.mkdtempSync(path.join(os.tmpdir(), 'pemba-docs-'));
+  try {
+    fs.mkdirSync(path.join(source, 'docs/site'), { recursive: true });
+    fs.writeFileSync(path.join(source, 'docs/site/package.json'), '{}');
+    fs.mkdirSync(path.join(source, 'docs/guides'));
+    for (const name of ['installation', 'schema', 'transactions', 'transactional-tutorial', 'consistency', 'troubleshooting']) {
+      fs.writeFileSync(path.join(source, `docs/guides/${name}.md`), `# ${name}\n`);
+    }
+    fs.writeFileSync(path.join(source, 'README.md'), '# Selected revision\n');
+    let info = prepare(source, out, { channel: 'stable', version: '0.1.0', commit: 'older123' });
+    assert.equal(info.contributing, false);
+    assert.equal(fs.existsSync(path.join(out, 'contributing.md')), false);
+    fs.writeFileSync(path.join(source, 'CONTRIBUTING.md'), '# Contributing to pemba\n\nRead [the rules](CLAUDE.md) and [installation](docs/guides/installation.md).\n');
+    fs.writeFileSync(path.join(source, 'CLAUDE.md'), '# Rules\n');
+    info = prepare(source, out, { channel: 'next', version: '0.1.0-alpha.4', commit: 'newer123' });
+    assert.equal(info.contributing, true);
+    const guide = fs.readFileSync(path.join(out, 'contributing.md'), 'utf8');
+    assert.match(guide, /blob\/newer123\/CLAUDE.md/);
+    assert.match(guide, /\[installation\]\(\/guides\/installation\)/);
+  } finally {
+    fs.rmSync(source, { recursive: true, force: true });
+    fs.rmSync(out, { recursive: true, force: true });
+  }
+});

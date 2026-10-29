@@ -1,8 +1,8 @@
 # 0.1.0 release evidence
 
 This is the evidence index required by M7. No stable release is approved or published.
-T7.2–T7.6 implementation evidence is recorded here; T7.7–T7.17 remain separate
-tasks and gates. T7.5 is merged; see T7.6 evidence below.
+T7.2–T7.7 implementation evidence is recorded here; T7.8–T7.17 remain separate
+tasks and gates. T7.6 is merged; see T7.7 evidence below.
 
 ## Preceding gates
 
@@ -437,3 +437,77 @@ and live public docs verification remains T7.16. All-platform wheels, oldest sup
 platforms and long release/property/differential/fuzz verification remain their later
 gates. Maintainer review of OQ-063 and this PR's merge are required before T7.7.
 No APIs, storage formats, releases, tags or deployed artifacts were changed.
+
+
+## T7.7 developer onboarding
+
+Sources: T7.7 all AC; `CLAUDE.md` §§2–6; `07` §§1–6; `09` §§1–5.
+Implementation/source commit: [`6937663f27556d1cd188297e99590ca6c3e3595f`](https://github.com/Joshua-Fields/pemba/commit/6937663f27556d1cd188297e99590ca6c3e3595f)
+on `t7.7-developer-onboarding`. Subsequent evidence-only edits do not change the
+exercised guide, site, workflows or runtime sources.
+
+### Preceding gates
+
+Fresh clone into this task's workspace, then `git checkout main` and `git pull`:
+main `2d861878f8edbe3cbf1b37ba563cda08b3839cf0`, clean and up to date.
+First-parent history confirms T7.0–T7.6 PRs #80–#86 merged; GitHub metadata confirms
+previous implementation [PR #86](https://github.com/Joshua-Fields/pemba/pull/86)
+merged 2026-10-29 at that main commit. Earlier AC evidence is indexed above and the
+required T7.1 maintainer decisions remain recorded in PR #81/OQ-044/OQ-058–OQ-060.
+OQ-063's conservative no-stable/legacy presentation was presented for maintainer
+review in the now-merged #86; its non-blocking interpretation is retained. OQ-062
+remains non-blocking for the documented no-rename path. No new product decision or
+specification ambiguity arose. The maintainer explicitly authorised T7.7 to continue
+while other Actions checks run; prior pending checks are not reclassified as passes.
+Later security activation, release approval/publication and launch remain human gates.
+
+### Acceptance coverage
+
+| Requirement | Implementation / evidence |
+|---|---|
+| Clean setup and prerequisite pins | New root `CONTRIBUTING.md` reuses `rust-toolchain.toml`, Node 24 and the exact CI Python tool/driver pins; describes native compilers, Python/SQLite floors, Bash/PowerShell setup and a fresh tool-only venv. No new dependencies or alternate pin files. |
+| Layout and regression workflow | Guide maps crates, fixtures, oracle, examples, docs, playground and separate fuzz workspace; demonstrates one fixture, independent oracle-backed corpus, saved regressions, focused tests and relevant dependents. |
+| Pre-PR versus long release work | Full §5 commands, separate fuzz checks, strict docs, applicable WASM/playground, Postgres/TLS/driver flags, SpiceDB required-service flag, honest skip reporting; long properties/differential/fuzz/wheel/platform verification stays at its release gates. |
+| Contribution rules and boundaries | One task/branch/PR, conventional commits, spec/API/format changes, human ADR decisions, dependency justification/licences, fail closed, original code/attribution and no automatic release actions. |
+| Contributor site navigation | Generated from the selected revision's root guide, with local guide links and commit-pinned repository links; omit page/navigation when an older selected source lacks it. Existing workflow path filters include `CONTRIBUTING.md` for rebuilds. No competing deployer. |
+| Clean onboarding exercised | New clone, fresh local Cargo output (no shared target), fresh tool-only venv and locked npm installs; compiled CLI, imported extension, one fixture, focused Rust/Python tests and strict docs builds executed below. |
+
+### Verification, 2026-10-29
+
+Windows x86_64; Rust 1.99.0; CPython 3.12.10; Node 24.20.0; wasm-bindgen 0.2.129.
+Disposable Postgres 18.6 containers use loopback ports 56432/56433, with separate
+untrusted-certificate TLS service and required-service flags. Commands/logs/harness
+remain ignored under `target/t7.7-*`; venvs and generated artifacts are not committed.
+
+| Command / check | Actual result |
+|---|---|
+| `cargo build --locked -p pemba-cli`; `maturin develop --manifest-path crates/pemba-py/Cargo.toml`; `python -c "import pemba; print(pemba.__file__); print(pemba.Engine.memory())"` | Passed from fresh build output and isolated venv; import points to this checkout's installed extension/package. |
+| `cargo run --locked -q -p pemba-cli -- test testdata/fixtures/direct.yaml` | Passed: one memory fixture, 26 checks. |
+| `cargo test -q -p pemba-testkit --test fixtures`; `cargo test -q -p pemba-schema`; focused schema Clippy; `python -m pytest -q tests/test_readme_example.py` | Passed: 18 fixture tests, 158 schema tests/doctests, lint and two Python README tests. |
+| Full §5 once: fmt, workspace all-target/all-feature Clippy, workspace all-feature tests | Passed: 687 Rust tests/doctests, zero failures, with required PG18 service. 18 ignored tests unrun, not passes; no slow/property implementation or tests changed. |
+| `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --all-features`; separate fuzz fmt/all-target check | Passed. Actual nightly fuzz runs remain later release checks. |
+| Tool-only fresh venv: maturin, `python -m pytest -q -rs`, `python -m mypy --strict tests` | Passed build, 168 tests and typing (15 files); one skipped Postgres module because this venv deliberately has no drivers/service URL. That skip is not a Postgres pass; separate service results below. |
+| wasm32 Clippy (engine/playground and smoke target), Node smoke test | Passed; four WASM tests, zero failures. |
+| `npm test --prefix docs/site`; strict development and no-stable builds; `node docs/site/scripts/browser.mjs` | Passed: seven regressions, both builds with no warnings; wide/narrow keyboard navigation reaches Contributing with correct heading/development label and no missing assets/browser errors or horizontal overflow. Screenshots also inspected. |
+| New contributor regression | Observed expected failure before implementation, then pass: old sources omit contributor content, new source uses its guide and selected revision's links. Existing older-tag assembly/release tests retained. |
+| CI package copies and workflow syntax | All 20 LICENSE/NOTICE copies and README mirror byte-identical; actionlint passed with unavailable shellcheck disabled. Shellcheck is not claimed. |
+| Fresh independent review | No actionable findings; reviewed guide commands, service environment, source-version navigation, workflow filters and T7.7 AC. |
+| `bash playground/conformance/run.sh` | Passed: 1,000 generated reference-checked cases, 1,037 fixtures; native and WASM byte-identical across 45,323 transcript lines (12,499 checks, three expected check errors, 15,678 lookups). |
+| Playground WASM generation, unit tests, production/typecheck build, size and Chromium e2e | Passed: 170 unit tests, 72 browser tests, 578.2 KB total gzip against 700 KB budget. |
+| `npm audit --omit=dev --prefix playground/web`; `npm audit --prefix docs/site` | Passed: zero vulnerabilities in shipping playground dependencies and full docs-tooling dependencies. |
+| Separate CI-pinned all-driver venv, required PG18/TLS: maturin, `python -m pytest -q -rs tests/test_postgres.py tests/test_errors.py`, strict mypy, TLS/no-SQLite probes | Passed: 63 Python tests, zero skips; all four driver families installed. Build, typing and both binary probes passed. |
+| `cargo test -p pemba-store-postgres --no-default-features` with required service | Passed, including plaintext-only configuration. Full-feature store conformance/equivalence/foreign-write tests also passed in the full workspace run above. |
+
+Only evidence documentation changed after the verified source commit. Final whitespace,
+local contributor link targets, package-file copies and scope checks passed. An ad-hoc
+local link-check script initially used Windows' default text encoding; rerunning it
+with explicit UTF-8 passed (no product/source change). Disposable services were stopped
+after verification. No unavailable, skipped or unobserved check is counted as passed.
+The new PR's remote checks are not observed at preparation; docs-only CI skips are not
+release evidence. PG15, oldest-platform checks, the all-platform wheel/package matrix,
+long properties/differential/fuzz/mutation runs and live deployment verification remain
+T7.11/T7.13/T7.16 gates, not claims made by this onboarding task.
+
+No API, storage format, package version, release, tag or deployed artifact changed.
+Human review/merge is required before T7.8. No release approval or next-task action is
+performed by this PR.

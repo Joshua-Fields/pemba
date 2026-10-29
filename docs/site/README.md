@@ -4,7 +4,8 @@ The T7.1-approved VitePress site uses the existing Pages assembly. Guides remain
 `docs/guides/`; the build generates views, rewrites their local links and pins other
 repository links to the selected source commit. Quick starts reuse README verbatim
 (apart from presentation: image HTML is omitted and `zed` fences render as plain text).
-Contributor, security and roadmap navigation waits for T7.7–T7.9.
+Contributor content reuses root `CONTRIBUTING.md` when it exists in the selected
+revision; older sources omit that navigation. Security and roadmap wait for T7.8–T7.9.
 
 From the repository root, with Node 24:
 
