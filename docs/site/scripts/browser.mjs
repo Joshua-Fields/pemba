@@ -33,6 +33,8 @@ try {
     page.on('response', response => { if (response.status() >= 400) errors.push(`${response.status()} ${response.url()}`); });
     await page.goto(`${origin}/pemba/docs/next/`);
     await page.waitForFunction(() => document.querySelector('.VPNavBarSearch'));
+    await expect(page.getByRole('note')).toBeVisible();
+    await expect(page.getByRole('note')).toContainText('development build (main)');
     const skip = page.getByRole('link', { name: 'Skip to content' });
     await page.keyboard.press('Tab');
     assert.equal(await skip.evaluate(el => el === document.activeElement), true);
@@ -57,4 +59,3 @@ try {
   await browser.close();
   server.close();
 }
-
