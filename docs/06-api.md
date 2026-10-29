@@ -638,6 +638,11 @@ Rules:
 - `read_relationships` returns every match, paging internally at the first page's
   revision; bound it with filters.
 - Malformed tuple/object strings raise `ValueError` (argument mistakes), not `PembaError`.
+- Native unsigned integer arguments (for example, `lookup_resources(limit=...)` as
+  `u32` and `delete_relationships(limit=...)` as `usize`) reject negative or
+  unrepresentable integers with built-in `OverflowError` during argument conversion.
+  Representable limits of zero or above the engine's configured maximum instead raise
+  `InvalidRequestError`. These are existing argument-conversion rules, not new limits.
 - Migration is a store concern (OQ-025 (d)), so there is no `Engine.migrate()`:
   `Engine.sqlite(path)` migrates on open while `auto_migrate=True` (the default); a
   production deploy step runs `Engine.sqlite(path, auto_migrate=True)` once, and app
@@ -713,7 +718,8 @@ something that works but costs more than it should (on Postgres, an early trigge
 firing, `10` §1.6.7).
 `retryable` is `StoreError::is_retryable()` (true for `TRANSACTION_CONFLICT` and a
 persistent `SchemaChanged`), else false.
-Python argument mistakes raise built-in `ValueError` / `TypeError`, not `PembaError`.
+Python argument mistakes raise built-in `ValueError` / `TypeError` (or `OverflowError`
+for native integer conversion as above), not `PembaError`.
 
 ### 2.4 FastAPI helper (stretch, `pemba.contrib.fastapi`)
 
