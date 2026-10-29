@@ -1,0 +1,43 @@
+name: Bug report
+description: Report a non-sensitive correctness, installation or documentation problem.
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Suspected vulnerabilities (including authorization bypasses) belong in [private reporting](https://github.com/Joshua-Fields/pemba/security/advisories/new), following [SECURITY.md](https://github.com/Joshua-Fields/pemba/blob/main/SECURITY.md). Never post exploit details, credentials or private data here. Use synthetic identifiers and disposable databases. Search existing issues and review [known differences](https://github.com/Joshua-Fields/pemba/blob/main/crates/pemba-difftest/KNOWN_DIFFERENCES.md) first.
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Package/CLI version, or exact commit for a source checkout; include Rust/Python versions.
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Store and platform
+      description: Memory, SQLite or Postgres; database/driver version, OS/architecture, enabled features and installation method. No connection strings or secrets.
+    validations:
+      required: true
+  - type: textarea
+    id: model
+    attributes:
+      label: Minimal schema and tuples
+      description: Use a minimal synthetic model. If unrelated (for example installation), explain why this is not applicable.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: results
+    attributes:
+      label: Expected and actual result
+      description: Include the query, expected behavior, actual behavior and sanitized error code/trace. Distinguish allowed, denied and evaluation errors.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Safe reproduction
+      description: Minimal commands/code using synthetic data and a disposable database; include transaction commit/rollback and consistency/revision choices if relevant. Never include a production database dump or sensitive share link.
+    validations:
+      required: true
