@@ -137,6 +137,7 @@ pub enum SubjectRelMatch {
 
 /// Reverse-index read: which `(resource, relation)` pairs have this subject?
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub struct ReverseFilter {
     /// Subject type.
     pub subject_type: TypeName,
@@ -153,6 +154,7 @@ pub struct ReverseFilter {
 /// Live-tuple count for one `(resource_type, relation, subject kind)` group, used by
 /// schema-change safety checks (`docs/05-storage.md` §7).
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[non_exhaustive]
 pub struct RelationCount {
     /// Resource type.
     pub resource_type: TypeName,
@@ -171,6 +173,7 @@ pub struct RelationCount {
 
 /// One stored schema version.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub struct StoredSchema {
     /// 1 for the first schema written, then increasing by one.
     pub version: u64,
@@ -184,6 +187,7 @@ pub struct StoredSchema {
 
 /// Outcome of [`WritableStore::gc`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub struct GcStats {
     /// Deleted tuple rows physically removed.
     pub rows_removed: u64,
@@ -200,6 +204,7 @@ pub const GC_BATCH_ROWS: usize = 10_000;
 
 /// Outcome of a delete-by-filter (`docs/02-data-model.md` §5).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub struct DeleteResult {
     /// Live tuples deleted (at `revision`).
     pub deleted: u64,
@@ -713,4 +718,76 @@ pub fn relationship_columns(r: &Relationship) -> [&str; 6] {
 /// Compares relationships in [`relationship_columns`] order.
 pub fn cmp_relationships(a: &Relationship, b: &Relationship) -> Ordering {
     relationship_columns(a).cmp(&relationship_columns(b))
+}
+
+impl ReverseFilter {
+    /// Matches this subject; resource type and relation restrictions default to `None`.
+    pub fn new(
+        subject_type: TypeName,
+        subject_id: String,
+        subject_relation: SubjectRelMatch,
+    ) -> Self {
+        Self {
+            subject_type,
+            subject_id,
+            subject_relation,
+            resource_type: None,
+            relation: None,
+        }
+    }
+}
+
+impl RelationCount {
+    /// Constructs this store value from all its fields.
+    pub fn new(
+        resource_type: TypeName,
+        relation: RelName,
+        subject_type: TypeName,
+        subject_relation: Option<RelName>,
+        wildcard: bool,
+        count: u64,
+    ) -> Self {
+        Self {
+            resource_type,
+            relation,
+            subject_type,
+            subject_relation,
+            wildcard,
+            count,
+        }
+    }
+}
+
+impl StoredSchema {
+    /// Constructs this store value from all its fields.
+    pub fn new(version: u64, source: String, hash: String, created_rev: Revision) -> Self {
+        Self {
+            version,
+            source,
+            hash,
+            created_rev,
+        }
+    }
+}
+
+impl GcStats {
+    /// Constructs this store value from all its fields.
+    pub fn new(rows_removed: u64, horizon: Revision, batches: u64) -> Self {
+        Self {
+            rows_removed,
+            horizon,
+            batches,
+        }
+    }
+}
+
+impl DeleteResult {
+    /// Constructs this store value from all its fields.
+    pub fn new(deleted: u64, more: bool, revision: Revision) -> Self {
+        Self {
+            deleted,
+            more,
+            revision,
+        }
+    }
 }

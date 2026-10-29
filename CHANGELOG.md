@@ -10,6 +10,28 @@ The Rust crates and the Python package share one version: `0.1.0-alpha.4` on cra
 
 ## [Unreleased]
 
+### Breaking
+
+- Rust public API audit (T3.9/T7.2): extensible request/filter, response/statistics,
+  store result and fixture report structs are now `#[non_exhaustive]`. Migrate request
+  literals to `CheckRequest::new`, `CheckItem::new`, `WriteRequest::new` (or `Default`),
+  and the existing lookup/read/filter constructors, then assign optional public fields.
+  Match outputs with `..`; custom stores use the new `ReverseFilter`, `RelationCount`,
+  `StoredSchema`, `GcStats` and `DeleteResult` constructors. Fixture producers use
+  `Failure::new` and `Report::default`. See `docs/PUBLIC_API_AUDIT.md` for every decision.
+  Existing config defaults/setters, stable tuple/revision value types and storage formats
+  are unchanged.
+
+### Added
+
+- Rust `Engine::check_str(resource, permission, subject, consistency) -> Result<bool, Error>`:
+  canonical parsing, then the existing typed check. The specified `Error::Parse` is now
+  implemented with code `PARSE`; other check errors propagate unchanged. Python preserves
+  built-in `ValueError` for malformed arguments; its stubs/signatures are unchanged.
+- OQ-044 is complete: only `check_str` is implemented. Use typed write/delete APIs and
+  `pemba_schema::compile` instead of the removed promises of Rust `write_str`, `delete_str`
+  and static `Engine::validate_schema`. Python schema validation remains available.
+
 ### Fixed
 
 - Playground deployment: tags dispatch deployment through main so GitHub Pages does

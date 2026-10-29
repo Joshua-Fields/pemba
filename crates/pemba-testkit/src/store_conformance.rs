@@ -101,9 +101,10 @@ fn ty(s: &str) -> TypeName {
 }
 
 fn batch(ops: impl IntoIterator<Item = WriteOp>) -> WriteRequest {
-    WriteRequest {
-        ops: ops.into_iter().collect(),
-        preconditions: Vec::new(),
+    {
+        let mut api_request = WriteRequest::new(ops.into_iter().collect());
+        api_request.preconditions = Vec::new();
+        api_request
     }
 }
 
@@ -149,14 +150,7 @@ fn all(s: &dyn WritableStore, rev: Revision, resource_type: &str) -> Vec<String>
 }
 
 fn count(rt: &str, r: &str, st: &str, sr: Option<&str>, wildcard: bool, n: u64) -> RelationCount {
-    RelationCount {
-        resource_type: ty(rt),
-        relation: name(r),
-        subject_type: ty(st),
-        subject_relation: sr.map(name),
-        wildcard,
-        count: n,
-    }
+    RelationCount::new(ty(rt), name(r), ty(st), sr.map(name), wildcard, n)
 }
 
 fn head(s: &dyn WritableStore) -> Revision {
@@ -169,12 +163,11 @@ fn filter(resource_type: &str) -> RelationshipFilter {
 
 fn reverse(subject: &str, subject_relation: SubjectRelMatch) -> ReverseFilter {
     let (t, id) = subject.split_once(':').unwrap();
-    ReverseFilter {
-        subject_type: ty(t),
-        subject_id: id.to_owned(),
-        subject_relation,
-        resource_type: None,
-        relation: None,
+    {
+        let mut api_request = ReverseFilter::new(ty(t), id.to_owned(), subject_relation);
+        api_request.resource_type = None;
+        api_request.relation = None;
+        api_request
     }
 }
 
@@ -370,18 +363,21 @@ fn preconditions(s: &dyn WritableStore) {
     let a = "doc:1#viewer@user:anne";
     let r1 = write(s, &touch(&[a]));
 
-    let anne_on_doc1 = RelationshipFilter {
-        resource_id: Some("1".parse().unwrap()),
-        subject_id: Some("anne".to_owned()),
-        ..filter("doc")
+    let anne_on_doc1 = {
+        let mut api_request = filter("doc");
+        api_request.resource_id = Some("1".parse().unwrap());
+        api_request.subject_id = Some("anne".to_owned());
+        api_request
     };
-    let anything_on_doc2 = RelationshipFilter {
-        resource_id: Some("2".parse().unwrap()),
-        ..filter("doc")
+    let anything_on_doc2 = {
+        let mut api_request = filter("doc");
+        api_request.resource_id = Some("2".parse().unwrap());
+        api_request
     };
-    let with_pre = |pre: Vec<Precondition>| WriteRequest {
-        ops: vec![WriteOp::Touch(rel("doc:9#viewer@user:zed"))],
-        preconditions: pre,
+    let with_pre = |pre: Vec<Precondition>| {
+        let mut api_request = WriteRequest::new(vec![WriteOp::Touch(rel("doc:9#viewer@user:zed"))]);
+        api_request.preconditions = pre;
+        api_request
     };
 
     let r2 = write(
@@ -414,9 +410,10 @@ fn preconditions(s: &dyn WritableStore) {
     assert_eq!(head(s), r2);
 
     // Preconditions see the state before the batch, not the batch's own ops.
-    let req = WriteRequest {
-        ops: vec![WriteOp::Touch(rel("doc:2#viewer@user:bob"))],
-        preconditions: vec![Precondition::MustExist(anything_on_doc2.clone())],
+    let req = {
+        let mut api_request = WriteRequest::new(vec![WriteOp::Touch(rel("doc:2#viewer@user:bob"))]);
+        api_request.preconditions = vec![Precondition::MustExist(anything_on_doc2.clone())];
+        api_request
     };
     assert!(matches!(
         s.write(&req, None).unwrap_err(),
@@ -425,9 +422,10 @@ fn preconditions(s: &dyn WritableStore) {
 
     // Deleted tuples do not satisfy MustExist.
     write(s, &delete(&[a]));
-    let req = WriteRequest {
-        ops: vec![],
-        preconditions: vec![Precondition::MustExist(anne_on_doc1)],
+    let req = {
+        let mut api_request = WriteRequest::new(vec![]);
+        api_request.preconditions = vec![Precondition::MustExist(anne_on_doc1)];
+        api_request
     };
     assert!(matches!(
         s.write(&req, None).unwrap_err(),
@@ -439,25 +437,29 @@ fn preconditions(s: &dyn WritableStore) {
         s,
         &touch(&["doc:3#viewer@user:*", "doc:3#viewer@group:eng#member"]),
     );
-    let doc3 = |f: RelationshipFilter| RelationshipFilter {
-        resource_id: Some("3".parse().unwrap()),
-        ..f
+    let doc3 = |f: RelationshipFilter| {
+        let mut api_request = f;
+        api_request.resource_id = Some("3".parse().unwrap());
+        api_request
     };
-    let wildcard = doc3(RelationshipFilter {
-        subject_id: Some("*".to_owned()),
-        ..filter("doc")
+    let wildcard = doc3({
+        let mut api_request = filter("doc");
+        api_request.subject_id = Some("*".to_owned());
+        api_request
     });
-    let group_no_rel = doc3(RelationshipFilter {
-        subject_type: Some(ty("group")),
-        subject_relation: Some(None),
-        ..filter("doc")
+    let group_no_rel = doc3({
+        let mut api_request = filter("doc");
+        api_request.subject_type = Some(ty("group"));
+        api_request.subject_relation = Some(None);
+        api_request
     });
-    let req = WriteRequest {
-        ops: vec![],
-        preconditions: vec![
+    let req = {
+        let mut api_request = WriteRequest::new(vec![]);
+        api_request.preconditions = vec![
             Precondition::MustExist(wildcard),
             Precondition::MustNotExist(group_no_rel),
-        ],
+        ];
+        api_request
     };
     write(s, &req);
 }
@@ -466,23 +468,27 @@ fn error_precedence(s: &dyn WritableStore) {
     // docs/05 §5 order: duplicates, then preconditions, then Create conflicts.
     let a = "doc:1#viewer@user:anne";
     write(s, &touch(&[a]));
-    let never = Precondition::MustExist(RelationshipFilter {
-        resource_id: Some("nope".parse().unwrap()),
-        ..filter("doc")
+    let never = Precondition::MustExist({
+        let mut api_request = filter("doc");
+        api_request.resource_id = Some("nope".parse().unwrap());
+        api_request
     });
 
-    let dup_and_pre = WriteRequest {
-        ops: vec![WriteOp::Touch(rel(a)), WriteOp::Touch(rel(a))],
-        preconditions: vec![never.clone()],
+    let dup_and_pre = {
+        let mut api_request =
+            WriteRequest::new(vec![WriteOp::Touch(rel(a)), WriteOp::Touch(rel(a))]);
+        api_request.preconditions = vec![never.clone()];
+        api_request
     };
     assert!(matches!(
         s.write(&dup_and_pre, None).unwrap_err(),
         Error::DuplicateInBatch(_)
     ));
 
-    let pre_and_create = WriteRequest {
-        ops: vec![WriteOp::Create(rel(a))],
-        preconditions: vec![never],
+    let pre_and_create = {
+        let mut api_request = WriteRequest::new(vec![WriteOp::Create(rel(a))]);
+        api_request.preconditions = vec![never];
+        api_request
     };
     assert!(matches!(
         s.write(&pre_and_create, None).unwrap_err(),
@@ -664,20 +670,23 @@ fn read_reverse_filters(s: &dyn WritableStore) {
         read(r2, &anne),
         ["doc:1#editor", "doc:1#viewer", "folder:x#viewer"]
     );
-    let docs_only = ReverseFilter {
-        resource_type: Some(ty("doc")),
-        ..anne.clone()
+    let docs_only = {
+        let mut api_request = anne.clone();
+        api_request.resource_type = Some(ty("doc"));
+        api_request
     };
     assert_eq!(read(r2, &docs_only), ["doc:1#editor", "doc:1#viewer"]);
-    let viewer_only = ReverseFilter {
-        relation: Some(name("viewer")),
-        ..anne.clone()
+    let viewer_only = {
+        let mut api_request = anne.clone();
+        api_request.relation = Some(name("viewer"));
+        api_request
     };
     assert_eq!(read(r2, &viewer_only), ["doc:1#viewer", "folder:x#viewer"]);
-    let both = ReverseFilter {
-        resource_type: Some(ty("doc")),
-        relation: Some(name("viewer")),
-        ..anne
+    let both = {
+        let mut api_request = anne;
+        api_request.resource_type = Some(ty("doc"));
+        api_request.relation = Some(name("viewer"));
+        api_request
     };
     assert_eq!(read(r2, &both), ["doc:1#viewer"]);
 
@@ -719,49 +728,56 @@ fn read_relationships_filters(s: &dyn WritableStore) {
     assert_eq!(read(filter("folder")), ["folder:1#viewer@user:anne"]);
     assert_empty(&read(filter("nothing")));
 
-    let id2 = RelationshipFilter {
-        resource_id: Some("2".parse().unwrap()),
-        ..filter("doc")
+    let id2 = {
+        let mut api_request = filter("doc");
+        api_request.resource_id = Some("2".parse().unwrap());
+        api_request
     };
     assert_eq!(
         read(id2),
         sorted(&["doc:2#viewer@user:bob", "doc:2#viewer@group:eng"])
     );
-    let editors = RelationshipFilter {
-        relation: Some(name("editor")),
-        ..filter("doc")
+    let editors = {
+        let mut api_request = filter("doc");
+        api_request.relation = Some(name("editor"));
+        api_request
     };
     assert_eq!(read(editors), ["doc:1#editor@user:anne"]);
-    let groups = RelationshipFilter {
-        subject_type: Some(ty("group")),
-        ..filter("doc")
+    let groups = {
+        let mut api_request = filter("doc");
+        api_request.subject_type = Some(ty("group"));
+        api_request
     };
     assert_eq!(
         read(groups.clone()),
         sorted(&["doc:1#viewer@group:eng#member", "doc:2#viewer@group:eng"])
     );
-    let group_objects = RelationshipFilter {
-        subject_relation: Some(None),
-        ..groups.clone()
+    let group_objects = {
+        let mut api_request = groups.clone();
+        api_request.subject_relation = Some(None);
+        api_request
     };
     assert_eq!(read(group_objects), ["doc:2#viewer@group:eng"]);
-    let group_members = RelationshipFilter {
-        subject_relation: Some(Some(name("member"))),
-        ..groups
+    let group_members = {
+        let mut api_request = groups;
+        api_request.subject_relation = Some(Some(name("member")));
+        api_request
     };
     assert_eq!(read(group_members), ["doc:1#viewer@group:eng#member"]);
-    let anne = RelationshipFilter {
-        subject_id: Some("anne".to_owned()),
-        ..filter("doc")
+    let anne = {
+        let mut api_request = filter("doc");
+        api_request.subject_id = Some("anne".to_owned());
+        api_request
     };
     assert_eq!(
         read(anne),
         sorted(&["doc:1#viewer@user:anne", "doc:1#editor@user:anne"])
     );
-    let wildcards = RelationshipFilter {
-        subject_type: Some(ty("user")),
-        subject_id: Some("*".to_owned()),
-        ..filter("doc")
+    let wildcards = {
+        let mut api_request = filter("doc");
+        api_request.subject_type = Some(ty("user"));
+        api_request.subject_id = Some("*".to_owned());
+        api_request
     };
     assert_eq!(read(wildcards), ["doc:1#viewer@user:*"]);
 }

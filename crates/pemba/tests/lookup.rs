@@ -51,12 +51,14 @@ definition document {
 ";
 
 fn touch(rels: &[&str]) -> WriteRequest {
-    WriteRequest {
-        ops: rels
-            .iter()
-            .map(|r| WriteOp::Touch(r.parse::<Relationship>().unwrap()))
-            .collect(),
-        preconditions: Vec::new(),
+    {
+        let mut api_request = WriteRequest::new(
+            rels.iter()
+                .map(|r| WriteOp::Touch(r.parse::<Relationship>().unwrap()))
+                .collect(),
+        );
+        api_request.preconditions = Vec::new();
+        api_request
     }
 }
 
@@ -103,9 +105,10 @@ fn page<S: WritableStore>(
 
 /// Every page concatenated, following cursors at the first page's revision.
 fn all<S: WritableStore>(e: &Engine<S>, query: &str, limit: Option<u32>) -> Vec<String> {
-    let mut req = LookupResourcesRequest {
-        limit,
-        ..request(query)
+    let mut req = {
+        let mut api_request = request(query);
+        api_request.limit = limit;
+        api_request
     };
     let mut ids = Vec::new();
     loop {
@@ -340,9 +343,10 @@ fn pages_follow_the_cursor_in_byte_order() {
         "document:B#viewer@user:anne",
         "document:c#banned@user:anne",
     ]);
-    let mut req = LookupResourcesRequest {
-        limit: Some(2),
-        ..request("document#view_not_banned@user:anne")
+    let mut req = {
+        let mut api_request = request("document#view_not_banned@user:anne");
+        api_request.limit = Some(2);
+        api_request
     };
     let first = e.lookup_resources(req.clone()).unwrap();
     assert_eq!(first.resource_ids, ids(&["B", "a"]));
@@ -360,9 +364,10 @@ fn pages_follow_the_cursor_in_byte_order() {
     assert_eq!(third.next_cursor, None);
     // A cursor need not be a result.
     let from_middle = e
-        .lookup_resources(LookupResourcesRequest {
-            cursor: Some("a0".parse().unwrap()),
-            ..request("document#view@user:anne")
+        .lookup_resources({
+            let mut api_request = request("document#view@user:anne");
+            api_request.cursor = Some("a0".parse().unwrap());
+            api_request
         })
         .unwrap();
     assert_eq!(from_middle.resource_ids, ids(&["b"]));
@@ -385,9 +390,10 @@ fn limit_must_be_between_one_and_max_lookup_results() {
     );
     for limit in [0, 3] {
         let err = e
-            .lookup_resources(LookupResourcesRequest {
-                limit: Some(limit),
-                ..request("document#view@user:anne")
+            .lookup_resources({
+                let mut api_request = request("document#view@user:anne");
+                api_request.limit = Some(limit);
+                api_request
             })
             .unwrap_err();
         assert!(matches!(err, Error::InvalidRequest { .. }), "{err:?}");
@@ -466,9 +472,10 @@ fn invalid_requests_are_refused() {
 fn consistency_is_checked() {
     let e = engine(&["document:a#viewer@user:anne"]);
     let err = e
-        .lookup_resources(LookupResourcesRequest {
-            consistency: Consistency::AtLeast(Revision(99)),
-            ..request("document#view@user:anne")
+        .lookup_resources({
+            let mut api_request = request("document#view@user:anne");
+            api_request.consistency = Consistency::AtLeast(Revision(99));
+            api_request
         })
         .unwrap_err();
     assert!(
@@ -488,9 +495,10 @@ fn later_pages_read_the_first_pages_revision<S: WritableStore>(store: S) {
         &["document:a#viewer@user:anne", "document:c#viewer@user:anne"],
     );
     let first = e
-        .lookup_resources(LookupResourcesRequest {
-            limit: Some(1),
-            ..request("document#view@user:anne")
+        .lookup_resources({
+            let mut api_request = request("document#view@user:anne");
+            api_request.limit = Some(1);
+            api_request
         })
         .unwrap();
     assert_eq!(first.resource_ids, ids(&["a"]));
@@ -498,11 +506,12 @@ fn later_pages_read_the_first_pages_revision<S: WritableStore>(store: S) {
     let r2 = e.write(touch(&["document:b#viewer@user:anne"])).unwrap();
     assert!(r2 > r1);
     let second = e
-        .lookup_resources(LookupResourcesRequest {
-            limit: Some(1),
-            cursor: first.next_cursor.clone(),
-            consistency: Consistency::Exact(r1),
-            ..request("document#view@user:anne")
+        .lookup_resources({
+            let mut api_request = request("document#view@user:anne");
+            api_request.limit = Some(1);
+            api_request.cursor.clone_from(&first.next_cursor);
+            api_request.consistency = Consistency::Exact(r1);
+            api_request
         })
         .unwrap();
     assert_eq!(second.revision, r1);
@@ -510,10 +519,11 @@ fn later_pages_read_the_first_pages_revision<S: WritableStore>(store: S) {
     assert_eq!(second.next_cursor, None);
     // Control: at `Latest` the same cursor does see it.
     let latest = e
-        .lookup_resources(LookupResourcesRequest {
-            limit: Some(1),
-            cursor: first.next_cursor,
-            ..request("document#view@user:anne")
+        .lookup_resources({
+            let mut api_request = request("document#view@user:anne");
+            api_request.limit = Some(1);
+            api_request.cursor = first.next_cursor;
+            api_request
         })
         .unwrap();
     assert_eq!(latest.revision, r2);

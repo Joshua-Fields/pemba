@@ -395,19 +395,18 @@ fn count_by_relation(src: &impl Source, rev: Revision) -> Result<Vec<RelationCou
     })?;
     rows.into_iter()
         .map(|(rt, relation, st, srel, wildcard, count)| {
-            Ok(RelationCount {
-                resource_type: parse(&rt, "resource type")?,
-                relation: parse(&relation, "relation")?,
-                subject_type: parse(&st, "subject type")?,
-                subject_relation: if srel.is_empty() {
+            Ok(RelationCount::new(
+                parse(&rt, "resource type")?,
+                parse(&relation, "relation")?,
+                parse(&st, "subject type")?,
+                if srel.is_empty() {
                     None
                 } else {
                     Some(parse(&srel, "subject relation")?)
                 },
                 wildcard,
-                count: u64::try_from(count)
-                    .map_err(|_| corrupt(format!("negative count {count}")))?,
-            })
+                u64::try_from(count).map_err(|_| corrupt(format!("negative count {count}")))?,
+            ))
         })
         .collect()
 }
@@ -422,13 +421,13 @@ fn current_schema(src: &impl Source) -> Result<Option<StoredSchema>, StoreError>
             .map_err(|e| store_err(&e))
     })?;
     row.map(|(version, source, hash, created_rev)| {
-        Ok(StoredSchema {
-            version: u64::try_from(version)
+        Ok(StoredSchema::new(
+            u64::try_from(version)
                 .map_err(|_| corrupt(format!("negative schema version {version}")))?,
             source,
             hash,
-            created_rev: revision(created_rev)?,
-        })
+            revision(created_rev)?,
+        ))
     })
     .transpose()
 }

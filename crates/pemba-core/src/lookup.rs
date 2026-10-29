@@ -39,6 +39,7 @@ use crate::store::{ReadStore, ReverseFilter, SubjectRelMatch};
 /// Which objects of `resource_type` have `permission` for `subject`
 /// (`docs/04-evaluation.md` §5).
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct LookupResourcesRequest {
     /// The type of the objects to find.
     pub resource_type: TypeName,
@@ -74,6 +75,7 @@ impl LookupResourcesRequest {
 
 /// One page of `lookup_resources`.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct LookupResourcesResponse {
     /// Ids of the objects that have the permission, ascending byte-wise.
     pub resource_ids: Vec<ObjectId>,

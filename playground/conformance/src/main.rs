@@ -213,9 +213,11 @@ fn to_fixture(index: usize, case: &Case) -> Result<Generated> {
     engine.write_schema(&source).map_err(|e| e.to_string())?;
     if !case.tuples.is_empty() {
         engine
-            .write(WriteRequest {
-                ops: case.tuples.iter().cloned().map(WriteOp::Touch).collect(),
-                preconditions: Vec::new(),
+            .write({
+                let mut api_request =
+                    WriteRequest::new(case.tuples.iter().cloned().map(WriteOp::Touch).collect());
+                api_request.preconditions = Vec::new();
+                api_request
             })
             .map_err(|e| format!("case {index}: write: {e}"))?;
     }
@@ -232,11 +234,11 @@ fn to_fixture(index: usize, case: &Case) -> Result<Generated> {
     let (mut yes, mut no, mut errs) = (Vec::new(), Vec::new(), Vec::new());
     for (resource, member, subject) in &queries {
         let text = format!("{resource}#{member}@{subject}");
-        let answer = engine.check(CheckRequest {
-            resource: resource.clone(),
-            permission: member.clone(),
-            subject: subject.clone(),
-            consistency: pemba_core::model::Consistency::Latest,
+        let answer = engine.check({
+            let mut api_request =
+                CheckRequest::new(resource.clone(), member.clone(), subject.clone());
+            api_request.consistency = pemba_core::model::Consistency::Latest;
+            api_request
         });
         match answer {
             Ok(_) => {

@@ -16,9 +16,10 @@ fn rel(s: &str) -> Relationship {
 }
 
 fn ops(make: fn(Relationship) -> WriteOp, rels: &[&str]) -> WriteRequest {
-    WriteRequest {
-        ops: rels.iter().map(|r| make(rel(r))).collect(),
-        preconditions: Vec::new(),
+    {
+        let mut api_request = WriteRequest::new(rels.iter().map(|r| make(rel(r))).collect());
+        api_request.preconditions = Vec::new();
+        api_request
     }
 }
 
@@ -33,11 +34,10 @@ fn engine(schema: &str, rels: &[&str]) -> Engine<MemoryStore> {
 
 fn check(e: &Engine<MemoryStore>, s: &str, c: Consistency) -> Result<bool, Error> {
     let r = rel(s);
-    e.check(CheckRequest {
-        resource: r.resource,
-        permission: r.relation,
-        subject: r.subject,
-        consistency: c,
+    e.check({
+        let mut api_request = CheckRequest::new(r.resource, r.relation, r.subject);
+        api_request.consistency = c;
+        api_request
     })
     .map(|r| r.allowed)
 }
@@ -317,13 +317,14 @@ fn historical_stale_wildcard_on_a_subtracted_side_is_an_error_not_ignored() {
     assert!(check(&e, "doc:d#view@user:anne", Consistency::Latest).unwrap());
     // lookup_subjects is guarded too.
     let err = e
-        .lookup_subjects(LookupSubjectsRequest {
-            consistency: Consistency::Exact(old),
-            ..LookupSubjectsRequest::new(
+        .lookup_subjects({
+            let mut api_request = LookupSubjectsRequest::new(
                 "doc:d".parse().unwrap(),
                 "view".parse().unwrap(),
                 "user".parse().unwrap(),
-            )
+            );
+            api_request.consistency = Consistency::Exact(old);
+            api_request
         })
         .unwrap_err();
     assert!(matches!(err, Error::StaleRelationship { .. }), "{err:?}");

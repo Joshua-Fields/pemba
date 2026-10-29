@@ -17,6 +17,7 @@ use crate::types::{Diagnostic, OrphanReport};
 /// know (the caller falls back to the base class, so a new code still fails closed).
 pub(crate) fn class_name(code: &str) -> Option<&'static str> {
     Some(match code {
+        "PARSE" => "ValueError",
         "SCHEMA_ERROR" => "SchemaError",
         "SCHEMA_CHANGE_ORPHANS" => "SchemaChangeOrphansError",
         "NO_SCHEMA" => "NoSchemaError",
@@ -45,6 +46,9 @@ pub(crate) fn class_name(code: &str) -> Option<&'static str> {
 
 /// The exception instance for `err`, not raised: `check_bulk` returns item errors.
 pub(crate) fn exception<'py>(py: Python<'py>, err: &Error) -> PyResult<Bound<'py, PyAny>> {
+    if let Error::Parse(error) = err {
+        return py.get_type::<PyValueError>().call1((error.to_string(),));
+    }
     let code = err.code();
     let class = py
         .import("pemba._errors")?

@@ -64,26 +64,29 @@ fn rel(s: &str) -> Relationship {
 }
 
 fn touch(rels: &[&str]) -> WriteRequest {
-    WriteRequest {
-        ops: rels.iter().map(|r| WriteOp::Touch(rel(r))).collect(),
-        preconditions: Vec::new(),
+    {
+        let mut api_request =
+            WriteRequest::new(rels.iter().map(|r| WriteOp::Touch(rel(r))).collect());
+        api_request.preconditions = Vec::new();
+        api_request
     }
 }
 
 fn delete(rels: &[&str]) -> WriteRequest {
-    WriteRequest {
-        ops: rels.iter().map(|r| WriteOp::Delete(rel(r))).collect(),
-        preconditions: Vec::new(),
+    {
+        let mut api_request =
+            WriteRequest::new(rels.iter().map(|r| WriteOp::Delete(rel(r))).collect());
+        api_request.preconditions = Vec::new();
+        api_request
     }
 }
 
 fn check<S: WritableStore>(e: &Engine<S>, s: &str, c: Consistency) -> Result<bool, Error> {
     let r = rel(s);
-    e.check(CheckRequest {
-        resource: r.resource,
-        permission: r.relation,
-        subject: r.subject,
-        consistency: c,
+    e.check({
+        let mut api_request = CheckRequest::new(r.resource, r.relation, r.subject);
+        api_request.consistency = c;
+        api_request
     })
     .map(|r| r.allowed)
 }
@@ -184,11 +187,14 @@ fn a_request_uses_the_schema_of_its_own_snapshot() {
     let reader = {
         let a = Arc::clone(&a);
         thread::spawn(move || {
-            a.check(CheckRequest {
-                resource: "doc:d".parse().unwrap(),
-                permission: "view".parse().unwrap(),
-                subject: "user:anne".parse().unwrap(),
-                consistency: Consistency::Latest,
+            a.check({
+                let mut api_request = CheckRequest::new(
+                    "doc:d".parse().unwrap(),
+                    "view".parse().unwrap(),
+                    "user:anne".parse().unwrap(),
+                );
+                api_request.consistency = Consistency::Latest;
+                api_request
             })
         })
     };
@@ -234,13 +240,14 @@ fn a_reader_mid_gc_gets_the_full_answer_or_revision_expired() {
     a.write(delete(&rels)).unwrap();
     let r3 = a.write(touch(&["doc:z#viewer@user:anne"])).unwrap();
     let lookup = move |e: &Engine<Hooked>| {
-        e.lookup_resources(LookupResourcesRequest {
-            consistency: Consistency::Exact(r1),
-            ..LookupResourcesRequest::new(
+        e.lookup_resources({
+            let mut api_request = LookupResourcesRequest::new(
                 "doc".parse().unwrap(),
                 "view".parse().unwrap(),
                 "user:anne".parse().unwrap(),
-            )
+            );
+            api_request.consistency = Consistency::Exact(r1);
+            api_request
         })
     };
 
@@ -275,13 +282,14 @@ fn a_reader_mid_gc_gets_the_full_answer_or_revision_expired() {
     // is refused rather than shown four documents.
     let c = Engine::builder().store(dir.open()).build().unwrap();
     let err = c
-        .lookup_resources(LookupResourcesRequest {
-            consistency: Consistency::Exact(r1),
-            ..LookupResourcesRequest::new(
+        .lookup_resources({
+            let mut api_request = LookupResourcesRequest::new(
                 "doc".parse().unwrap(),
                 "view".parse().unwrap(),
                 "user:anne".parse().unwrap(),
-            )
+            );
+            api_request.consistency = Consistency::Exact(r1);
+            api_request
         })
         .unwrap_err();
     assert!(

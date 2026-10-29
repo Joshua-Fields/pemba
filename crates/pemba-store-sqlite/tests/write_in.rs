@@ -65,21 +65,26 @@ fn setup(dir: &TempDir) -> (Engine<SqliteStore>, Connection) {
 }
 
 fn touch(rels: &[&str]) -> WriteRequest {
-    WriteRequest {
-        ops: rels
-            .iter()
-            .map(|r| WriteOp::Touch(r.parse().unwrap()))
-            .collect(),
-        preconditions: Vec::new(),
+    {
+        let mut api_request = WriteRequest::new(
+            rels.iter()
+                .map(|r| WriteOp::Touch(r.parse().unwrap()))
+                .collect(),
+        );
+        api_request.preconditions = Vec::new();
+        api_request
     }
 }
 
 fn check(e: &Engine<SqliteStore>, c: Consistency) -> Result<bool, Error> {
-    e.check(CheckRequest {
-        resource: "document:readme".parse().unwrap(),
-        permission: "view".parse().unwrap(),
-        subject: "user:anne".parse().unwrap(),
-        consistency: c,
+    e.check({
+        let mut api_request = CheckRequest::new(
+            "document:readme".parse().unwrap(),
+            "view".parse().unwrap(),
+            "user:anne".parse().unwrap(),
+        );
+        api_request.consistency = c;
+        api_request
     })
     .map(|r| r.allowed)
 }
@@ -238,12 +243,13 @@ fn failed_write_in_undoes_its_statements() {
     let tx = immediate(&mut app);
     tx.execute("INSERT INTO documents (id) VALUES ('readme')", [])
         .unwrap();
-    let req = WriteRequest {
-        ops: vec![
+    let req = {
+        let mut api_request = WriteRequest::new(vec![
             WriteOp::Touch("document:readme#viewer@user:anne".parse().unwrap()),
             WriteOp::Create("document:readme#viewer@user:bob".parse().unwrap()),
-        ],
-        preconditions: Vec::new(),
+        ]);
+        api_request.preconditions = Vec::new();
+        api_request
     };
     let err = e.write_in(&mut SqliteTxn::new(&tx), req).unwrap_err();
     assert!(matches!(err, Error::AlreadyExists(_)), "{err:?}");
@@ -307,14 +313,16 @@ fn precondition_race_in_a_deferred_transaction_is_a_retryable_conflict() {
     let mut conflicting = None;
 
     let tx = app.transaction().unwrap(); // DEFERRED
-    let req = WriteRequest {
-        ops: vec![WriteOp::Touch(
+    let req = {
+        let mut api_request = WriteRequest::new(vec![WriteOp::Touch(
             "document:readme#viewer@user:anne".parse().unwrap(),
-        )],
-        preconditions: vec![Precondition::MustNotExist(RelationshipFilter {
-            resource_id: Some("readme".parse().unwrap()),
-            ..RelationshipFilter::new("document".parse().unwrap())
-        })],
+        )]);
+        api_request.preconditions = vec![Precondition::MustNotExist({
+            let mut api_request = RelationshipFilter::new("document".parse().unwrap());
+            api_request.resource_id = Some("readme".parse().unwrap());
+            api_request
+        })];
+        api_request
     };
     let mut txn = RaceAfterPrecondition {
         inner: SqliteTxn::new(&tx),

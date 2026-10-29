@@ -72,9 +72,10 @@ fn open(dir: &TempDir, reader_pool: usize) -> SqliteStore {
 }
 
 fn req(ops: Vec<WriteOp>) -> WriteRequest {
-    WriteRequest {
-        ops,
-        preconditions: Vec::new(),
+    {
+        let mut api_request = WriteRequest::new(ops);
+        api_request.preconditions = Vec::new();
+        api_request
     }
 }
 
@@ -83,11 +84,14 @@ fn rel(s: &str) -> Relationship {
 }
 
 fn view(resource: &str, subject: &str, c: Consistency) -> CheckRequest {
-    CheckRequest {
-        resource: resource.parse().unwrap(),
-        permission: "view".parse().unwrap(),
-        subject: subject.parse().unwrap(),
-        consistency: c,
+    {
+        let mut api_request = CheckRequest::new(
+            resource.parse().unwrap(),
+            "view".parse().unwrap(),
+            subject.parse().unwrap(),
+        );
+        api_request.consistency = c;
+        api_request
     }
 }
 
@@ -368,10 +372,12 @@ fn check_bulk_reads_one_snapshot_across_another_process_gc() {
     let request = {
         let a = Arc::clone(&a);
         thread::spawn(move || {
-            let item = |s: &str| CheckItem {
-                resource: "document:readme".parse().unwrap(),
-                permission: "view".parse().unwrap(),
-                subject: s.parse().unwrap(),
+            let item = |s: &str| {
+                CheckItem::new(
+                    "document:readme".parse().unwrap(),
+                    "view".parse().unwrap(),
+                    s.parse().unwrap(),
+                )
             };
             a.check_bulk(
                 vec![item("user:bob"), item("user:anne"), item("user:carol")],
@@ -435,13 +441,14 @@ fn every_read_api_takes_exactly_one_snapshot() {
 fn lookup(query: &str, consistency: Consistency) -> LookupResourcesRequest {
     let (resource_type, rest) = query.split_once('#').unwrap();
     let (permission, subject) = rest.split_once('@').unwrap();
-    LookupResourcesRequest {
-        consistency,
-        ..LookupResourcesRequest::new(
+    {
+        let mut api_request = LookupResourcesRequest::new(
             resource_type.parse().unwrap(),
             permission.parse().unwrap(),
             subject.parse().unwrap(),
-        )
+        );
+        api_request.consistency = consistency;
+        api_request
     }
 }
 
@@ -479,9 +486,11 @@ fn snapshot_is_released_on_every_exit_path() {
     assert!(matches!(err, Error::MaxDepthExceeded { .. }), "{err:?}");
     // Error from read_relationships after resolving.
     let err = e
-        .read_relationships(ReadRelationshipsRequest {
-            consistency: Consistency::Exact(Revision(7)),
-            ..ReadRelationshipsRequest::new(RelationshipFilter::new("group".parse().unwrap()))
+        .read_relationships({
+            let mut api_request =
+                ReadRelationshipsRequest::new(RelationshipFilter::new("group".parse().unwrap()));
+            api_request.consistency = Consistency::Exact(Revision(7));
+            api_request
         })
         .unwrap_err();
     assert!(

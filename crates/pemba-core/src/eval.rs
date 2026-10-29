@@ -37,7 +37,21 @@ use crate::store::{ReadStore, StoreError};
 use crate::trace::{NoTrace, TraceRole, Tracer};
 
 /// Asks whether `subject` has `permission` on `resource` (`docs/04-evaluation.md` §3.1).
+///
+/// Use [`Self::new`] and set public fields; downstream struct literals are unsupported.
+///
+/// ```compile_fail
+/// use pemba_core::CheckRequest;
+/// use pemba_core::model::Consistency;
+/// let request = CheckRequest {
+///     resource: "document:x".parse().unwrap(),
+///     permission: "view".parse().unwrap(),
+///     subject: "user:a".parse().unwrap(),
+///     consistency: Consistency::Latest,
+/// };
+/// ```
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub struct CheckRequest {
     /// The object the permission is on.
     pub resource: ObjectRef,
@@ -49,8 +63,21 @@ pub struct CheckRequest {
     pub consistency: Consistency,
 }
 
+impl CheckRequest {
+    /// A check at the latest revision. Set `consistency` for a different revision.
+    pub fn new(resource: ObjectRef, permission: RelName, subject: SubjectRef) -> Self {
+        Self {
+            resource,
+            permission,
+            subject,
+            consistency: Consistency::Latest,
+        }
+    }
+}
+
 /// The answer to a [`CheckRequest`].
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct CheckResponse {
     /// Whether the subject has the permission.
     pub allowed: bool,
@@ -63,6 +90,7 @@ pub struct CheckResponse {
 /// One question in a `check_bulk` call: a [`CheckRequest`] without its consistency,
 /// which the call sets once for every item.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub struct CheckItem {
     /// The object the permission is on.
     pub resource: ObjectRef,
@@ -72,9 +100,21 @@ pub struct CheckItem {
     pub subject: SubjectRef,
 }
 
+impl CheckItem {
+    /// One bulk-check question; the bulk call supplies its consistency.
+    pub fn new(resource: ObjectRef, permission: RelName, subject: SubjectRef) -> Self {
+        Self {
+            resource,
+            permission,
+            subject,
+        }
+    }
+}
+
 /// Counters for one read request, also recorded on its tracing span
 /// (`docs/04-evaluation.md` §1).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub struct EvalStats {
     /// Store calls made.
     pub store_reads: u64,

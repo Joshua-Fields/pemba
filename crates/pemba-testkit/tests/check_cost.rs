@@ -90,19 +90,24 @@ fn check_on_dense_cyclic_data_reads_a_bounded_number_of_tuples() {
         .unwrap();
     engine.write_schema(SCHEMA).unwrap();
     engine
-        .write(WriteRequest {
-            ops: tuples.iter().cloned().map(WriteOp::Touch).collect(),
-            preconditions: Vec::new(),
+        .write({
+            let mut api_request =
+                WriteRequest::new(tuples.iter().cloned().map(WriteOp::Touch).collect());
+            api_request.preconditions = Vec::new();
+            api_request
         })
         .unwrap();
 
     let (resource, member, subject) = ("ty1:f", "perm0", "ty1:e");
     let res = engine
-        .check(CheckRequest {
-            resource: resource.parse().unwrap(),
-            permission: member.parse().unwrap(),
-            subject: subject.parse().unwrap(),
-            consistency: Consistency::Latest,
+        .check({
+            let mut api_request = CheckRequest::new(
+                resource.parse().unwrap(),
+                member.parse().unwrap(),
+                subject.parse().unwrap(),
+            );
+            api_request.consistency = Consistency::Latest;
+            api_request
         })
         .unwrap();
 
@@ -274,12 +279,15 @@ impl Groups {
             .unwrap();
         engine.write_schema(GROUP_SCHEMA).unwrap();
         engine
-            .write(WriteRequest {
-                ops: tuples
-                    .iter()
-                    .map(|t| WriteOp::Touch(t.parse().unwrap()))
-                    .collect(),
-                preconditions: Vec::new(),
+            .write({
+                let mut api_request = WriteRequest::new(
+                    tuples
+                        .iter()
+                        .map(|t| WriteOp::Touch(t.parse().unwrap()))
+                        .collect(),
+                );
+                api_request.preconditions = Vec::new();
+                api_request
             })
             .unwrap();
         limit.store(budget, Ordering::Relaxed);
@@ -301,11 +309,14 @@ impl Groups {
     /// `group:g#member@user:anne`, with the read budget reset first.
     fn check(&self, group: &str) -> Result<CheckResponse, Error> {
         self.reads.store(0, Ordering::Relaxed);
-        self.engine.check(CheckRequest {
-            resource: format!("group:{group}").parse().unwrap(),
-            permission: "member".parse().unwrap(),
-            subject: "user:anne".parse().unwrap(),
-            consistency: Consistency::Latest,
+        self.engine.check({
+            let mut api_request = CheckRequest::new(
+                format!("group:{group}").parse().unwrap(),
+                "member".parse().unwrap(),
+                "user:anne".parse().unwrap(),
+            );
+            api_request.consistency = Consistency::Latest;
+            api_request
         })
     }
 }
@@ -392,12 +403,15 @@ fn bounded_by_config(tuples: &[String], max: u64) -> Groups {
         .unwrap();
     engine.write_schema(GROUP_SCHEMA).unwrap();
     engine
-        .write(WriteRequest {
-            ops: tuples
-                .iter()
-                .map(|t| WriteOp::Touch(t.parse().unwrap()))
-                .collect(),
-            preconditions: Vec::new(),
+        .write({
+            let mut api_request = WriteRequest::new(
+                tuples
+                    .iter()
+                    .map(|t| WriteOp::Touch(t.parse().unwrap()))
+                    .collect(),
+            );
+            api_request.preconditions = Vec::new();
+            api_request
         })
         .unwrap();
     Groups {

@@ -25,6 +25,7 @@ use crate::store::{ReadStore, StoreError};
 /// Which objects of `subject_type` have `permission` on `resource`
 /// (`docs/04-evaluation.md` §6).
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct LookupSubjectsRequest {
     /// The object asked about.
     pub resource: ObjectRef,
@@ -52,6 +53,7 @@ impl LookupSubjectsRequest {
 /// The answer to a [`LookupSubjectsRequest`]: `subject_ids` if `wildcard` is `false`,
 /// otherwise every object of the subject type except `excluded_ids`.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct LookupSubjectsResponse {
     /// The subjects, ascending byte-wise; empty if `wildcard`.
     pub subject_ids: Vec<ObjectId>,

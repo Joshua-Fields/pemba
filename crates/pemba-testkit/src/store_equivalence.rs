@@ -72,16 +72,16 @@ pub fn reads(s: &dyn WritableStore, rev: Revision) -> Vec<String> {
                 (Some("doc".parse().unwrap()), None),
                 (None, Some("viewer".parse().unwrap())),
             ] {
-                out.push(outcome(s.read_reverse(
-                    rev,
-                    &ReverseFilter {
-                        subject_type: subject_type.parse().unwrap(),
-                        subject_id: subject_id.to_owned(),
-                        subject_relation: m.clone(),
-                        resource_type,
-                        relation,
-                    },
-                )));
+                out.push(outcome(s.read_reverse(rev, &{
+                    let mut api_request = ReverseFilter::new(
+                        subject_type.parse().unwrap(),
+                        subject_id.to_owned(),
+                        m.clone(),
+                    );
+                    api_request.resource_type = resource_type;
+                    api_request.relation = relation;
+                    api_request
+                })));
             }
         }
     }

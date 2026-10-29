@@ -204,11 +204,7 @@ impl WritableStore for PostgresStore {
     /// app transaction. [`GcStats`] counts the delete step only, as on SQLite.
     fn gc(&self, keep_from: Revision) -> Result<GcStats, Error> {
         let horizon = self.raise_gc_horizon(keep_from)?;
-        let mut stats = GcStats {
-            rows_removed: 0,
-            horizon,
-            batches: 0,
-        };
+        let mut stats = GcStats::new(0, horizon, 0);
         loop {
             let n = self.gc_batch(GC_BATCH_ROWS)?;
             stats.rows_removed += n;

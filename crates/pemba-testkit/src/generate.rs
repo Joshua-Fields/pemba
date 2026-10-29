@@ -862,23 +862,27 @@ fn store_filter() -> impl Strategy<Value = pemba_core::model::RelationshipFilter
     )
         .prop_filter_map("names always parse", |(t, id, rel, st, sid, srel)| {
             let subject = |i: usize| STORE_SUBJECTS[i].split_once(':');
-            Some(pemba_core::model::RelationshipFilter {
-                resource_type: STORE_RESOURCE_TYPES[t].parse().ok()?,
-                resource_id: id.map(|i| STORE_RESOURCE_IDS[i].parse()).transpose().ok()?,
-                relation: rel.map(|i| STORE_RELATIONS[i].parse()).transpose().ok()?,
-                subject_type: st
+            Some({
+                let mut api_request = pemba_core::model::RelationshipFilter::new(
+                    STORE_RESOURCE_TYPES[t].parse().ok()?,
+                );
+                api_request.resource_id =
+                    id.map(|i| STORE_RESOURCE_IDS[i].parse()).transpose().ok()?;
+                api_request.relation = rel.map(|i| STORE_RELATIONS[i].parse()).transpose().ok()?;
+                api_request.subject_type = st
                     .and_then(subject)
                     .map(|(t, _)| t.parse())
                     .transpose()
-                    .ok()?,
-                subject_id: sid
+                    .ok()?;
+                api_request.subject_id = sid
                     .and_then(subject)
-                    .map(|(_, id)| id.split('#').next().unwrap_or(id).to_owned()),
-                subject_relation: srel.map(|i| match i {
+                    .map(|(_, id)| id.split('#').next().unwrap_or(id).to_owned());
+                api_request.subject_relation = srel.map(|i| match i {
                     0 => None,
                     1 => "member".parse().ok(),
                     _ => "admin".parse().ok(),
-                }),
+                });
+                api_request
             })
         })
 }
@@ -901,19 +905,21 @@ fn store_write() -> impl Strategy<Value = pemba_core::model::WriteRequest> {
     )
         .prop_map(|(ops, preconditions)| {
             let tuples = store_tuples();
-            WriteRequest {
-                ops: ops
-                    .into_iter()
-                    .map(|(kind, i)| {
-                        let r = tuples[i].clone();
-                        match kind {
-                            0 => WriteOp::Create(r),
-                            1 | 2 => WriteOp::Touch(r),
-                            _ => WriteOp::Delete(r),
-                        }
-                    })
-                    .collect(),
-                preconditions,
+            {
+                let mut api_request = WriteRequest::new(
+                    ops.into_iter()
+                        .map(|(kind, i)| {
+                            let r = tuples[i].clone();
+                            match kind {
+                                0 => WriteOp::Create(r),
+                                1 | 2 => WriteOp::Touch(r),
+                                _ => WriteOp::Delete(r),
+                            }
+                        })
+                        .collect(),
+                );
+                api_request.preconditions = preconditions;
+                api_request
             }
         })
 }

@@ -1162,6 +1162,9 @@ it is resolved.
   suitable constructors/builders; stable value types remain exhaustive with explicit
   rationale. Preserve downstream usability. This resolves the choice, not the audit;
   T7.2 implements it. T7.1 changes documentation only.
+  Implementation: T7.2 now implements `check_str` and the inventory in
+  `docs/PUBLIC_API_AUDIT.md`; verification is indexed in `docs/RELEASE-0.1.0.md`.
+  OQ-061 records the conservative Python mapping clarification for review.
 
 ## OQ-045 — What a foreign-mode write returns (D1)
 - Raised in: Postgres design (`docs/10-postgres.md` §0, §1.6.4)
@@ -1545,3 +1548,16 @@ it is resolved.
   a best-effort basis; older versions receive case-by-case consideration. Promise no
   response-time SLA, guaranteed patches or long-term support. Use GitHub Issues for
   normal bugs and feature requests; never direct security reports to public issues.
+
+## OQ-061 — Rust helper parse errors versus Python's error-code mapping
+- Raised in: T7.2, implementing the approved OQ-044 `check_str` helper.
+- Blocking: no (conservative compatibility choice; review with T7.2).
+- Ambiguity: `06` §1.1 specified `Error::Parse(ParseError)`, but it was absent from
+  the implementation. `06` §2.3 says every Rust code maps to a Python exception class,
+  while Python malformed string arguments must raise built-in `ValueError` rather than
+  `PembaError`. Adding the Rust variant exposes this missing mapping decision.
+- Conservative implementation: add `Error::Parse` with variant-derived code `PARSE`;
+  map it to built-in `ValueError`, preserving existing Python argument behavior and
+  exception hierarchy. Clarify `06` §2.3 and extend error-code mapping tests; no new
+  Python class, helper signature or stub is introduced. Maintainer may revise this
+  choice during T7.2 review; no release approval is inferred.

@@ -112,7 +112,7 @@ that pass `mypy --strict`.
 
 ```rust
 use pemba::model::{Consistency, WriteOp, WriteRequest};
-use pemba::{CheckRequest, Engine, LookupResourcesRequest, MemoryStore};
+use pemba::{Engine, LookupResourcesRequest, MemoryStore};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let engine = Engine::builder().store(MemoryStore::new()).build()?;
@@ -125,19 +125,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
          }",
     )?;
 
-    let rev = engine.write(WriteRequest {
-        ops: vec![WriteOp::Touch("document:readme#editor@user:anne".parse()?)],
-        preconditions: Vec::new(),
-    })?;
+    let rev = engine.write(WriteRequest::new(vec![WriteOp::Touch("document:readme#editor@user:anne".parse()?)]))?;
 
     let allowed = engine
-        .check(CheckRequest {
-            resource: "document:readme".parse()?,
-            permission: "view".parse()?,
-            subject: "user:anne".parse()?,
-            consistency: Consistency::AtLeast(rev),
-        })?
-        .allowed;
+        .check_str("document:readme", "view", "user:anne", Consistency::AtLeast(rev))?;
     assert!(allowed);
 
     let page = engine.lookup_resources(LookupResourcesRequest::new(

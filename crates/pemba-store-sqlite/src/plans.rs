@@ -37,12 +37,15 @@ fn reverse_shapes() -> Vec<ReverseFilter> {
     ] {
         for resource_type in [None, Some("doc".parse().unwrap())] {
             for relation in [None, Some("viewer".parse().unwrap())] {
-                out.push(ReverseFilter {
-                    subject_type: "user".parse().unwrap(),
-                    subject_id: "anne".to_owned(),
-                    subject_relation: subject_relation.clone(),
-                    resource_type: resource_type.clone(),
-                    relation,
+                out.push({
+                    let mut api_request = ReverseFilter::new(
+                        "user".parse().unwrap(),
+                        "anne".to_owned(),
+                        subject_relation.clone(),
+                    );
+                    api_request.resource_type.clone_from(&resource_type);
+                    api_request.relation = relation;
+                    api_request
                 });
             }
         }
@@ -129,19 +132,23 @@ fn query_plans_survive_analyze() {
 
 #[test]
 fn reverse_params_are_numbered_in_order() {
-    let all = ReverseFilter {
-        subject_type: "user".parse().unwrap(),
-        subject_id: "anne".to_owned(),
-        subject_relation: SubjectRelMatch::Exact("member".parse().unwrap()),
-        resource_type: Some("doc".parse().unwrap()),
-        relation: Some("viewer".parse().unwrap()),
+    let all = {
+        let mut api_request = ReverseFilter::new(
+            "user".parse().unwrap(),
+            "anne".to_owned(),
+            SubjectRelMatch::Exact("member".parse().unwrap()),
+        );
+        api_request.resource_type = Some("doc".parse().unwrap());
+        api_request.relation = Some("viewer".parse().unwrap());
+        api_request
     };
     let sql = read_reverse(&all);
     assert!(sql.contains("subject_relation = ?4 AND resource_type = ?5 AND relation = ?6"));
-    let none = ReverseFilter {
-        subject_relation: SubjectRelMatch::None,
-        resource_type: None,
-        ..all
+    let none = {
+        let mut api_request = all;
+        api_request.subject_relation = SubjectRelMatch::None;
+        api_request.resource_type = None;
+        api_request
     };
     let sql = read_reverse(&none);
     assert!(

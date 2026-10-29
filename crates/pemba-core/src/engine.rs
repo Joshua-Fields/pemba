@@ -218,6 +218,7 @@ impl<S: WritableStore> EngineBuilder<S> {
 
 /// Outcome of [`Engine::write_schema`].
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct SchemaWriteResult {
     /// The schema version now current: 1 for the first schema, then increasing by one.
     pub version: u64,
@@ -232,6 +233,7 @@ pub struct SchemaWriteResult {
 
 /// A filtered, paginated read of stored relationships.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ReadRelationshipsRequest {
     /// Which relationships to return.
     pub filter: RelationshipFilter,
@@ -260,6 +262,7 @@ impl ReadRelationshipsRequest {
 
 /// One page of [`Engine::read_relationships`].
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ReadRelationshipsResponse {
     /// Matching relationships ordered by their storage columns, byte-wise
     /// ([`crate::store::relationship_columns`]).
@@ -660,6 +663,25 @@ impl<S: WritableStore> Engine<S> {
             revision,
             next_cursor,
         })
+    }
+
+    /// Checks a resource, permission and subject in their canonical string syntax.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Parse`] for malformed components (resource, then permission,
+    /// then subject), or any error from [`Self::check`]. Errors never become denial.
+    pub fn check_str(
+        &self,
+        resource: &str,
+        permission: &str,
+        subject: &str,
+        consistency: Consistency,
+    ) -> Result<bool, Error> {
+        let mut request =
+            CheckRequest::new(resource.parse()?, permission.parse()?, subject.parse()?);
+        request.consistency = consistency;
+        self.check(request).map(|response| response.allowed)
     }
 
     /// Does `req.subject` have `req.permission` on `req.resource`

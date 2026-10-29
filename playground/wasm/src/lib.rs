@@ -199,9 +199,10 @@ fn run_query(req: &RunRequest) -> Result<Value, Value> {
             .iter()
             .map(|l| WriteOp::Touch(l.rel.clone()))
             .collect();
-        if let Err(e) = engine.write(WriteRequest {
-            ops,
-            preconditions: Vec::new(),
+        if let Err(e) = engine.write({
+            let mut api_request = WriteRequest::new(ops);
+            api_request.preconditions = Vec::new();
+            api_request
         }) {
             return Err(write_failure(&e, chunk));
         }
@@ -221,11 +222,10 @@ fn check(engine: &Engine<MemoryStore>, query: &Query, text: &str) -> Result<Valu
     let q: Relationship = text
         .parse()
         .map_err(|e| parse_failure(&query.text, "query", &e))?;
-    let req = CheckRequest {
-        resource: q.resource,
-        permission: q.relation,
-        subject: q.subject,
-        consistency: Consistency::Latest,
+    let req = {
+        let mut api_request = CheckRequest::new(q.resource, q.relation, q.subject);
+        api_request.consistency = Consistency::Latest;
+        api_request
     };
     if !query.explain {
         let r = engine.check(req).map_err(|e| engine_failure(&e, "query"))?;

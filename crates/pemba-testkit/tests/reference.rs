@@ -353,21 +353,27 @@ fn oq020(banned: &str, extra: &[&str]) {
         .unwrap();
     engine.write_schema(&src).unwrap();
     engine
-        .write(pemba_core::model::WriteRequest {
-            ops: tuples
-                .iter()
-                .map(|t| pemba_core::model::WriteOp::Touch(t.parse().unwrap()))
-                .collect(),
-            preconditions: Vec::new(),
+        .write({
+            let mut api_request = pemba_core::model::WriteRequest::new(
+                tuples
+                    .iter()
+                    .map(|t| pemba_core::model::WriteOp::Touch(t.parse().unwrap()))
+                    .collect(),
+            );
+            api_request.preconditions = Vec::new();
+            api_request
         })
         .unwrap();
     for folder in ["folder:a", "folder:b"] {
         let res = engine
-            .check(pemba_core::CheckRequest {
-                resource: folder.parse().unwrap(),
-                permission: "view".parse().unwrap(),
-                subject: "user:u".parse().unwrap(),
-                consistency: pemba_core::model::Consistency::Latest,
+            .check({
+                let mut api_request = pemba_core::CheckRequest::new(
+                    folder.parse().unwrap(),
+                    "view".parse().unwrap(),
+                    "user:u".parse().unwrap(),
+                );
+                api_request.consistency = pemba_core::model::Consistency::Latest;
+                api_request
             })
             .unwrap();
         assert!(!res.allowed, "engine: u views {folder}");

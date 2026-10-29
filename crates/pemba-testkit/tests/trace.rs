@@ -22,9 +22,11 @@ fn engine_with(schema: &str, tuples: &[Relationship], config: EngineConfig) -> E
     engine.write_schema(schema).unwrap();
     if !tuples.is_empty() {
         engine
-            .write(WriteRequest {
-                ops: tuples.iter().cloned().map(WriteOp::Touch).collect(),
-                preconditions: Vec::new(),
+            .write({
+                let mut api_request =
+                    WriteRequest::new(tuples.iter().cloned().map(WriteOp::Touch).collect());
+                api_request.preconditions = Vec::new();
+                api_request
             })
             .unwrap();
     }
@@ -50,11 +52,10 @@ fn fixture(name: &str) -> Engine<MemoryStore> {
 
 fn request(query: &str) -> CheckRequest {
     let q: Relationship = query.parse().unwrap();
-    CheckRequest {
-        resource: q.resource,
-        permission: q.relation,
-        subject: q.subject,
-        consistency: Consistency::Latest,
+    {
+        let mut api_request = CheckRequest::new(q.resource, q.relation, q.subject);
+        api_request.consistency = Consistency::Latest;
+        api_request
     }
 }
 
@@ -574,13 +575,10 @@ mod json_ids {
             let link = format!("doc:{d}#viewer@group:{g}#member");
             let member = format!("group:{g}#member@user:{u}");
             engine
-                .write(WriteRequest {
-                    ops: [&link, &member]
+                .write({ let mut api_request = WriteRequest::new([&link, &member]
                         .iter()
                         .map(|t| WriteOp::Touch(t.parse::<Relationship>().unwrap()))
-                        .collect(),
-                    preconditions: Vec::new(),
-                })
+                        .collect()); api_request.preconditions = Vec::new(); api_request })
                 .unwrap();
             let (_, trace) = engine
                 .check_with_trace(request(&format!("doc:{d}#view@user:{u}")))

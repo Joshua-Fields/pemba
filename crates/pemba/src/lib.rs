@@ -17,7 +17,7 @@
 //!
 //! ```
 //! use pemba::model::{Consistency, WriteOp, WriteRequest};
-//! use pemba::{CheckRequest, Engine, LookupResourcesRequest, MemoryStore};
+//! use pemba::{Engine, LookupResourcesRequest, MemoryStore};
 //!
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! let engine = Engine::builder().store(MemoryStore::new()).build()?;
@@ -30,20 +30,11 @@
 //!      }",
 //! )?;
 //!
-//! let rev = engine.write(WriteRequest {
-//!     ops: vec![WriteOp::Touch("document:readme#editor@user:anne".parse()?)],
-//!     preconditions: Vec::new(),
-//! })?;
+//! let rev = engine.write(WriteRequest::new(vec![WriteOp::Touch("document:readme#editor@user:anne".parse()?)]))?;
 //!
 //! // Read-after-write: evaluate at a revision at least as new as the write.
 //! let allowed = engine
-//!     .check(CheckRequest {
-//!         resource: "document:readme".parse()?,
-//!         permission: "view".parse()?,
-//!         subject: "user:anne".parse()?,
-//!         consistency: Consistency::AtLeast(rev),
-//!     })?
-//!     .allowed;
+//!     .check_str("document:readme", "view", "user:anne", Consistency::AtLeast(rev))?;
 //! assert!(allowed);
 //!
 //! let page = engine.lookup_resources(LookupResourcesRequest::new(
@@ -59,6 +50,7 @@
 //! Errors fail closed: evaluation never turns a store error or an exceeded limit into
 //! `false` (or `true`); it returns an [`Error`] and the caller decides. The specification
 //! lives in the repository's `docs/` directory, starting at `docs/00-overview.md`.
+//!
 
 #![doc(
     html_logo_url = "https://raw.githubusercontent.com/Joshua-Fields/pemba/main/assets/pemba-mark.png",

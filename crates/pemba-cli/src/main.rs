@@ -374,11 +374,10 @@ fn check_request(query: &str, consistency: Consistency) -> Result<CheckRequest, 
         .trim()
         .parse()
         .map_err(|e| format!("`{query}` is not a check (`resource#permission@subject`): {e}"))?;
-    Ok(CheckRequest {
-        resource: q.resource,
-        permission: q.relation,
-        subject: q.subject,
-        consistency,
+    Ok({
+        let mut api_request = CheckRequest::new(q.resource, q.relation, q.subject);
+        api_request.consistency = consistency;
+        api_request
     })
 }
 
@@ -402,9 +401,11 @@ fn check_fixture(query: &str, file: &Path, c: Consistency, output: Output) -> Cm
         .map_err(|e| format!("`{}`: the schema is rejected: {e}", file.display()))?;
     for chunk in loaded.relationships.chunks(batch) {
         engine
-            .write(WriteRequest {
-                ops: chunk.iter().cloned().map(WriteOp::Touch).collect(),
-                preconditions: Vec::new(),
+            .write({
+                let mut api_request =
+                    WriteRequest::new(chunk.iter().cloned().map(WriteOp::Touch).collect());
+                api_request.preconditions = Vec::new();
+                api_request
             })
             .map_err(|e| format!("`{}`: the relationships are rejected: {e}", file.display()))?;
     }

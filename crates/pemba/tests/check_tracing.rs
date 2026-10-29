@@ -29,12 +29,14 @@ definition document {
 fn engine(rels: &[&str]) -> Engine<MemoryStore> {
     let e = Engine::builder().store(MemoryStore::new()).build().unwrap();
     e.write_schema(SCHEMA).unwrap();
-    e.write(WriteRequest {
-        ops: rels
-            .iter()
-            .map(|r| WriteOp::Touch(r.parse::<Relationship>().unwrap()))
-            .collect(),
-        preconditions: Vec::new(),
+    e.write({
+        let mut api_request = WriteRequest::new(
+            rels.iter()
+                .map(|r| WriteOp::Touch(r.parse::<Relationship>().unwrap()))
+                .collect(),
+        );
+        api_request.preconditions = Vec::new();
+        api_request
     })
     .unwrap();
     e
@@ -42,21 +44,16 @@ fn engine(rels: &[&str]) -> Engine<MemoryStore> {
 
 fn request(s: &str, consistency: Consistency) -> CheckRequest {
     let r: Relationship = s.parse().unwrap();
-    CheckRequest {
-        resource: r.resource,
-        permission: r.relation,
-        subject: r.subject,
-        consistency,
+    {
+        let mut api_request = CheckRequest::new(r.resource, r.relation, r.subject);
+        api_request.consistency = consistency;
+        api_request
     }
 }
 
 fn item(s: &str) -> CheckItem {
     let r: Relationship = s.parse().unwrap();
-    CheckItem {
-        resource: r.resource,
-        permission: r.relation,
-        subject: r.subject,
-    }
+    CheckItem::new(r.resource, r.relation, r.subject)
 }
 
 type Fields = Vec<(String, String)>;

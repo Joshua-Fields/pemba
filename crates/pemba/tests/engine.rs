@@ -53,9 +53,11 @@ fn engine_with_config(config: EngineConfig) -> Engine<MemoryStore> {
 }
 
 fn touch(rels: &[&str]) -> WriteRequest {
-    WriteRequest {
-        ops: rels.iter().map(|r| WriteOp::Touch(rel(r))).collect(),
-        preconditions: Vec::new(),
+    {
+        let mut api_request =
+            WriteRequest::new(rels.iter().map(|r| WriteOp::Touch(rel(r))).collect());
+        api_request.preconditions = Vec::new();
+        api_request
     }
 }
 
@@ -276,9 +278,12 @@ fn touch_is_idempotent_and_delete_of_absent_is_a_no_op_but_both_allocate_revisio
         .unwrap();
     assert_eq!(rev, Revision(3));
     let rev = e
-        .write(WriteRequest {
-            ops: vec![WriteOp::Delete(rel("document:readme#viewer@user:bob"))],
-            preconditions: vec![],
+        .write({
+            let mut api_request = WriteRequest::new(vec![WriteOp::Delete(rel(
+                "document:readme#viewer@user:bob",
+            ))]);
+            api_request.preconditions = vec![];
+            api_request
         })
         .unwrap();
     assert_eq!(rev, Revision(4));
@@ -290,9 +295,12 @@ fn delete_removes_a_live_tuple() {
     let e = engine_with_schema();
     e.write(touch(&["document:readme#viewer@user:anne"]))
         .unwrap();
-    e.write(WriteRequest {
-        ops: vec![WriteOp::Delete(rel("document:readme#viewer@user:anne"))],
-        preconditions: vec![],
+    e.write({
+        let mut api_request = WriteRequest::new(vec![WriteOp::Delete(rel(
+            "document:readme#viewer@user:anne",
+        ))]);
+        api_request.preconditions = vec![];
+        api_request
     })
     .unwrap();
     assert_eq!(all(&e, "document"), Vec::<String>::new());
@@ -304,9 +312,12 @@ fn create_of_a_live_tuple_is_already_exists() {
     e.write(touch(&["document:readme#viewer@user:anne"]))
         .unwrap();
     let err = e
-        .write(WriteRequest {
-            ops: vec![WriteOp::Create(rel("document:readme#viewer@user:anne"))],
-            preconditions: vec![],
+        .write({
+            let mut api_request = WriteRequest::new(vec![WriteOp::Create(rel(
+                "document:readme#viewer@user:anne",
+            ))]);
+            api_request.preconditions = vec![];
+            api_request
         })
         .unwrap_err();
     assert!(
@@ -327,9 +338,10 @@ fn empty_batch_still_allocates_a_revision() {
 fn assert_invalid(e: &Engine<MemoryStore>, op: WriteOp, code: ErrorCode) {
     let shown = op.relationship().to_string();
     let err = e
-        .write(WriteRequest {
-            ops: vec![op],
-            preconditions: vec![],
+        .write({
+            let mut api_request = WriteRequest::new(vec![op]);
+            api_request.preconditions = vec![];
+            api_request
         })
         .unwrap_err();
     match &err {
@@ -471,39 +483,42 @@ fn a_store_level_failure_late_in_the_batch_writes_nothing() {
     e.write(touch(&["document:readme#owner@user:carol"]))
         .unwrap();
     let err = e
-        .write(WriteRequest {
-            ops: vec![
+        .write({
+            let mut api_request = WriteRequest::new(vec![
                 WriteOp::Touch(rel("document:readme#viewer@user:anne")),
                 WriteOp::Delete(rel("document:readme#owner@user:carol")),
                 WriteOp::Create(rel("document:other#owner@user:carol")),
                 WriteOp::Create(rel("document:other#owner@user:carol")),
-            ],
-            preconditions: vec![],
+            ]);
+            api_request.preconditions = vec![];
+            api_request
         })
         .unwrap_err();
     assert!(matches!(err, Error::DuplicateInBatch(_)), "{err:?}");
 
     let err = e
-        .write(WriteRequest {
-            ops: vec![
+        .write({
+            let mut api_request = WriteRequest::new(vec![
                 WriteOp::Touch(rel("document:readme#viewer@user:anne")),
                 WriteOp::Delete(rel("document:readme#owner@user:carol")),
                 WriteOp::Create(rel("document:readme#owner@user:carol")),
-            ],
-            preconditions: vec![],
+            ]);
+            api_request.preconditions = vec![];
+            api_request
         })
         .unwrap_err();
     // Delete then Create of the same tuple is a duplicate, not a replace.
     assert!(matches!(err, Error::DuplicateInBatch(_)), "{err:?}");
 
     let err = e
-        .write(WriteRequest {
-            ops: vec![
+        .write({
+            let mut api_request = WriteRequest::new(vec![
                 WriteOp::Touch(rel("document:readme#viewer@user:anne")),
                 WriteOp::Delete(rel("document:readme#viewer@user:bob")),
                 WriteOp::Create(rel("document:readme#owner@user:carol")),
-            ],
-            preconditions: vec![],
+            ]);
+            api_request.preconditions = vec![];
+            api_request
         })
         .unwrap_err();
     assert!(matches!(err, Error::AlreadyExists(_)), "{err:?}");
@@ -524,9 +539,10 @@ fn the_same_relationship_twice_is_duplicate_in_batch() {
         vec![WriteOp::Create(rel(r)), WriteOp::Touch(rel(r))],
     ] {
         let err = e
-            .write(WriteRequest {
-                ops,
-                preconditions: vec![],
+            .write({
+                let mut api_request = WriteRequest::new(ops);
+                api_request.preconditions = vec![];
+                api_request
             })
             .unwrap_err();
         assert!(
@@ -556,11 +572,14 @@ fn validation_is_checked_before_duplicates() {
 #[test]
 fn must_exist_precondition() {
     let e = engine_with_schema();
-    let req = WriteRequest {
-        ops: vec![WriteOp::Touch(rel("document:readme#viewer@user:anne"))],
-        preconditions: vec![Precondition::MustExist(filter_for(
+    let req = {
+        let mut api_request = WriteRequest::new(vec![WriteOp::Touch(rel(
+            "document:readme#viewer@user:anne",
+        ))]);
+        api_request.preconditions = vec![Precondition::MustExist(filter_for(
             "document:readme#owner@user:carol",
-        ))],
+        ))];
+        api_request
     };
     let err = e.write(req.clone()).unwrap_err();
     assert!(
@@ -587,12 +606,14 @@ fn must_not_exist_precondition_reports_its_index() {
     let e = engine_with_schema();
     e.write(touch(&["document:readme#owner@user:carol"]))
         .unwrap();
-    let req = WriteRequest {
-        ops: vec![WriteOp::Touch(rel("document:readme#owner@user:dave"))],
-        preconditions: vec![
+    let req = {
+        let mut api_request =
+            WriteRequest::new(vec![WriteOp::Touch(rel("document:readme#owner@user:dave"))]);
+        api_request.preconditions = vec![
             Precondition::MustNotExist(filter_for("document:readme#viewer@user:x")),
             Precondition::MustNotExist(filter_for("document:readme#owner@user:x")),
-        ],
+        ];
+        api_request
     };
     let err = e.write(req).unwrap_err();
     assert!(
@@ -607,16 +628,20 @@ fn preconditions_see_only_live_tuples() {
     let e = engine_with_schema();
     e.write(touch(&["document:readme#owner@user:carol"]))
         .unwrap();
-    e.write(WriteRequest {
-        ops: vec![WriteOp::Delete(rel("document:readme#owner@user:carol"))],
-        preconditions: vec![],
+    e.write({
+        let mut api_request = WriteRequest::new(vec![WriteOp::Delete(rel(
+            "document:readme#owner@user:carol",
+        ))]);
+        api_request.preconditions = vec![];
+        api_request
     })
     .unwrap();
-    e.write(WriteRequest {
-        ops: vec![],
-        preconditions: vec![Precondition::MustNotExist(filter_for(
+    e.write({
+        let mut api_request = WriteRequest::new(vec![]);
+        api_request.preconditions = vec![Precondition::MustNotExist(filter_for(
             "document:readme#owner@user:x",
-        ))],
+        ))];
+        api_request
     })
     .unwrap();
 }
@@ -627,11 +652,13 @@ fn duplicates_are_checked_before_preconditions() {
     let e = engine_with_schema();
     let r = "document:readme#viewer@user:anne";
     let err = e
-        .write(WriteRequest {
-            ops: vec![WriteOp::Touch(rel(r)), WriteOp::Touch(rel(r))],
-            preconditions: vec![Precondition::MustExist(filter_for(
+        .write({
+            let mut api_request =
+                WriteRequest::new(vec![WriteOp::Touch(rel(r)), WriteOp::Touch(rel(r))]);
+            api_request.preconditions = vec![Precondition::MustExist(filter_for(
                 "document:readme#owner@user:x",
-            ))],
+            ))];
+            api_request
         })
         .unwrap_err();
     assert!(matches!(err, Error::DuplicateInBatch(_)), "{err:?}");
@@ -643,11 +670,14 @@ fn preconditions_are_checked_before_create_conflicts() {
     e.write(touch(&["document:readme#viewer@user:anne"]))
         .unwrap();
     let err = e
-        .write(WriteRequest {
-            ops: vec![WriteOp::Create(rel("document:readme#viewer@user:anne"))],
-            preconditions: vec![Precondition::MustExist(filter_for(
+        .write({
+            let mut api_request = WriteRequest::new(vec![WriteOp::Create(rel(
+                "document:readme#viewer@user:anne",
+            ))]);
+            api_request.preconditions = vec![Precondition::MustExist(filter_for(
                 "document:readme#owner@user:x",
-            ))],
+            ))];
+            api_request
         })
         .unwrap_err();
     assert!(
@@ -679,9 +709,10 @@ fn precondition_filters_naming_unknown_schema_elements_are_invalid_requests() {
     ] {
         // A typo in a MustNotExist filter would otherwise pass silently.
         let err = e
-            .write(WriteRequest {
-                ops: vec![],
-                preconditions: vec![Precondition::MustNotExist(f.clone())],
+            .write({
+                let mut api_request = WriteRequest::new(vec![]);
+                api_request.preconditions = vec![Precondition::MustNotExist(f.clone())];
+                api_request
             })
             .unwrap_err();
         assert!(matches!(err, Error::InvalidRequest { .. }), "{f}: {err:?}");
@@ -882,12 +913,13 @@ fn read_relationships_rejects_filters_naming_unknown_schema_elements() {
 #[test]
 fn read_relationships_at_an_exact_old_revision_sees_old_state() {
     let e = seeded();
-    e.write(WriteRequest {
-        ops: vec![
+    e.write({
+        let mut api_request = WriteRequest::new(vec![
             WriteOp::Delete(rel("document:a#viewer@user:bob")),
             WriteOp::Touch(rel("document:c#viewer@user:bob")),
-        ],
-        preconditions: vec![],
+        ]);
+        api_request.preconditions = vec![];
+        api_request
     })
     .unwrap();
     let mut f = RelationshipFilter::new(ty("document"));

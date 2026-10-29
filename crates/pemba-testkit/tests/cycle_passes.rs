@@ -35,9 +35,11 @@ fn run(case: &Case) {
     let engine = Engine::builder().store(MemoryStore::new()).build().unwrap();
     engine.write_schema(case.schema).unwrap();
     engine
-        .write(WriteRequest {
-            ops: tuples.iter().cloned().map(WriteOp::Touch).collect(),
-            preconditions: Vec::new(),
+        .write({
+            let mut api_request =
+                WriteRequest::new(tuples.iter().cloned().map(WriteOp::Touch).collect());
+            api_request.preconditions = Vec::new();
+            api_request
         })
         .unwrap();
     let schema = pemba_schema::compile(case.schema).unwrap().schema;
@@ -63,11 +65,14 @@ fn run(case: &Case) {
     for order in [&forward, &reverse] {
         for &&(resource, member, want, passes) in order {
             let res = engine
-                .check(CheckRequest {
-                    resource: resource.parse().unwrap(),
-                    permission: member.parse().unwrap(),
-                    subject: subject.clone(),
-                    consistency: Consistency::Latest,
+                .check({
+                    let mut api_request = CheckRequest::new(
+                        resource.parse().unwrap(),
+                        member.parse().unwrap(),
+                        subject.clone(),
+                    );
+                    api_request.consistency = Consistency::Latest;
+                    api_request
                 })
                 .unwrap();
             assert_eq!(res.allowed, want, "check {resource}#{member}");
@@ -84,10 +89,12 @@ fn run(case: &Case) {
     ] {
         let items = order
             .iter()
-            .map(|&&(resource, member, _, _)| CheckItem {
-                resource: resource.parse().unwrap(),
-                permission: member.parse().unwrap(),
-                subject: subject.clone(),
+            .map(|&&(resource, member, _, _)| {
+                CheckItem::new(
+                    resource.parse().unwrap(),
+                    member.parse().unwrap(),
+                    subject.clone(),
+                )
             })
             .collect();
         let start = spans().len();

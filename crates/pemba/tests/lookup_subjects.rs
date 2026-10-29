@@ -36,12 +36,14 @@ definition document {
 ";
 
 fn touch(rels: &[&str]) -> WriteRequest {
-    WriteRequest {
-        ops: rels
-            .iter()
-            .map(|r| WriteOp::Touch(r.parse::<Relationship>().unwrap()))
-            .collect(),
-        preconditions: Vec::new(),
+    {
+        let mut api_request = WriteRequest::new(
+            rels.iter()
+                .map(|r| WriteOp::Touch(r.parse::<Relationship>().unwrap()))
+                .collect(),
+        );
+        api_request.preconditions = Vec::new();
+        api_request
     }
 }
 
@@ -296,18 +298,20 @@ fn reads_at_the_requested_revision() {
     let r1 = e.head_revision().unwrap();
     e.write(touch(&["document:a#viewer@user:bob"])).unwrap();
     let old = e
-        .lookup_subjects(LookupSubjectsRequest {
-            consistency: Consistency::Exact(r1),
-            ..request("document:a#view@user")
+        .lookup_subjects({
+            let mut api_request = request("document:a#view@user");
+            api_request.consistency = Consistency::Exact(r1);
+            api_request
         })
         .unwrap();
     assert_eq!(old.revision, r1);
     assert_ids(&old, &["anne"]);
     assert_ids(&lookup(&e, "document:a#view@user"), &["anne", "bob"]);
     let err = e
-        .lookup_subjects(LookupSubjectsRequest {
-            consistency: Consistency::AtLeast(Revision(99)),
-            ..request("document:a#view@user")
+        .lookup_subjects({
+            let mut api_request = request("document:a#view@user");
+            api_request.consistency = Consistency::AtLeast(Revision(99));
+            api_request
         })
         .unwrap_err();
     assert!(
