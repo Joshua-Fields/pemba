@@ -120,4 +120,3 @@ For richer policies, see the [agent script](../../examples/agent_authz.py), its
 The [playground](https://joshua-fields.github.io/pemba/) runs a memory store in
 WASM. It can demonstrate schema/check/lookup semantics, but has no app database or
 foreign database connection and **cannot demonstrate a real database transaction**.
-
