@@ -660,6 +660,15 @@ AC:
 - Choose a private security-reporting route, responsible maintainer and support/triage
   commitments (OQ-060). Record decisions, not credentials or invented service guarantees.
 
+Maintainer decisions approved on 2026-10-29 and recorded in OQ-044 and OQ-058–OQ-060:
+sync PostgreSQL is sufficient for 0.1.0; T5.13 follows stable release; only `check_str`
+is to be implemented in T7.2 under the approved T3.9 audit approach. VitePress uses
+`docs/site/`, `/pemba/docs/` for latest stable and `/pemba/docs/next/` for labelled
+development content in the existing Pages deployment, preserving playground routes.
+GitHub private vulnerability reporting requires human activation/verification; the
+repository owner handles security and triage under the approved best-effort policy.
+This records approval only; later implementation and activation gates remain in force.
+
 ### T7.2 Complete the existing T3.9 public API audit
 Refs: T3.9 (all AC); `06` §1–§2; `09` §3; OQ-044.
 Files: published crates' public types; `docs/06-api.md`, `CHANGELOG.md`,

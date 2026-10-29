@@ -31,7 +31,8 @@ An async facade can be added later (e.g. `spawn_blocking`) without changing the 
 use a sync driver (`postgres` crate). Resolved (OQ-002/OQ-003, 2026-10-27): the engine stays
 sync, Rust uses the sync `postgres` crate, the first Postgres release joins the app's sync
 transaction through psycopg 3, psycopg2, SQLAlchemy and Django adapters, and async adapters
-come later (T5.13). Design: `docs/10-postgres.md` §2.
+come after stable 0.1.0 (T5.13; OQ-058, approved in T7.1 on 2026-10-29).
+Design: `docs/10-postgres.md` §2.
 
 ## ADR-004 — Schema DSL is a strict subset of SpiceDB's
 

@@ -300,6 +300,14 @@ playground/
 
 ### 5.1 Site layout and versioned releases
 
+**Documentation addition approved in T7.1 (OQ-059, 2026-10-29; implementation T7.6).**
+Use VitePress, sourced from `docs/site/`, in the existing single Pages assembly/deployer.
+Latest-stable documentation lives at `/pemba/docs/`; labelled development documentation
+lives at `/pemba/docs/next/`. Historical documentation snapshots are not required for
+0.1.0. Preserve the playground routes below and their immutable release archives; do not
+introduce a competing Pages deployment. T7.6 verifies base paths, deployment preservation
+and build dependencies before treating this design as technically verified.
+
 ```
 joshua-fields.github.io/pemba/                 latest release (same build as its /v/ copy)
 joshua-fields.github.io/pemba/v/<version>/     every release since the first playground release

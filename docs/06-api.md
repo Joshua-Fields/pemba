@@ -16,8 +16,6 @@ impl<S: WritableStore> Engine<S> {
     // ---- schema ----
     pub fn write_schema(&self, source: &str) -> Result<SchemaWriteResult, Error>;
     pub fn read_schema(&self) -> Result<Option<String>, Error>;
-    pub fn validate_schema(source: &str) -> Result<ValidatedSchema, SchemaErrors>; // static, no store
-                                                         // (not yet implemented; OQ-044)
 
     // ---- writes ----
     pub fn write(&self, req: WriteRequest) -> Result<Revision, Error>;
@@ -316,9 +314,16 @@ single-string `check` form already):
 
 ```rust
 engine.check_str("document:readme", "view", "user:anne", Consistency::Latest)?;   // -> bool
-engine.write_str(&["document:readme#viewer@user:anne"])?;                         // Touch each
-engine.delete_str(&["document:readme#viewer@user:anne"])?;
 ```
+
+OQ-044 (maintainer decision, T7.1): only `Engine::check_str` is approved for
+implementation in T7.2; it is not implemented yet. The unimplemented `write_str`,
+`delete_str` and static Rust `Engine::validate_schema` are removed from the promised
+surface. Use typed `WriteRequest` / `WriteOp` with `write` or `write_in` for writes,
+`delete_relationships` for filter deletion, and `pemba_schema::compile(source)` for
+store-less schema compilation/validation. CLI `pemba schema validate` and Python's
+existing `Engine.validate_schema` remain available. No Rust API implementation changes
+are made in T7.1.
 
 Store constructors:
 

@@ -963,7 +963,12 @@ Common rules:
     trip.
 - **Search path.** It is irrelevant, because every statement is schema-qualified (§3.3).
 
-### 2.4 Async callers (later phase: T5.13, after the first Postgres release)
+### 2.4 Async callers (later phase: T5.13, after stable 0.1.0)
+
+OQ-058 (maintainer decision, T7.1): the shipped synchronous PostgreSQL API is sufficient
+for stable 0.1.0. T5.13 native async adapters are deferred until after stable release;
+M7 documents the supported synchronous and thread-bridge patterns below without adding
+native async APIs.
 
 **Until T5.13**, async apps can do these things:
 - read through `asyncio.to_thread(engine.check, ...)`, since the Rust side releases the

@@ -1137,7 +1137,7 @@ it is resolved.
 - Raised in: 0.1.0-alpha.2 preparation
 - Blocking: no (decide before the 0.1.0 gate, since 0.1.0 freezes the public surface,
   `06` header)
-- Current choice: `06` §1 has always specified `Engine::check_str`, `Engine::write_str`,
+- Original choice (superseded by the resolution): `06` §1 has always specified `Engine::check_str`, `Engine::write_str`,
   `Engine::delete_str` and the static `Engine::validate_schema(source) ->
   Result<ValidatedSchema, SchemaErrors>`. None was ever implemented (found while writing
   the alpha.2 changelog), so `06` now marks them "not yet implemented". What exists
@@ -1152,7 +1152,16 @@ it is resolved.
   `parse()` + `CheckRequest` as the way. (c) Build only `check_str` (the common case in
   examples and tests).
 - Resolve by: human decision during T3.9 (the 0.1.0 public-surface audit, `08`)
-- Resolution: (fill in)
+- Resolution: Resolved by the maintainer in T7.1, 2026-10-29: implement only
+  `Engine::check_str` in T7.2. Remove the unimplemented `write_str`, `delete_str`
+  and static Rust `Engine::validate_schema` helpers from the promised API in `06`.
+  Preserve typed APIs, `pemba_schema::compile(source)`, CLI schema validation and
+  Python's existing `Engine.validate_schema`.
+  Approve T3.9's audit of every public struct/enum in publishable crates, including
+  facade re-exports and Postgres types: extensible types use `#[non_exhaustive]` with
+  suitable constructors/builders; stable value types remain exhaustive with explicit
+  rationale. Preserve downstream usability. This resolves the choice, not the audit;
+  T7.2 implements it. T7.1 changes documentation only.
 
 ## OQ-045 — What a foreign-mode write returns (D1)
 - Raised in: Postgres design (`docs/10-postgres.md` §0, §1.6.4)
@@ -1479,23 +1488,27 @@ it is resolved.
 
 ## OQ-058 — Does stable 0.1.0 require the deferred async adapters?
 - Raised in: T7.0 (M7 scope; T5.13 and ADR-003)
-- Blocking: yes, for T7.1 scope approval and the stable release; not for the planning PR.
+- Blocking: no (decision resolved; implementation and human activation gates remain).
 - Problem: M5 includes T5.13 after the first Postgres release, but M7's outline does not
   say whether it is a stable-release prerequisite. Alpha.3 already shipped sync Postgres.
-- Current choice: plan 0.1.0 around the shipped sync APIs and documented `run_sync` /
+- Original choice (superseded by the resolution): plan 0.1.0 around the shipped sync APIs and documented `run_sync` /
   thread integration; leave T5.13 as a later task. Do not claim native async support.
 - Resolve by: maintainer in T7.1; if async is required, revise sequencing and verification
   before implementing M7 rather than silently adding it to a release task.
-- Resolution: (fill in)
+- Resolution: Resolved by the maintainer in T7.1, 2026-10-29: the existing synchronous
+  PostgreSQL implementation is sufficient for stable 0.1.0. Defer T5.13 native async
+  adapters until after the stable release; do not add native async APIs in M7.
+  Document supported synchronous and thread-bridge integration patterns (`10` §2.4),
+  including worker-thread sync connections and SQLAlchemy `AsyncSession.run_sync`.
 
 ## OQ-059 — Documentation site tooling, route and version policy
 - Raised in: T7.0 (M7 docs site; ADR-016; `11` §5.1)
-- Blocking: yes, for T7.6 and release; not for the planning PR.
+- Blocking: no (decision resolved; implementation and human activation gates remain).
 - Problem: the specs select no documentation generator or documentation version policy.
   The existing Pages root, `/next/` and `/v/<version>/` belong to the playground; an
   independent Pages deploy would replace them. PR #79 proposes deployment fixes and
   must be reassessed against main when implementation starts.
-- Current choice: reserve no new public route yet; propose an additive `/docs/` subtree,
+- Original choice (superseded by the resolution): reserve no new public route yet; propose an additive `/docs/` subtree,
   source under `docs/site/`, using the existing single site assembly/deployment. Preserve
   all playground URLs and immutable archives. This is a proposal, not an accepted ADR.
 - Options: maintainer chooses generator and dependency budget, additive Pages subtree vs
@@ -1503,17 +1516,32 @@ it is resolved.
   Moving the playground root requires explicit ADR-016/spec approval.
 - Resolve by: maintainer in T7.1; record the chosen tooling, public URL and content update
   policy before T7.6. No custom domain, host account or new runtime is assumed.
-- Resolution: (fill in)
+- Resolution: Resolved by the maintainer in T7.1, 2026-10-29: use VitePress with source
+  in `docs/site/`. Publish latest-stable documentation at `/pemba/docs/` and labelled
+  development documentation at `/pemba/docs/next/`. No historical documentation
+  snapshots are required for 0.1.0. Use the existing GitHub Pages assembly and
+  deployment workflow, with no competing Pages deployment. Preserve the playground
+  routes `/pemba/`, `/pemba/next/` and `/pemba/v/<version>/` and immutable archives.
+  T7.6 must verify technical compatibility, base paths, deployment preservation and
+  build dependencies; this approval does not claim that verification is complete.
 
 ## OQ-060 — Security reporting ownership and public support commitments
 - Raised in: T7.0 (M7 security, issue triage and launch)
-- Blocking: yes, for T7.8–T7.9 and release; not for the planning PR.
+- Blocking: no (decision resolved; implementation and human activation gates remain).
 - Problem: main has no SECURITY policy or named private reporting route, and no approved
   response cadence, supported-version policy or triage ownership. Public issue templates
   must not direct sensitive reports to a guessed address or promise an invented SLA.
-- Current choice: propose GitHub private vulnerability reporting if the maintainer
+- Original choice (superseded by the resolution): propose GitHub private vulnerability reporting if the maintainer
   enables it; otherwise require a maintainer-provided private route. Do not publish a
   contact address, response deadline or support guarantee until approved.
 - Resolve by: maintainer in T7.1, with repository-setting activation/verification by a
   human and confirmation before launch (T7.17). Record ownership and approved policy.
-- Resolution: (fill in)
+- Resolution: Resolved by the maintainer in T7.1, 2026-10-29: use GitHub private
+  vulnerability reporting as the confidential route, subject to the maintainer enabling
+  and verifying it in repository settings. Activation is not verified by this decision;
+  retain the human activation/verification gates in T7.8 and T7.17.
+  The repository owner is the initial security contact and issue-triage maintainer.
+  Support the latest stable 0.1.x release with security and correctness maintenance on
+  a best-effort basis; older versions receive case-by-case consideration. Promise no
+  response-time SLA, guaranteed patches or long-term support. Use GitHub Issues for
+  normal bugs and feature requests; never direct security reports to public issues.
