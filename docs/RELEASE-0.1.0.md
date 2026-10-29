@@ -492,7 +492,6 @@ remain ignored under `target/t7.7-*`; venvs and generated artifacts are not comm
 | New contributor regression | Observed expected failure before implementation, then pass: old sources omit contributor content, new source uses its guide and selected revision's links. Existing older-tag assembly/release tests retained. |
 | CI package copies and workflow syntax | All 20 LICENSE/NOTICE copies and README mirror byte-identical; actionlint passed with unavailable shellcheck disabled. Shellcheck is not claimed. |
 | Fresh independent review | No actionable findings; reviewed guide commands, service environment, source-version navigation, workflow filters and T7.7 AC. |
-
 | `bash playground/conformance/run.sh` | Passed: 1,000 generated reference-checked cases, 1,037 fixtures; native and WASM byte-identical across 45,323 transcript lines (12,499 checks, three expected check errors, 15,678 lookups). |
 | Playground WASM generation, unit tests, production/typecheck build, size and Chromium e2e | Passed: 170 unit tests, 72 browser tests, 578.2 KB total gzip against 700 KB budget. |
 | `npm audit --omit=dev --prefix playground/web`; `npm audit --prefix docs/site` | Passed: zero vulnerabilities in shipping playground dependencies and full docs-tooling dependencies. |
