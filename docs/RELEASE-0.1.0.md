@@ -1,8 +1,8 @@
 # 0.1.0 release evidence
 
 This is the evidence index required by M7. No stable release is approved or published.
-T7.2 and T7.3 implementation evidence is recorded here; T7.4–T7.17 remain separate
-tasks and gates. T7.3 still requires PR review/merge.
+T7.2–T7.4 implementation evidence is recorded here; T7.5–T7.17 remain separate
+tasks and gates. T7.3 is merged; T7.4 requires PR review/merge.
 
 ## Preceding gates
 
@@ -228,3 +228,80 @@ results do not claim those remote jobs, the oldest Python/SQLite combination or 
 later release/wheel rehearsal have passed. No manual wheel run is required by unchanged
 packaging in this task. No release, deployment, tag or security activation was performed.
 Human review/merge is still required; T7.4 has not started.
+
+## T7.4 installation, quick starts and user guides
+
+Sources: T7.4 all AC; T3.7 README AC; ADR-006, ADR-014–ADR-015;
+`05` §4.3–§4.4, §10; `06` §2.1, §2.5;
+`10` §1.6.4, §1.6.7–§1.6.8, §2–§3.
+Implementation source: `8331df4373f9bda88a8d81e19aaea926f097ba57`
+on `t7.4-install-and-user-guides`; the following evidence commit changes only this index.
+Runtime/API sources remain main `17bfd6756e3c3b5dcf61bddc6347b6b5bd7820d9`.
+No new dependency, API, storage format, version, tag, upload or deployment.
+
+### Preceding gates
+
+T7.0–T7.2 merged as recorded above. [T7.3 PR #83](https://github.com/Joshua-Fields/pemba/pull/83)
+merged as main `17bfd6756e3c3b5dcf61bddc6347b6b5bd7820d9`.
+Its [CI](https://github.com/Joshua-Fields/pemba/actions/runs/40860098802) and
+[Playground](https://github.com/Joshua-Fields/pemba/actions/runs/40860098586) checks passed.
+Its [differential workflow](https://github.com/Joshua-Fields/pemba/actions/runs/40860098600)
+was running at the initial prerequisite check. The agent stopped; the maintainer
+explicitly authorised continuing T7.4 while it ran. It subsequently completed successfully
+before this PR was prepared. Skipped release/deployment jobs are not publication evidence.
+T7.1 decisions remain in force; later human activation/publication/launch gates remain.
+
+### Acceptance coverage
+
+| Requirement | Implementation / verification |
+|---|---|
+| Concise README and deeper guides | README links five focused guides: installation/quick starts, schema, consistency, transactions/Postgres and troubleshooting. Existing examples retained; root/Python README bytes match. |
+| Requirements and installation | CPython >=3.11, interpreter SQLite >=3.26.0 with threads, pinned Rust 1.99.0, Postgres >=15/UTF8, five wheel platforms, manylinux2014/glibc floor, compiler/headers/maturin prerequisites, CLI installation and feature selection. No support floor changed. |
+| Published alpha versus checkout | Python alpha.4 installs and runs the existing README. Rust README uses post-alpha.4 constructors/check_str: corrected its misleading registry-dependency claim and supplied a checkout manifest with explicit memory feature. Alpha install commands remain for T7.12; no stable-package claim. |
+| Clean quick starts | Exact README Python block executed outside the repository with a clean PyPI-alpha venv, then separately in another empty directory with a fresh source venv. Exact Rust README block compiled/ran from a new external Cargo project with only facade imports and a memory-only path dependency. CLI installed into an isolated external root; installed help passed. |
+| Transactions | Caller commit/rollback, engine-connection reads, no uncommitted-read promise, same database/one SQLite copy, migrations and per-store PendingRevision behavior documented. SQLite rollback numbers are void/reusable; Postgres pending/rolled-back errors covered. |
+| Schema, consistency and bounds | Supported DSL/differences, denial versus errors, limits/trace truncation, pagination, GC horizon, current schema on historical data, sync/async limits and when to use SpiceDB covered. |
+| Postgres operations | Privileges/deploy role, TLS validation/platform roots, PgBouncer prepared statements, 2PC/early constraints and whole-transaction SERIALIZABLE/REPEATABLE READ retries. T5.13 remains deferred. |
+| Snippet checks | Two new executable Python guide blocks have new pytest coverage; existing verbatim README/spec test retained. Rust guide reuses README code. No T7.5 app-row tutorial or T7.6 site implemented. |
+| Specification ambiguity | OQ-062 records `pemba migrate --repair` absent from the shipped CLI. Guide conservatively advises no schema renaming and invents no repair procedure. Maintainer disposition remains open, non-blocking for the documented no-rename path. |
+
+### Verification, 2026-10-29
+
+Windows x86_64; Rust 1.99.0; CPython 3.12.10; Node 24.20.0; wasm-bindgen 0.2.129.
+Checks ran on the working tree committed as `8331df4`. Subsequent guide edits only
+added the manylinux tag/OQ link and qualified savepoint recovery; no snippet, test or
+runtime changed. Links/anchors, mirror bytes and focused tests were rechecked before commit.
+
+| Command / evidence | Result |
+|---|---|
+| New snippet tests before guides existed | 2 expected missing-file failures; after implementation, new blocks plus README/spec tests pass (4 focused tests). |
+| `cargo fmt --all -- --check` | Passed. |
+| `cargo clippy --workspace --all-targets --all-features -- -D warnings` | Passed. |
+| `cargo test --workspace --all-features` | Initial run failed: local PG endpoint refused connections (28 PG unit failures). Started dedicated disposable PG18/TLS containers; reran with `PEMBA_PG_REQUIRED=1`: **685 tests/doctests passed**, 18 ignored tests unrun. No slow/property implementation touched; conditional ignored-suite rerun not applicable. |
+| Strict all-feature workspace docs and doctests | `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --all-features`; `cargo test --workspace --all-features --doc` passed. Strict facade no-default-feature docs/doctests also passed. |
+| Separate fuzz workspace fmt / check | `cargo fmt --manifest-path fuzz/Cargo.toml -- --check`; `cargo check --manifest-path fuzz/Cargo.toml --all-targets` passed. No fuzz target executed. |
+| Fresh tool-only venv: maturin develop, pytest, strict mypy | Built source extension; 167 passed, one PG module skipped for absent psycopg (not a pass). Strict mypy: 15 files passed. Only maturin/pytest/mypy plus dependencies and pemba installed. |
+| Separate driver venv: rebuilt extension; Postgres/error/documentation pytest files | PG18.6 plus untrusted TLS server, `PEMBA_PG_REQUIRED=1`: 66 passed, zero skips; psycopg 3/psycopg2/SQLAlchemy/Django, transactions/async bridge and TLS rejection. Covers the absent driver suite separately. |
+| Driver strict mypy; TLS and SQLite probes | 15 typing files passed; `ci/check_tls.py` and `ci/check_no_sqlite.py` passed: rustls/no OpenSSL, no bundled SQLite. |
+| Clean external registry install | New external venv: `python -m pip install --pre pemba` installed `pemba-0.1.0a4`; verbatim Python README passed. Windows alpha wheel only, not stable/all-platform verification. |
+| Clean external source quick starts | Source-venv Python README passed in its own empty directory. External Rust project with `default-features=false, features=["memory"]`: `cargo +1.99.0 run` passed. Source dependency, not registry Rust installation. |
+| Source CLI installation | `cargo +1.99.0 install --path crates/pemba-cli --locked --root <new external directory>` and installed `pemba --help` passed; existing installations untouched. |
+| wasm32 Clippy / smoke | Five playground-compatible crates and wasm_smoke Clippy passed with `-D warnings`; 4 Node WASM tests passed. |
+| Native/WASM conformance | `playground/conformance/run.sh`: 1,000 generated cases agree with reference (12,499 checks, 3 expected check errors, 15,678 lookups), 1,037 fixtures; identical transcripts across 45,323 lines. |
+| Playground WASM/build/unit/size/browser/audit | Passed: 169 unit tests/10 files, 72 Chromium tests, 578.2 KB gzip <700 KB; zero shipping vulnerabilities (`npm audit --omit=dev`). |
+| Local Markdown and copy checks | All local guide targets/anchors resolve, README bytes match, `git diff --check` passed. |
+
+Initial extraction needed explicit UTF-8 on Windows. One source Python attempt reused
+the alpha run's directory and correctly hit the duplicate app-row insert; rerunning in
+its own empty directory passed. Neither setup failure is counted as a successful run.
+Review found overly broad savepoint-recovery wording; the guide now directs rollback
+on failed authorisation writes and handles commit errors. No runtime fix was needed;
+fresh review found no further actionable correctness/scope/AC gaps.
+
+Logs/scripts remain ignored under `target/t7.4-*`; quick starts/CLI live outside the
+repository. No build output or credentials committed. T7.4 PR remote CI/platform/service
+and playground jobs are **not yet observed** at preparation. Skips/unavailable jobs are
+not passes. Oldest Python/SQLite, PG15, all-platform wheels, package dry runs and long
+property/differential/fuzz checks remain their existing CI/release gates; this is not
+T7.11/T7.13 rehearsal evidence. Human review/merge is required before T7.5. No next task,
+merge, tag, publication or deployment is authorised by this evidence.

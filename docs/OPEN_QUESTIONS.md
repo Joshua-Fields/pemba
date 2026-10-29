@@ -1561,3 +1561,17 @@ it is resolved.
   exception hierarchy. Clarify `06` §2.3 and extend error-code mapping tests; no new
   Python class, helper signature or stub is introduced. Maintainer may revise this
   choice during T7.2 review; no release approval is inferred.
+
+## OQ-062 — Postgres schema-rename repair command is specified but absent
+- Raised in: T7.4, checking `10` §3.3 against the shipped CLI.
+- Blocking: no for the documented no-rename path; decide before advertising schema renames.
+- Ambiguity: `10` §3.3 says to run `pemba migrate --repair` after renaming a Postgres
+  schema. The CLI implements schema validate/fmt, fixture tests and SQLite/fixture checks;
+  it has no migrate/repair subcommand. The public store migration API is not documented
+  as repairing a renamed trigger at the same storage version.
+- Conservative choice: the T7.4 operational guide says not to rename an active schema
+  and explicitly identifies the command as unimplemented. Do not invent a manual SQL
+  repair procedure, change the CLI, or promise that rerunning migrations repairs it.
+- Resolve by: maintainer chooses whether schema rename recovery is a later supported
+  feature or whether `10` §3.3 should explicitly defer it. Any implementation requires
+  its own scoped task and regression coverage. No recovery mechanism is approved here.

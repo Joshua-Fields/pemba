@@ -45,6 +45,14 @@ cargo install pemba-cli@0.1.0-alpha.4               # `pemba` command-line tool
 ```
 
 Only pre-releases exist so far, so pip needs `--pre` and cargo needs the explicit version.
+The Rust example below uses post-alpha.4 APIs from the current checkout; follow the
+[installation and quick-start guide](https://github.com/Joshua-Fields/pemba/blob/main/docs/guides/installation.md)
+for its clean source-build recipe, supported platforms and prerequisites.
+
+User guides: [schema](https://github.com/Joshua-Fields/pemba/blob/main/docs/guides/schema.md),
+[consistency and history](https://github.com/Joshua-Fields/pemba/blob/main/docs/guides/consistency.md),
+[transactions and Postgres operations](https://github.com/Joshua-Fields/pemba/blob/main/docs/guides/transactions.md),
+[troubleshooting and limits](https://github.com/Joshua-Fields/pemba/blob/main/docs/guides/troubleshooting.md).
 
 ### From source
 
@@ -141,8 +149,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-This is a complete `src/main.rs` after `cargo add pemba@0.1.0-alpha.4`, and the same example
-is a doctest on the `pemba` crate. For persistence, use
+This is a complete `src/main.rs` with a current-checkout dependency (see the install guide
+above), and the same example is a doctest on the `pemba` crate. The constructors and
+`check_str` shown here are newer than the published alpha.4. For persistence, use
 `SqliteStore::open("app.db", SqliteConfig::default())` in place of `MemoryStore::new()`.
 
 ## Transactional writes
