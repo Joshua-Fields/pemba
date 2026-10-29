@@ -308,6 +308,15 @@ lives at `/pemba/docs/next/`. Historical documentation snapshots are not require
 introduce a competing Pages deployment. T7.6 verifies base paths, deployment preservation
 and build dependencies before treating this design as technically verified.
 
+T7.6 builds stable docs from the newest stable release tag using main's locked
+VitePress builder, and development docs from main. The selector reuses OQ-057's
+release classification; a prerelease or older tag dispatch cannot replace stable
+content. Before the first stable release `/docs/` explicitly reports that no stable
+release exists and links to `/docs/next/`. A stable tag predating the docs source gets
+an explicit legacy page linking its own README/release notes, never main's guides
+(OQ-063). Stable builds run before development builds because `/docs/next/` is nested.
+Both join the same assembled Pages artifact after the playground copies are built.
+
 ```
 joshua-fields.github.io/pemba/                 latest release (same build as its /v/ copy)
 joshua-fields.github.io/pemba/v/<version>/     every release since the first playground release

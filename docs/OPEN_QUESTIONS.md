@@ -1575,3 +1575,17 @@ it is resolved.
 - Resolve by: maintainer chooses whether schema rename recovery is a later supported
   feature or whether `10` §3.3 should explicitly defer it. Any implementation requires
   its own scoped task and regression coverage. No recovery mechanism is approved here.
+## OQ-063 — Docs before the first stable release and tags predating the site
+- Raised in: T7.6; OQ-059; `11` §5.1.
+- Blocking: no; conservative presentation preserves the approved stable/development split.
+- Problem: OQ-059 specifies latest-stable docs and development docs but does not state
+  what `/docs/` serves before the first stable release, or when a selected old stable
+  tag lacks docs-site source. Alpha.4 has no docs-site source; current guides include
+  post-alpha.4 APIs and cannot accurately be presented as released alpha content.
+- Conservative implementation: before stable exists, serve an explicit no-stable page
+  linking to labelled development docs. For a stable tag predating the site, serve a
+  legacy page linking that exact tag's README/release notes. Never substitute main's
+  guides for released documentation. Main's locked builder renders a selected stable
+  tag's source; an older tag dispatch still selects the newest available stable tag.
+- Maintainer review: confirm these empty/legacy states with the T7.6 PR; no version,
+  release, historical asset or approved route is changed by this interpretation.

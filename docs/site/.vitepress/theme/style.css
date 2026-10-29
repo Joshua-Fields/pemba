@@ -1,0 +1,9 @@
+.docs-release {
+  border-left: 3px solid var(--vp-c-brand-1);
+  padding: 8px 12px;
+  margin: 0 0 24px;
+  color: var(--vp-c-text-1);
+  background: var(--vp-c-bg-soft);
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}

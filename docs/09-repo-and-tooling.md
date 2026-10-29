@@ -169,6 +169,14 @@ them, never `set -x` around them, and do not expose them to workflows triggered 
   CDN propagation. A stale root, a missing version directory or a wrong WASM file
   fails deployment verification. The page footer shows the version and
   commit (`vite.config.ts`).
+  T7.6 adds `docs/site/` and `docs/guides/` (plus README) to the path filters and a
+  documentation job: locked VitePress install/audit, Node regression tests, strict
+  builds and desktop/mobile Chromium keyboard/navigation checks. The single deploy
+  builds `/docs/` from the newest stable tag and `/docs/next/` from main, using main's
+  builder and the existing release classifier. Its assembled-site check also validates
+  docs channel/version metadata, local pages, anchors and assets. The existing live
+  byte verifier covers both documentation trees. See `docs/site/README.md` for local
+  commands, dependency justification and the no-stable/legacy-tag handling in OQ-063.
   Dependabot (`.github/dependabot.yml`) updates the npm dependencies weekly. Cargo
   crates are still updated by hand.
 - `wheels.yml` (`v*` tags, manual, and pull requests touching `Cargo.lock`, any

@@ -1,8 +1,8 @@
 # 0.1.0 release evidence
 
 This is the evidence index required by M7. No stable release is approved or published.
-T7.2–T7.5 implementation evidence is recorded here; T7.6–T7.17 remain separate
-tasks and gates. T7.4 is merged; T7.5 requires PR review/merge.
+T7.2–T7.6 implementation evidence is recorded here; T7.7–T7.17 remain separate
+tasks and gates. T7.5 is merged; see T7.6 evidence below.
 
 ## Preceding gates
 
@@ -378,3 +378,62 @@ no skipped or unobserved remote job is counted as passed. Oldest Python/SQLite,
 all-platform wheels, package-build dry runs and long release/property/differential/fuzz
 matrix remain their existing later gates. Human review/merge is required before T7.6;
 this task does not approve a release candidate or authorise later tasks/actions.
+
+## T7.6 documentation site
+
+Sources: T7.6 all AC; OQ-059; ADR-016; `11` §5–§5.1; `09` §4.
+Implementation: `bc814d1`, link-pinning correction
+[`2b1a34d5f2cd38842010e43144f6ea5b7295292e`](https://github.com/Joshua-Fields/pemba/commit/2b1a34d5f2cd38842010e43144f6ea5b7295292e),
+on `t7.6-documentation-site`. Subsequent evidence/whitespace-only edits do not change
+exercised behavior. Rust/Python/WASM runtime sources are byte-identical to main
+`07ffd74fdb3e8bf55ffaaca42a6763ede78e94c1`, against which the single full local run was
+started; frontend/docs checks exercise the T7.6 implementation and correction.
+
+### Preceding gates
+
+Fresh checkout: `git checkout main` then `git pull`, main `07ffd74`.
+GitHub metadata confirms T7.0–T7.5 PRs #80–#85 merged, including previous implementation
+[PR #85](https://github.com/Joshua-Fields/pemba/pull/85). Required T7.1 decisions in
+OQ-044/OQ-058–OQ-060 remain recorded; later activation/publication/launch gates remain
+human actions. Pages fix [PR #79](https://github.com/Joshua-Fields/pemba/pull/79) is
+merged as `9e2d894`; this implementation extends that existing deploy/live verifier.
+At inspection, #85's [CI](https://github.com/Joshua-Fields/pemba/actions/runs/40897391692)
+and [Playground](https://github.com/Joshua-Fields/pemba/actions/runs/40897391634) runs
+passed; its wheel run was queued, not counted as a pass or full release rehearsal.
+
+### Acceptance coverage
+
+| Requirement | Implementation / evidence |
+|---|---|
+| Approved generator and source reuse | Locked VitePress in `docs/site/`; generated views reuse README quick starts and all six T7.4–T7.5 guides. Navigation includes installation, quick starts, schema, transactions/tutorial, consistency, limits/troubleshooting and API links. Later contributor/security/roadmap links are not added prematurely. |
+| Version/content policy | Stable docs use selected stable tag source; development uses main at `/docs/next/`. Every guide shows a visible release/development banner, including mobile. Other repository links pin to the selected commit; absolute README main links are normalized too. OQ-063 records conservative no-stable/legacy placeholders for maintainer review. |
+| Strict accessible build | Build warnings and broken local page/anchor/asset links fail. Responsive default navigation and visible labels verified at 1280px and 390px, with keyboard skip link and tutorial navigation; no browser errors/404s or horizontal overflow. |
+| Single Pages assembly | Existing main deploy gains docs after playground assembly. Stable builds first, development second; existing root, `/next/`, immutable `/v/` assets and live byte verification remain in the same artifact/deployer. Tags continue to dispatch main; no competing deploy. |
+| Release/deployment regressions | CI-invoked Node suite builds actual docs into a synthetic complete site. A temporary repository with old stable, newer stable and newer prerelease tags proves an older-tag dispatch selects newest stable source, keeps root and archived engine bytes unchanged and includes main docs. Wrong channel/version, missing pages/assets/anchors are rejected; existing release classifier is reused. Existing playground share/version tests remain green. |
+| Dependencies | `docs/site/README.md` justifies VitePress 1.6.4, Vue 3.5.44 for the visible theme banner and a scoped Vite 6.4.5 security override. Initial default Vite 5/esbuild audit found advisories; override removes them, final full docs audit reports zero. Playground lock/dependencies unchanged. |
+
+### Verification, 2026-10-29
+
+Windows x86_64; pinned Rust 1.99.0; CPython 3.12.10; Node 24.20.0;
+wasm-bindgen 0.2.129. Logs/harnesses remain ignored under `target/t7.6-*`.
+
+| Check | Result |
+|---|---|
+| Full §5 once: fmt, workspace all-target/all-feature Clippy, workspace all-feature tests | Passed; 687 Rust tests/doctests with required PG18.6 service. 18 ignored tests unrun, not passes; no slow/property implementation or tests changed. |
+| Strict all-feature rustdoc; separate fuzz fmt and all-target check | Passed. Fuzz targets were not executed; long release fuzzing remains T7.11/T7.13. |
+| Fresh tool-only venv: maturin, pytest, strict mypy | Build and mypy passed (15 files); pytest 166 passed, three skipped: PG-driver module absent, two CLI tests could not locate the shared Cargo-target binary. Configured documented `PEMBA_CLI`, then focused CLI rerun passed 2/2. Skips are not passes. |
+| Separate required PG18.6/all-driver/TLS environment | 70 Python tests passed, zero skips; strict mypy and TLS/no-bundled-SQLite probes passed. Disposable services removed afterward. No new PG behavior requires repeating the later all-platform release matrix. |
+| wasm32 Clippy and Node smoke | Passed; all four WASM smoke tests passed. |
+| Native/WASM conformance | 1,000 generated reference-checked cases; 1,037 fixtures; identical transcripts over 45,323 lines (12,499 checks, three expected check errors, 15,678 lookups). |
+| Docs tests/build/browser | Six Node regressions passed. Strict development build and no-stable build passed with no warnings; desktop/mobile Chromium keyboard/label/asset checks passed. |
+| Playground | Initial fresh-checkout unit run failed because generated WASM glue was absent; built the required WASM prerequisite, then all 170 unit tests passed. Production/typecheck build, 72 Chromium tests, 578.2 KB gzip against 700 KB budget passed. Shipping npm audit: zero vulnerabilities. |
+| Docs dependency audit | Initial default-tooling audit: two moderate and one high dependency findings; corrected scoped override, final `npm audit --prefix docs/site`: zero vulnerabilities. No known finding claimed passed without correction. |
+| Workflow and diff | actionlint 1.7.12 passed (`-shellcheck=` because shellcheck is unavailable; shellcheck is not claimed). Final branch whitespace check passed. |
+| Independent review | One P2: stable README links could escape to main. Added regression, observed failure, fixed absolute-repository link mapping; all six docs regressions and 170 playground unit tests then passed, and docs build/browser checks passed. No remaining P1/P2 finding reported. |
+
+The new PR's remote CI/platform/Pages jobs are pending/not observed at preparation;
+no skipped, queued or unobserved job is counted as passed. No deployment was executed,
+and live public docs verification remains T7.16. All-platform wheels, oldest supported
+platforms and long release/property/differential/fuzz verification remain their later
+gates. Maintainer review of OQ-063 and this PR's merge are required before T7.7.
+No APIs, storage formats, releases, tags or deployed artifacts were changed.
