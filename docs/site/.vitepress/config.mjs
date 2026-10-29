@@ -14,6 +14,8 @@ const items = info.complete ? [
   { text: 'API reference', link: '/api' },
   ...(info.contributing ? [{ text: 'Contributing', link: '/contributing' }] : []),
   ...(info.security ? [{ text: 'Security', link: '/security' }] : []),
+  ...(info.triage ? [{ text: 'Issue triage', link: '/triage' }] : []),
+  ...(info.roadmap ? [{ text: 'Roadmap', link: '/roadmap' }] : []),
 ] : [];
 
 export default defineConfig({

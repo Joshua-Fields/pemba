@@ -25,10 +25,14 @@ export function prepare(source, out, info) {
   const complete = available && (!published || !!info.version);
   const contributing = complete && fs.existsSync(path.join(source, 'CONTRIBUTING.md'));
   const security = complete && fs.existsSync(path.join(source, 'SECURITY.md'));
+  const roadmap = complete && fs.existsSync(path.join(source, 'ROADMAP.md'));
+  const triage = complete && fs.existsSync(path.join(source, 'docs/TRIAGE.md'));
   const sourcePages = new Map(pages);
   if (contributing) sourcePages.set('CONTRIBUTING.md', 'contributing');
   if (security) sourcePages.set('SECURITY.md', 'security');
-  const metadata = { ...info, label, complete, contributing, security };
+  if (roadmap) sourcePages.set('ROADMAP.md', 'roadmap');
+  if (triage) sourcePages.set('docs/TRIAGE.md', 'triage');
+  const metadata = { ...info, label, complete, contributing, security, roadmap, triage };
   fs.writeFileSync(path.join(out, 'build-info.json'), JSON.stringify(metadata));
   const next = '[Development documentation](https://joshua-fields.github.io/pemba/docs/next/)';
   if (!complete) {

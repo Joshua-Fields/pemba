@@ -6,6 +6,44 @@ import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
 import { prepare, stableVersion } from './content.mjs';
 
+test('roadmap and triage use selected-source content and local links only when present', () => {
+  const source = fs.mkdtempSync(path.join(os.tmpdir(), 'pemba-community-'));
+  const out = fs.mkdtempSync(path.join(os.tmpdir(), 'pemba-docs-'));
+  try {
+    fs.mkdirSync(path.join(source, 'docs/site'), { recursive: true });
+    fs.writeFileSync(path.join(source, 'docs/site/package.json'), '{}');
+    fs.mkdirSync(path.join(source, 'docs/guides'));
+    for (const name of ['installation', 'schema', 'transactions', 'transactional-tutorial', 'consistency', 'troubleshooting']) {
+      fs.writeFileSync(path.join(source, `docs/guides/${name}.md`), `# ${name}\n`);
+    }
+    fs.writeFileSync(path.join(source, 'README.md'), '# Selected revision\n');
+    let info = prepare(source, out, { channel: 'stable', version: '0.1.0', commit: 'older123' });
+    assert.equal(info.roadmap, false);
+    assert.equal(info.triage, false);
+    assert.equal(fs.existsSync(path.join(out, 'roadmap.md')), false);
+    assert.equal(fs.existsSync(path.join(out, 'triage.md')), false);
+    fs.writeFileSync(path.join(source, 'ROADMAP.md'), '# Roadmap\n\n[triage](docs/TRIAGE.md) and [milestones](docs/08-milestones.md).\n');
+    fs.writeFileSync(path.join(source, 'docs/TRIAGE.md'), '# Triage\n\n[roadmap](../ROADMAP.md) and [security](../SECURITY.md).\n');
+    fs.writeFileSync(path.join(source, 'SECURITY.md'), '# Security\n');
+    fs.writeFileSync(path.join(source, 'docs/08-milestones.md'), '# Milestones\n');
+    for (const channel of ['next', 'stable']) {
+      info = prepare(source, out, { channel, version: '0.1.0', commit: 'newer123' });
+      assert.equal(info.roadmap, true);
+      assert.equal(info.triage, true);
+      assert.match(fs.readFileSync(path.join(out, 'roadmap.md'), 'utf8'), /\[triage\]\(\/triage\)/);
+      assert.match(fs.readFileSync(path.join(out, 'roadmap.md'), 'utf8'), /blob\/newer123\/docs\/08-milestones.md/);
+      assert.match(fs.readFileSync(path.join(out, 'triage.md'), 'utf8'), /\[roadmap\]\(\/roadmap\)/);
+      assert.match(fs.readFileSync(path.join(out, 'triage.md'), 'utf8'), /\[security\]\(\/security\)/);
+    }
+    info = prepare(source, out, { channel: 'stable', commit: 'newer123' });
+    assert.equal(info.roadmap, false);
+    assert.equal(info.triage, false);
+  } finally {
+    fs.rmSync(source, { recursive: true, force: true });
+    fs.rmSync(out, { recursive: true, force: true });
+  }
+});
+
 test('stable docs never select a prerelease, including a deployment triggered by an older tag', () => {
   assert.equal(stableVersion(['0.1.0-alpha.4']), undefined);
   assert.equal(stableVersion(['0.1.0', '0.2.0-rc.1', '0.1.1', '0.1.0-alpha.4']), '0.1.1');

@@ -1,0 +1,43 @@
+name: Feature request
+description: Describe a use case for consideration, without a delivery commitment.
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Search existing issues and the [roadmap](https://github.com/Joshua-Fields/pemba/blob/main/ROADMAP.md) first. Requests are candidates, not commitments. Suspected vulnerabilities go through [SECURITY.md](https://github.com/Joshua-Fields/pemba/blob/main/SECURITY.md) and [private reporting](https://github.com/Joshua-Fields/pemba/security/advisories/new). Use synthetic data; do not post exploit details, credentials or private schemas/tuples.
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Package/CLI version or checkout commit, plus Rust/Python versions.
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Store and platform
+      description: Store, database/driver versions, OS/architecture, installation method and enabled features; no secrets or connection strings.
+    validations:
+      required: true
+  - type: textarea
+    id: model
+    attributes:
+      label: Minimal schema and tuples
+      description: Synthetic model illustrating the use case, or explain why it is not applicable.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: results
+    attributes:
+      label: Expected and actual result
+      description: Describe the problem, desired behavior and current behavior/workaround, including denial versus error where relevant.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Safe reproduction and use case
+      description: Minimal synthetic example showing the limitation and why existing APIs do not suffice. Use a disposable database; never attach production data. Explain compatibility constraints and alternatives.
+    validations:
+      required: true
