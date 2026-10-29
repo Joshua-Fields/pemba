@@ -59,7 +59,7 @@ def test_every_rust_code_maps_to_exactly_one_class() -> None:
 
 def test_hierarchy_shape() -> None:
     assert issubclass(pemba.TransactionConflictError, pemba.StorageError)
-    subclasses = {
+    subclasses: dict[type[Exception], type[Exception]] = {
         pemba.TransactionConflictError: pemba.StorageError,
         pemba.RevisionPending: pemba.ConsistencyError,
         pemba.WriteRolledBack: pemba.ConsistencyError,

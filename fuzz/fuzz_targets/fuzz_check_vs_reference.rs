@@ -123,7 +123,12 @@ fn engine_agrees_with_reference(case: &Case) {
     engine.write_schema(&src).unwrap();
     if !case.tuples.is_empty() {
         engine
-            .write({ let mut api_request = WriteRequest::new(case.tuples.iter().cloned().map(WriteOp::Touch).collect()); api_request.preconditions = Vec::new(); api_request })
+            .write({
+                let mut api_request =
+                    WriteRequest::new(case.tuples.iter().cloned().map(WriteOp::Touch).collect());
+                api_request.preconditions = Vec::new();
+                api_request
+            })
             .unwrap();
     }
 
@@ -139,7 +144,11 @@ fn engine_agrees_with_reference(case: &Case) {
         .collect();
 
     for ((o, m, s), want) in queries.iter().zip(&expected) {
-        let got = engine.check({ let mut api_request = CheckRequest::new(o.clone(), m.clone(), s.clone()); api_request.consistency = Consistency::Latest; api_request });
+        let got = engine.check({
+            let mut api_request = CheckRequest::new(o.clone(), m.clone(), s.clone());
+            api_request.consistency = Consistency::Latest;
+            api_request
+        });
         match got {
             Ok(r) => assert_eq!(r.allowed, *want, "check({o}#{m}@{s})\n{case:?}"),
             Err(e) if accepted(&oracle, o, m, s, e.code()) => {}
