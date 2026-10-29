@@ -26,6 +26,7 @@ pub enum WriteOp {
 /// Displays tuple-like with absent parts omitted, e.g. `document#view@user:anne`; `#...`
 /// shows `subject_relation: Some(None)` (debugging only).
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[non_exhaustive]
 pub struct RelationshipFilter {
     /// Resource type; always required.
     pub resource_type: TypeName,
@@ -52,11 +53,22 @@ pub enum Precondition {
 
 /// An all-or-nothing write batch (`docs/02-data-model.md` §5).
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub struct WriteRequest {
     /// Applied in order, all at one new revision.
     pub ops: Vec<WriteOp>,
     /// Checked before any op; the first failure aborts the batch.
     pub preconditions: Vec<Precondition>,
+}
+
+impl WriteRequest {
+    /// A batch of operations with no preconditions. Set `preconditions` as needed.
+    pub fn new(ops: Vec<WriteOp>) -> Self {
+        Self {
+            ops,
+            preconditions: Vec::new(),
+        }
+    }
 }
 
 impl WriteOp {

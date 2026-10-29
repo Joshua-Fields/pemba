@@ -391,33 +391,37 @@ fn write_op_display() {
 
 #[test]
 fn relationship_filter_display() {
-    let base = RelationshipFilter {
-        resource_type: ty("document"),
-        resource_id: None,
-        relation: None,
-        subject_type: None,
-        subject_id: None,
-        subject_relation: None,
+    let base = {
+        let mut api_request = RelationshipFilter::new(ty("document"));
+        api_request.resource_id = None;
+        api_request.relation = None;
+        api_request.subject_type = None;
+        api_request.subject_id = None;
+        api_request.subject_relation = None;
+        api_request
     };
     assert_eq!(base.to_string(), "document");
-    let full = RelationshipFilter {
-        resource_id: Some(oid("readme")),
-        relation: Some(rel("viewer")),
-        subject_type: Some(ty("user")),
-        subject_id: Some("*".into()),
-        ..base.clone()
+    let full = {
+        let mut api_request = base.clone();
+        api_request.resource_id = Some(oid("readme"));
+        api_request.relation = Some(rel("viewer"));
+        api_request.subject_type = Some(ty("user"));
+        api_request.subject_id = Some("*".into());
+        api_request
     };
     assert_eq!(full.to_string(), "document:readme#viewer@user:*");
-    let no_subject_rel = RelationshipFilter {
-        subject_type: Some(ty("user")),
-        subject_relation: Some(None),
-        ..base.clone()
+    let no_subject_rel = {
+        let mut api_request = base.clone();
+        api_request.subject_type = Some(ty("user"));
+        api_request.subject_relation = Some(None);
+        api_request
     };
     assert_eq!(no_subject_rel.to_string(), "document@user#...");
-    let subject_set = RelationshipFilter {
-        subject_type: Some(ty("group")),
-        subject_relation: Some(Some(rel("member"))),
-        ..base
+    let subject_set = {
+        let mut api_request = base;
+        api_request.subject_type = Some(ty("group"));
+        api_request.subject_relation = Some(Some(rel("member")));
+        api_request
     };
     assert_eq!(subject_set.to_string(), "document@group#member");
 }

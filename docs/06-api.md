@@ -27,6 +27,8 @@ impl<S: WritableStore> Engine<S> {
 
     // ---- reads ----
     pub fn check(&self, req: CheckRequest) -> Result<CheckResponse, Error>;
+    pub fn check_str(&self, resource: &str, permission: &str, subject: &str,
+                     consistency: Consistency) -> Result<bool, Error>;
     pub fn check_with_trace(&self, req: CheckRequest)
         -> Result<(CheckResponse, CheckTrace), Error>;          // T4.1, 04 §3.8
     pub fn check_with_trace_limit(&self, req: CheckRequest, max_trace_nodes: usize)
@@ -83,6 +85,7 @@ impl<S: WritableStore> EngineBuilder<S> {
     pub fn build(self) -> Result<Engine<S>, Error>;
 }
 
+#[non_exhaustive]
 pub struct SchemaWriteResult {
     pub version: u64,                   // current schema version (1, 2, ...)
     pub revision: Revision,             // revision that version was written at
@@ -90,12 +93,14 @@ pub struct SchemaWriteResult {
     pub warnings: Vec<SchemaError>,     // W_... diagnostics
 }
 
+#[non_exhaustive]
 pub struct ReadRelationshipsRequest {
     pub filter: RelationshipFilter,
     pub consistency: Consistency,       // ::new(filter) gives Latest
     pub limit: Option<u32>,             // None = max_lookup_results; 0 or > max -> InvalidRequest
     pub cursor: Option<Relationship>,   // exclusive keyset cursor (previous next_cursor)
 }
+#[non_exhaustive]
 pub struct ReadRelationshipsResponse {
     pub relationships: Vec<Relationship>, // storage-column order (05 §2)
     pub revision: Revision,               // pass Consistency::Exact(revision) for later pages
@@ -106,11 +111,15 @@ pub struct ReadRelationshipsResponse {
 Check types (defined in T1.3; `04` §3.1):
 
 ```rust
+#[non_exhaustive]
 pub struct CheckRequest { pub resource: ObjectRef, pub permission: RelName,
                           pub subject: SubjectRef, pub consistency: Consistency }
+#[non_exhaustive]
 pub struct CheckResponse { pub allowed: bool, pub revision: Revision, pub stats: EvalStats }
+#[non_exhaustive]
 pub struct CheckItem { pub resource: ObjectRef, pub permission: RelName,
                        pub subject: SubjectRef }   // CheckRequest minus consistency
+#[non_exhaustive]
 pub struct EvalStats {
     pub store_reads: u64, pub tuples_read: u64, pub memo_hits: u64,
     pub max_depth_reached: u32,          // root node = depth 1
@@ -151,6 +160,7 @@ pub const TRACE_FORMAT_VERSION: u32 = 1;
 Lookup types (defined in T2.4; `04` §5):
 
 ```rust
+#[non_exhaustive]
 pub struct LookupResourcesRequest {
     pub resource_type: TypeName,
     pub permission: RelName,            // a permission or relation of resource_type
@@ -159,6 +169,7 @@ pub struct LookupResourcesRequest {
     pub limit: Option<u32>,             // None = max_lookup_results; 0 or > max -> InvalidRequest
     pub cursor: Option<ObjectId>,       // exclusive: ids strictly after it
 }
+#[non_exhaustive]
 pub struct LookupResourcesResponse {
     pub resource_ids: Vec<ObjectId>,    // ascending byte-wise
     pub next_cursor: Option<ObjectId>,  // last returned id if candidates remain, else None
@@ -180,12 +191,14 @@ a page fails as a whole with the first error any candidate's `check` returns, or
 `lookup_subjects` types (defined in T2.5; `04` §6):
 
 ```rust
+#[non_exhaustive]
 pub struct LookupSubjectsRequest {
     pub resource: ObjectRef,
     pub permission: RelName,
     pub subject_type: TypeName,         // object subjects only
     pub consistency: Consistency,       // ::new(resource, permission, subject_type) gives Latest
 }
+#[non_exhaustive]
 pub struct LookupSubjectsResponse {
     pub subject_ids: Vec<ObjectId>,     // ascending byte-wise; empty if wildcard
     pub wildcard: bool,                 // every object of subject_type (even unwritten) ...
@@ -222,6 +235,7 @@ validation under the new schema (`03` §10), writing nothing.
 T2.6 types:
 
 ```rust
+#[non_exhaustive]
 pub struct OrphanReport {           // one group of live tuples the new schema rejects
     pub resource_type: TypeName, pub relation: RelName,
     pub subject: String,            // "user", "user:*" or "group#member"
@@ -229,7 +243,9 @@ pub struct OrphanReport {           // one group of live tuples the new schema r
     pub code: ErrorCode,            // as a write of one would fail: E_UNKNOWN_TYPE, ...
     pub message: String,
 }
+#[non_exhaustive]
 pub struct DeleteResult { pub deleted: u64, pub more: bool, pub revision: Revision }
+#[non_exhaustive]
 pub struct GcStats { pub rows_removed: u64, pub horizon: Revision, pub batches: u64 }
 ```
 
@@ -309,21 +325,73 @@ tx.commit()?;                       // only now is the revision real
 let rev = engine.resolve(&pending)?;
 ```
 
-Ergonomic helpers (thin wrappers; **not yet implemented**, OQ-044. Python has the
-single-string `check` form already):
+`Engine::check_str(resource, permission, subject, consistency)` is a thin wrapper:
+it parses the three components in that order using their existing `FromStr` implementations,
+then returns `check`'s `allowed` field. Malformed input returns `Error::Parse(ParseError)`
+(code `PARSE`) with the original component input and byte position. All consistency,
+schema, limit and store errors propagate unchanged; an error never becomes `false`.
 
 ```rust
-engine.check_str("document:readme", "view", "user:anne", Consistency::Latest)?;   // -> bool
+engine.check_str("document:readme", "view", "user:anne", Consistency::Latest)?; // bool
 ```
 
-OQ-044 (maintainer decision, T7.1): only `Engine::check_str` is approved for
-implementation in T7.2; it is not implemented yet. The unimplemented `write_str`,
-`delete_str` and static Rust `Engine::validate_schema` are removed from the promised
-surface. Use typed `WriteRequest` / `WriteOp` with `write` or `write_in` for writes,
-`delete_relationships` for filter deletion, and `pemba_schema::compile(source)` for
-store-less schema compilation/validation. CLI `pemba schema validate` and Python's
-existing `Engine.validate_schema` remain available. No Rust API implementation changes
-are made in T7.1.
+OQ-044 is implemented: only `check_str` is provided. Use typed `WriteRequest` / `WriteOp`
+with `write` or `write_in`, `delete_relationships` for filter deletion, and
+`pemba_schema::compile(source)` for store-less compilation/validation. CLI schema validation
+and Python's existing `Engine.validate_schema` remain available.
+
+### Construction and extension policy (T3.9 / T7.2)
+
+[PUBLIC_API_AUDIT.md](PUBLIC_API_AUDIT.md) inventories every public struct and enum in
+publishable crates, including facade re-exports and the separate Postgres crate.
+Extensible requests, filters, responses, statistics and fixture reports are
+`#[non_exhaustive]`; their public fields remain readable and mutable. Match these types
+with `..`. Construct inputs using the following existing/new constructors and then assign
+optional fields (not a struct literal or `..Default::default()` literal):
+
+```rust
+impl CheckRequest {
+    pub fn new(resource: ObjectRef, permission: RelName, subject: SubjectRef) -> Self;
+}
+impl CheckItem {
+    pub fn new(resource: ObjectRef, permission: RelName, subject: SubjectRef) -> Self;
+}
+impl WriteRequest {                 // also Default, an empty batch
+    pub fn new(ops: Vec<WriteOp>) -> Self;
+}
+impl RelationshipFilter { pub fn new(resource_type: TypeName) -> Self; }
+impl ReadRelationshipsRequest { pub fn new(filter: RelationshipFilter) -> Self; }
+impl LookupResourcesRequest {
+    pub fn new(resource_type: TypeName, permission: RelName, subject: SubjectRef) -> Self;
+}
+impl LookupSubjectsRequest {
+    pub fn new(resource: ObjectRef, permission: RelName, subject_type: TypeName) -> Self;
+}
+```
+
+Read requests default to `Latest`; page size and cursor default to `None`; filter
+restrictions default to `None`; `WriteRequest::new` has no preconditions. For example:
+
+```rust
+let mut request = CheckRequest::new("document:readme".parse()?, "view".parse()?, "user:anne".parse()?);
+request.consistency = Consistency::AtLeast(rev);
+let response = engine.check(request)?;
+```
+
+Engine-produced responses need no caller constructor. `EvalStats::default()` remains
+available. Custom store implementations construct extensible store values through
+`store::ReverseFilter::new(subject_type, subject_id, subject_relation)` (no resource
+restrictions initially), `RelationCount::new(resource_type, relation, subject_type,
+subject_relation, wildcard, count)`, `StoredSchema::new(version, source, hash, created_rev)`,
+`GcStats::new(rows_removed, horizon, batches)` and
+`DeleteResult::new(deleted, more, revision)`. Arguments have their corresponding public
+field types. Fixture producers use `Failure::new(location, assertion, message)` and
+`Report::default()`. These constructors do not change validation or storage semantics.
+Existing `EngineConfig`, SQLite and Postgres defaults/setters are retained.
+
+Stable value types (`ObjectRef`, `SubjectRef`, `Relationship`, `Revision` and the fixed
+consistency/write/precondition algebra) remain exhaustive; opaque handles retain their
+private fields. No on-disk format, Python signature or package version changes here.
 
 Store constructors:
 
@@ -391,7 +459,7 @@ pub enum Error {
 `E_UNKNOWN_RELATION`, `E_WRITE_TO_PERMISSION`, `E_SUBJECT_TYPE_NOT_ALLOWED`; `02` §6).
 Every variant has a stable machine code (`Error::code() -> &'static str`, e.g.
 `"MAX_DEPTH_EXCEEDED"`) used by the Python exception mapping. Codes so far: `SCHEMA_ERROR`,
-`NO_SCHEMA`, `INVALID_RELATIONSHIP`, `INVALID_REQUEST`, `DUPLICATE_IN_BATCH`,
+`NO_SCHEMA`, `INVALID_RELATIONSHIP`, `INVALID_REQUEST`, `PARSE`, `DUPLICATE_IN_BATCH`,
 `ALREADY_EXISTS`, `PRECONDITION_FAILED`, `BATCH_TOO_LARGE`, `REVISION_NOT_YET_AVAILABLE`,
 `REVISION_EXPIRED`, `STORE_ERROR`, `MAX_DEPTH_EXCEEDED`, `NON_MONOTONIC_CYCLE`,
 `FANOUT_EXCEEDED`, `READ_LIMIT_EXCEEDED`, `STALE_RELATIONSHIP`, `NOT_MIGRATED`,
@@ -636,6 +704,9 @@ PembaError(Exception)               .code: str  (Rust Error::code()), .retryable
     └── TransactionConflictError     TRANSACTION_CONFLICT: retry the whole transaction
 ```
 Every `Error::code()` maps to exactly one class (tested by iterating `Error::CODES`).
+Rust `Error::Parse` (`PARSE`) maps to built-in `ValueError`, preserving Python argument
+parse errors; it is the exception to the `PembaError` hierarchy above. No new Python
+exception or signature is added.
 `pemba.PembaWarning(UserWarning)` is a warning, not an error: raised once per engine for
 something that works but costs more than it should (on Postgres, an early trigger
 firing, `10` §1.6.7).

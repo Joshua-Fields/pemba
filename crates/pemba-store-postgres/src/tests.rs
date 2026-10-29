@@ -257,9 +257,10 @@ fn rel(s: &str) -> Relationship {
 }
 
 fn request(ops: Vec<WriteOp>) -> WriteRequest {
-    WriteRequest {
-        ops,
-        preconditions: Vec::new(),
+    {
+        let mut api_request = WriteRequest::new(ops);
+        api_request.preconditions = Vec::new();
+        api_request
     }
 }
 

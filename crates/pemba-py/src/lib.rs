@@ -203,11 +203,11 @@ fn ops(
 }
 
 fn check_item(resource: &str, permission: &str, subject: &str) -> PyResult<CheckItem> {
-    Ok(CheckItem {
-        resource: parse::<ObjectRef>(resource)?,
-        permission: parse::<RelName>(permission)?,
-        subject: parse::<SubjectRef>(subject)?,
-    })
+    Ok(CheckItem::new(
+        parse::<ObjectRef>(resource)?,
+        parse::<RelName>(permission)?,
+        parse::<SubjectRef>(subject)?,
+    ))
 }
 
 /// An embedded authorisation engine. Thread-safe: share one per process, created after
@@ -294,11 +294,7 @@ impl Engine {
             1 => {
                 let s: String = args.get_item(0)?.extract()?;
                 let rel: pemba::model::Relationship = parse(&s)?;
-                CheckItem {
-                    resource: rel.resource,
-                    permission: rel.relation,
-                    subject: rel.subject,
-                }
+                CheckItem::new(rel.resource, rel.relation, rel.subject)
             }
             3 => check_item(
                 &args.get_item(0)?.extract::<String>()?,
@@ -311,11 +307,10 @@ impl Engine {
                 )));
             }
         };
-        Ok(CheckRequest {
-            resource: item.resource,
-            permission: item.permission,
-            subject: item.subject,
-            consistency: consistency(at_least, at_exactly)?,
+        Ok({
+            let mut api_request = CheckRequest::new(item.resource, item.permission, item.subject);
+            api_request.consistency = consistency(at_least, at_exactly)?;
+            api_request
         })
     }
 }

@@ -421,9 +421,10 @@ fn foreign_write_does_not_touch_the_cache() {
     let db = TempDb::new();
     let store = SqliteStore::open(db.path(), SqliteConfig::default()).unwrap();
     let rel: Relationship = "doc:a#viewer@user:anne".parse().unwrap();
-    let req = WriteRequest {
-        ops: vec![WriteOp::Touch(rel.clone())],
-        preconditions: Vec::new(),
+    let req = {
+        let mut api_request = WriteRequest::new(vec![WriteOp::Touch(rel.clone())]);
+        api_request.preconditions = Vec::new();
+        api_request
     };
     let mut app = db.raw();
     let tx = app.transaction().unwrap();

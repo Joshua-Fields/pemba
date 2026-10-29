@@ -96,12 +96,15 @@ fn engine(schema: &TestSchema) -> Engine<PostgresStore> {
 }
 
 fn touch(tuples: &[String]) -> WriteRequest {
-    WriteRequest {
-        ops: tuples
-            .iter()
-            .map(|t| WriteOp::Touch(t.parse().unwrap()))
-            .collect(),
-        preconditions: Vec::new(),
+    {
+        let mut api_request = WriteRequest::new(
+            tuples
+                .iter()
+                .map(|t| WriteOp::Touch(t.parse().unwrap()))
+                .collect(),
+        );
+        api_request.preconditions = Vec::new();
+        api_request
     }
 }
 
@@ -425,11 +428,14 @@ impl Run<'_> {
             let start = self.now();
             let resp = self
                 .engine
-                .read_relationships(ReadRelationshipsRequest {
-                    filter: RelationshipFilter::new("doc".parse().unwrap()),
-                    consistency: Consistency::Latest,
-                    limit: None,
-                    cursor: None,
+                .read_relationships({
+                    let mut api_request = ReadRelationshipsRequest::new(RelationshipFilter::new(
+                        "doc".parse().unwrap(),
+                    ));
+                    api_request.consistency = Consistency::Latest;
+                    api_request.limit = None;
+                    api_request.cursor = None;
+                    api_request
                 })
                 .unwrap();
             let end = self.now();
@@ -791,11 +797,13 @@ fn a_later_commit_never_changes_an_earlier_observation() {
     let engine = engine(&schema);
     let read = |c| {
         let resp = engine
-            .read_relationships(ReadRelationshipsRequest {
-                filter: RelationshipFilter::new("doc".parse().unwrap()),
-                consistency: c,
-                limit: None,
-                cursor: None,
+            .read_relationships({
+                let mut api_request =
+                    ReadRelationshipsRequest::new(RelationshipFilter::new("doc".parse().unwrap()));
+                api_request.consistency = c;
+                api_request.limit = None;
+                api_request.cursor = None;
+                api_request
             })
             .unwrap();
         let tuples: Vec<String> = resp.relationships.iter().map(ToString::to_string).collect();
@@ -856,13 +864,11 @@ fn a_thousand_tuple_batch_commits_quickly() {
     ] {
         let mut tx = app.transaction().unwrap();
         let pending = engine
-            .write_in(
-                &mut PgTxn::new(&mut tx),
-                WriteRequest {
-                    ops,
-                    preconditions: Vec::new(),
-                },
-            )
+            .write_in(&mut PgTxn::new(&mut tx), {
+                let mut api_request = WriteRequest::new(ops);
+                api_request.preconditions = Vec::new();
+                api_request
+            })
             .unwrap();
         let start = Instant::now();
         tx.commit().unwrap();

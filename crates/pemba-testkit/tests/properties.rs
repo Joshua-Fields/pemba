@@ -213,9 +213,11 @@ fn agrees_on<S: WritableStore>(case: &Case, store: S) -> Result<(), TestCaseErro
     engine.write_schema(&src).unwrap();
     if !case.tuples.is_empty() {
         engine
-            .write(WriteRequest {
-                ops: case.tuples.iter().cloned().map(WriteOp::Touch).collect(),
-                preconditions: Vec::new(),
+            .write({
+                let mut api_request =
+                    WriteRequest::new(case.tuples.iter().cloned().map(WriteOp::Touch).collect());
+                api_request.preconditions = Vec::new();
+                api_request
             })
             .unwrap();
     }
@@ -233,11 +235,11 @@ fn agrees_on<S: WritableStore>(case: &Case, store: S) -> Result<(), TestCaseErro
 
     // One request per query: a fresh memo each time.
     for ((resource, member, subject), want) in queries.iter().zip(&expected) {
-        let got = engine.check(CheckRequest {
-            resource: resource.clone(),
-            permission: member.clone(),
-            subject: subject.clone(),
-            consistency: Consistency::Latest,
+        let got = engine.check({
+            let mut api_request =
+                CheckRequest::new(resource.clone(), member.clone(), subject.clone());
+            api_request.consistency = Consistency::Latest;
+            api_request
         });
         match got {
             Ok(r) => prop_assert_eq!(
@@ -261,10 +263,8 @@ fn agrees_on<S: WritableStore>(case: &Case, store: S) -> Result<(), TestCaseErro
     // wrongly memoised node shows up across items too.
     let items = queries
         .iter()
-        .map(|(resource, member, subject)| CheckItem {
-            resource: resource.clone(),
-            permission: member.clone(),
-            subject: subject.clone(),
+        .map(|(resource, member, subject)| {
+            CheckItem::new(resource.clone(), member.clone(), subject.clone())
         })
         .collect();
     let bulk = engine
@@ -614,9 +614,10 @@ mod prop4 {
                 }
             }
             let rev = engine
-                .write(WriteRequest {
-                    ops,
-                    preconditions: Vec::new(),
+                .write({
+                    let mut api_request = WriteRequest::new(ops);
+                    api_request.preconditions = Vec::new();
+                    api_request
                 })
                 .map_err(|e| TestCaseError::fail(format!("write failed: {e}")))?;
             prop_assert_eq!(rev.0, sets.len() as u64);
@@ -695,11 +696,11 @@ mod prop4 {
             let rev = Revision(r as u64);
             if rev < horizon {
                 for (resource, member, subject) in &queries {
-                    let request = CheckRequest {
-                        resource: resource.clone(),
-                        permission: member.clone(),
-                        subject: subject.clone(),
-                        consistency: Consistency::Exact(rev),
+                    let request = {
+                        let mut api_request =
+                            CheckRequest::new(resource.clone(), member.clone(), subject.clone());
+                        api_request.consistency = Consistency::Exact(rev);
+                        api_request
                     };
                     let mut runs = vec![
                         ("memory", memory.check(request.clone())),
@@ -730,11 +731,11 @@ mod prop4 {
                 .map_err(|e| TestCaseError::fail(format!("oracle at {rev}: {e}")))?;
             for (resource, member, subject) in &queries {
                 let want = oracle.check(resource, member, subject).unwrap();
-                let request = CheckRequest {
-                    resource: resource.clone(),
-                    permission: member.clone(),
-                    subject: subject.clone(),
-                    consistency: Consistency::Exact(rev),
+                let request = {
+                    let mut api_request =
+                        CheckRequest::new(resource.clone(), member.clone(), subject.clone());
+                    api_request.consistency = Consistency::Exact(rev);
+                    api_request
                 };
                 let mut got = vec![
                     ("memory", memory.check(request.clone())),
@@ -915,13 +916,14 @@ mod prop2 {
         subject: &SubjectRef,
         limit: Option<u32>,
     ) -> Result<Vec<String>, String> {
-        let mut req = LookupResourcesRequest {
-            limit,
-            ..LookupResourcesRequest::new(
+        let mut req = {
+            let mut api_request = LookupResourcesRequest::new(
                 resource.object_type.clone(),
                 member.clone(),
                 subject.clone(),
-            )
+            );
+            api_request.limit = limit;
+            api_request
         };
         let mut ids = Vec::new();
         for _ in 0..1000 {
@@ -957,9 +959,12 @@ mod prop2 {
         engine.write_schema(src).unwrap();
         if !case.tuples.is_empty() {
             engine
-                .write(WriteRequest {
-                    ops: case.tuples.iter().cloned().map(WriteOp::Touch).collect(),
-                    preconditions: Vec::new(),
+                .write({
+                    let mut api_request = WriteRequest::new(
+                        case.tuples.iter().cloned().map(WriteOp::Touch).collect(),
+                    );
+                    api_request.preconditions = Vec::new();
+                    api_request
                 })
                 .unwrap();
         }
@@ -1129,9 +1134,12 @@ fn generated_ambiguity_is_exercised() {
             engine.write_schema(&src).unwrap();
             if !case.tuples.is_empty() {
                 engine
-                    .write(WriteRequest {
-                        ops: case.tuples.iter().cloned().map(WriteOp::Touch).collect(),
-                        preconditions: Vec::new(),
+                    .write({
+                        let mut api_request = WriteRequest::new(
+                            case.tuples.iter().cloned().map(WriteOp::Touch).collect(),
+                        );
+                        api_request.preconditions = Vec::new();
+                        api_request
                     })
                     .unwrap();
             }
@@ -1141,11 +1149,11 @@ fn generated_ambiguity_is_exercised() {
                 let possible = oracle
                     .ambiguous_wildcard_exclusion(&resource, &member, &subject)
                     .unwrap();
-                let got = engine.check(CheckRequest {
-                    resource: resource.clone(),
-                    permission: member.clone(),
-                    subject: subject.clone(),
-                    consistency: Consistency::Latest,
+                let got = engine.check({
+                    let mut api_request =
+                        CheckRequest::new(resource.clone(), member.clone(), subject.clone());
+                    api_request.consistency = Consistency::Latest;
+                    api_request
                 });
                 match got {
                     Err(e) if e.code() == AMBIGUOUS => {
@@ -1190,9 +1198,12 @@ mod prop3 {
         engine.write_schema(src).unwrap();
         if !case.tuples.is_empty() {
             engine
-                .write(WriteRequest {
-                    ops: case.tuples.iter().cloned().map(WriteOp::Touch).collect(),
-                    preconditions: Vec::new(),
+                .write({
+                    let mut api_request = WriteRequest::new(
+                        case.tuples.iter().cloned().map(WriteOp::Touch).collect(),
+                    );
+                    api_request.preconditions = Vec::new();
+                    api_request
                 })
                 .unwrap();
         }
@@ -1265,11 +1276,11 @@ mod prop3 {
                 let subject = SubjectRef::Object(u.clone());
                 let want = oracle.check(&resource, &member, &subject).unwrap();
                 let got = memory
-                    .check(CheckRequest {
-                        resource: resource.clone(),
-                        permission: member.clone(),
-                        subject,
-                        consistency: pemba_core::model::Consistency::Latest,
+                    .check({
+                        let mut api_request =
+                            CheckRequest::new(resource.clone(), member.clone(), subject);
+                        api_request.consistency = pemba_core::model::Consistency::Latest;
+                        api_request
                     })
                     .map_err(|e| TestCaseError::fail(format!("check failed: {e}")))?
                     .allowed;
@@ -1425,9 +1436,11 @@ definition doc {
         engine.write_schema(WILDCARD_SCHEMA).unwrap();
         if !tuples.is_empty() {
             engine
-                .write(WriteRequest {
-                    ops: tuples.iter().cloned().map(WriteOp::Touch).collect(),
-                    preconditions: Vec::new(),
+                .write({
+                    let mut api_request =
+                        WriteRequest::new(tuples.iter().cloned().map(WriteOp::Touch).collect());
+                    api_request.preconditions = Vec::new();
+                    api_request
                 })
                 .unwrap();
         }
@@ -1533,9 +1546,12 @@ fn generated_subject_lookups_are_varied() {
         engine.write_schema(&src).unwrap();
         if !case.tuples.is_empty() {
             engine
-                .write(WriteRequest {
-                    ops: case.tuples.iter().cloned().map(WriteOp::Touch).collect(),
-                    preconditions: Vec::new(),
+                .write({
+                    let mut api_request = WriteRequest::new(
+                        case.tuples.iter().cloned().map(WriteOp::Touch).collect(),
+                    );
+                    api_request.preconditions = Vec::new();
+                    api_request
                 })
                 .unwrap();
         }
@@ -1600,9 +1616,12 @@ mod schema_change {
         let mut live: BTreeSet<Relationship> = case.tuples.iter().cloned().collect();
         if !case.tuples.is_empty() {
             engine
-                .write(WriteRequest {
-                    ops: case.tuples.iter().cloned().map(WriteOp::Touch).collect(),
-                    preconditions: Vec::new(),
+                .write({
+                    let mut api_request = WriteRequest::new(
+                        case.tuples.iter().cloned().map(WriteOp::Touch).collect(),
+                    );
+                    api_request.preconditions = Vec::new();
+                    api_request
                 })
                 .unwrap();
             let gone: BTreeSet<Relationship> = deletes
@@ -1611,9 +1630,11 @@ mod schema_change {
                 .chain(case.tuples.iter().filter(|t| clean && !fits(t)).cloned())
                 .collect();
             engine
-                .write(WriteRequest {
-                    ops: gone.iter().cloned().map(WriteOp::Delete).collect(),
-                    preconditions: Vec::new(),
+                .write({
+                    let mut api_request =
+                        WriteRequest::new(gone.iter().cloned().map(WriteOp::Delete).collect());
+                    api_request.preconditions = Vec::new();
+                    api_request
                 })
                 .unwrap();
             live.retain(|t| !gone.contains(t));
@@ -1629,11 +1650,11 @@ mod schema_change {
                 for &q in &case.queries {
                     let (resource, member, subject) = query(&schema2, &oracle, &universe, q);
                     let want = oracle.check(&resource, &member, &subject).unwrap();
-                    let got = engine.check(CheckRequest {
-                        resource: resource.clone(),
-                        permission: member.clone(),
-                        subject: subject.clone(),
-                        consistency: Consistency::Latest,
+                    let got = engine.check({
+                        let mut api_request =
+                            CheckRequest::new(resource.clone(), member.clone(), subject.clone());
+                        api_request.consistency = Consistency::Latest;
+                        api_request
                     });
                     match got {
                         Ok(got) => prop_assert_eq!(got.allowed, want),
@@ -1742,9 +1763,12 @@ mod trace {
         engine.write_schema(src).unwrap();
         if !case.tuples.is_empty() {
             engine
-                .write(WriteRequest {
-                    ops: case.tuples.iter().cloned().map(WriteOp::Touch).collect(),
-                    preconditions: Vec::new(),
+                .write({
+                    let mut api_request = WriteRequest::new(
+                        case.tuples.iter().cloned().map(WriteOp::Touch).collect(),
+                    );
+                    api_request.preconditions = Vec::new();
+                    api_request
                 })
                 .unwrap();
         }
@@ -1917,11 +1941,11 @@ mod trace {
         let mut passes = Vec::new();
 
         for (resource, member, subject) in &queries {
-            let req = CheckRequest {
-                resource: resource.clone(),
-                permission: member.clone(),
-                subject: subject.clone(),
-                consistency: Consistency::Latest,
+            let req = {
+                let mut api_request =
+                    CheckRequest::new(resource.clone(), member.clone(), subject.clone());
+                api_request.consistency = Consistency::Latest;
+                api_request
             };
             let at = format!("{resource}#{member}@{subject}");
             let want = oracle.check(resource, member, subject).unwrap();
@@ -2028,11 +2052,10 @@ mod trace {
             let capped = engine(MemoryStore::new(), &src, &case, CAP);
             for &q in &case.queries {
                 let (resource, permission, subject) = query(&schema, &oracle, &universe, q);
-                let req = CheckRequest {
-                    resource,
-                    permission,
-                    subject,
-                    consistency: Consistency::Latest,
+                let req = {
+                    let mut api_request = CheckRequest::new(resource, permission, subject);
+                    api_request.consistency = Consistency::Latest;
+                    api_request
                 };
                 if let Ok((_, t)) = capped.check_with_trace(req.clone())
                     && t.truncated

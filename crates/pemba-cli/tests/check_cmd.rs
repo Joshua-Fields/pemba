@@ -292,11 +292,12 @@ fn db_reads_an_existing_database_read_only() {
             .unwrap();
         e.write_schema("definition user {}\ndefinition doc { relation viewer: user }\n")
             .unwrap();
-        e.write(WriteRequest {
-            ops: vec![WriteOp::Touch(
+        e.write({
+            let mut api_request = WriteRequest::new(vec![WriteOp::Touch(
                 "doc:readme#viewer@user:anne".parse().unwrap(),
-            )],
-            preconditions: Vec::new(),
+            )]);
+            api_request.preconditions = Vec::new();
+            api_request
         })
         .unwrap();
     }
@@ -342,11 +343,12 @@ fn make_db(name: &str) -> PathBuf {
         .unwrap();
     e.write_schema("definition user {}\ndefinition doc { relation viewer: user }\n")
         .unwrap();
-    e.write(WriteRequest {
-        ops: vec![WriteOp::Touch(
+    e.write({
+        let mut api_request = WriteRequest::new(vec![WriteOp::Touch(
             "doc:readme#viewer@user:anne".parse().unwrap(),
-        )],
-        preconditions: Vec::new(),
+        )]);
+        api_request.preconditions = Vec::new();
+        api_request
     })
     .unwrap();
     db

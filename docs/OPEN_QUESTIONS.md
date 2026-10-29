@@ -1545,3 +1545,16 @@ it is resolved.
   a best-effort basis; older versions receive case-by-case consideration. Promise no
   response-time SLA, guaranteed patches or long-term support. Use GitHub Issues for
   normal bugs and feature requests; never direct security reports to public issues.
+
+## OQ-061 — Rust helper parse errors versus Python's error-code mapping
+- Raised in: T7.2, implementing the approved OQ-044 `check_str` helper.
+- Blocking: no (conservative compatibility choice; review with T7.2).
+- Ambiguity: `06` §1.1 specified `Error::Parse(ParseError)`, but it was absent from
+  the implementation. `06` §2.3 says every Rust code maps to a Python exception class,
+  while Python malformed string arguments must raise built-in `ValueError` rather than
+  `PembaError`. Adding the Rust variant exposes this missing mapping decision.
+- Conservative implementation: add `Error::Parse` with variant-derived code `PARSE`;
+  map it to built-in `ValueError`, preserving existing Python argument behavior and
+  exception hierarchy. Clarify `06` §2.3 and extend error-code mapping tests; no new
+  Python class, helper signature or stub is introduced. Maintainer may revise this
+  choice during T7.2 review; no release approval is inferred.

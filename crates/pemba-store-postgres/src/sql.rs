@@ -329,12 +329,15 @@ mod tests {
         for subject_relation in subject_relations {
             for resource_type in [None, Some("doc".parse().unwrap())] {
                 for relation in [None, Some("viewer".parse().unwrap())] {
-                    let f = ReverseFilter {
-                        subject_type: "user".parse().unwrap(),
-                        subject_id: "anne".to_owned(),
-                        subject_relation: subject_relation.clone(),
-                        resource_type: resource_type.clone(),
-                        relation,
+                    let f = {
+                        let mut api_request = ReverseFilter::new(
+                            "user".parse().unwrap(),
+                            "anne".to_owned(),
+                            subject_relation.clone(),
+                        );
+                        api_request.resource_type.clone_from(&resource_type);
+                        api_request.relation = relation;
+                        api_request
                     };
                     for form in [Form::Head, Form::At(3)] {
                         assert_dense(&read_reverse(&d(), form, &f));
@@ -346,13 +349,14 @@ mod tests {
 
     #[test]
     fn read_relationships_with_cursor_and_limit() {
-        let f = RelationshipFilter {
-            resource_type: "doc".parse().unwrap(),
-            resource_id: None,
-            relation: Some("viewer".parse().unwrap()),
-            subject_type: None,
-            subject_id: None,
-            subject_relation: Some(None),
+        let f = {
+            let mut api_request = RelationshipFilter::new("doc".parse().unwrap());
+            api_request.resource_id = None;
+            api_request.relation = Some("viewer".parse().unwrap());
+            api_request.subject_type = None;
+            api_request.subject_id = None;
+            api_request.subject_relation = Some(None);
+            api_request
         };
         let cursor = ["doc", "1", "viewer", "user", "anne", ""];
         for form in [Form::Head, Form::At(2)] {

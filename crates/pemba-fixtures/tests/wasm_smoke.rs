@@ -54,9 +54,10 @@ fn engine() -> Engine<MemoryStore> {
         .map(|t| WriteOp::Touch(t.parse::<Relationship>().unwrap()))
         .collect();
     engine
-        .write(WriteRequest {
-            ops,
-            preconditions: Vec::new(),
+        .write({
+            let mut api_request = WriteRequest::new(ops);
+            api_request.preconditions = Vec::new();
+            api_request
         })
         .unwrap();
     engine
@@ -64,11 +65,10 @@ fn engine() -> Engine<MemoryStore> {
 
 fn check_request(query: &str) -> CheckRequest {
     let q: Relationship = query.parse().unwrap();
-    CheckRequest {
-        resource: q.resource,
-        permission: q.relation,
-        subject: q.subject,
-        consistency: pemba_core::model::Consistency::Latest,
+    {
+        let mut api_request = CheckRequest::new(q.resource, q.relation, q.subject);
+        api_request.consistency = pemba_core::model::Consistency::Latest;
+        api_request
     }
 }
 

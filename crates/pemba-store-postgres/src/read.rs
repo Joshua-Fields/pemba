@@ -376,19 +376,18 @@ fn count_by_relation(src: &impl Source, rev: Revision) -> Result<Vec<RelationCou
         .map(|row| {
             let srel = text(row, 3)?;
             let count: i64 = row.try_get(5).map_err(|e| db(&e))?;
-            Ok(RelationCount {
-                resource_type: parse(text(row, 0)?, "resource type")?,
-                relation: parse(text(row, 1)?, "relation")?,
-                subject_type: parse(text(row, 2)?, "subject type")?,
-                subject_relation: if srel.is_empty() {
+            Ok(RelationCount::new(
+                parse(text(row, 0)?, "resource type")?,
+                parse(text(row, 1)?, "relation")?,
+                parse(text(row, 2)?, "subject type")?,
+                if srel.is_empty() {
                     None
                 } else {
                     Some(parse(srel, "subject relation")?)
                 },
-                wildcard: row.try_get(4).map_err(|e| db(&e))?,
-                count: u64::try_from(count)
-                    .map_err(|_| corrupt(format!("negative count {count}")))?,
-            })
+                row.try_get(4).map_err(|e| db(&e))?,
+                u64::try_from(count).map_err(|_| corrupt(format!("negative count {count}")))?,
+            ))
         })
         .collect()
 }
@@ -400,15 +399,15 @@ fn current_schema(src: &impl Source) -> Result<Option<StoredSchema>, StoreError>
         .map(|row| {
             let version: i64 = row.try_get(0).map_err(|e| db(&e))?;
             let rev: Option<i64> = row.try_get(3).map_err(|e| db(&e))?;
-            Ok(StoredSchema {
-                version: u64::try_from(version)
+            Ok(StoredSchema::new(
+                u64::try_from(version)
                     .map_err(|_| corrupt(format!("negative schema version {version}")))?,
-                source: text(row, 1)?.to_owned(),
-                hash: text(row, 2)?.to_owned(),
-                created_rev: revision(rev.ok_or_else(|| {
+                text(row, 1)?.to_owned(),
+                text(row, 2)?.to_owned(),
+                revision(rev.ok_or_else(|| {
                     corrupt(format!("schema version {version}'s batch has no revision"))
                 })?)?,
-            })
+            ))
         })
         .transpose()
 }

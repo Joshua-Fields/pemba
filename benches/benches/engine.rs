@@ -52,12 +52,15 @@ const ROUND_TRIP_OPS: u64 = 20;
 static WRITES: AtomicU64 = AtomicU64::new(0);
 
 fn touch<S: AsRef<str>>(tuples: &[S]) -> WriteRequest {
-    WriteRequest {
-        ops: tuples
-            .iter()
-            .map(|t| WriteOp::Touch(t.as_ref().parse::<Relationship>().unwrap()))
-            .collect(),
-        preconditions: Vec::new(),
+    {
+        let mut api_request = WriteRequest::new(
+            tuples
+                .iter()
+                .map(|t| WriteOp::Touch(t.as_ref().parse::<Relationship>().unwrap()))
+                .collect(),
+        );
+        api_request.preconditions = Vec::new();
+        api_request
     }
 }
 
@@ -98,11 +101,14 @@ fn run<S: WritableStore>(engine: &Engine<S>, op: &Op, at: Consistency) -> Durati
             subject,
             expect,
         } => {
-            let req = CheckRequest {
-                resource: resource.parse().unwrap(),
-                permission: permission.parse().unwrap(),
-                subject: subject.parse().unwrap(),
-                consistency: at,
+            let req = {
+                let mut api_request = CheckRequest::new(
+                    resource.parse().unwrap(),
+                    permission.parse().unwrap(),
+                    subject.parse().unwrap(),
+                );
+                api_request.consistency = at;
+                api_request
             };
             let t = Instant::now();
             let allowed = engine.check(req).unwrap().allowed;

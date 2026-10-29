@@ -304,18 +304,18 @@ pub fn count_by_relation(
         .iter()
         .map(|row| {
             let srel = text(row, 3)?;
-            Ok(RelationCount {
-                resource_type: parse(text(row, 0)?, "resource type")?,
-                relation: parse(text(row, 1)?, "relation")?,
-                subject_type: parse(text(row, 2)?, "subject type")?,
-                subject_relation: if srel.is_empty() {
+            Ok(RelationCount::new(
+                parse(text(row, 0)?, "resource type")?,
+                parse(text(row, 1)?, "relation")?,
+                parse(text(row, 2)?, "subject type")?,
+                if srel.is_empty() {
                     None
                 } else {
                     Some(parse(srel, "subject relation")?)
                 },
-                wildcard: int(row, 4)? != 0,
-                count: unsigned(int(row, 5)?, "count")?,
-            })
+                int(row, 4)? != 0,
+                unsigned(int(row, 5)?, "count")?,
+            ))
         })
         .collect()
 }
@@ -329,12 +329,12 @@ pub fn current_schema(txn: &mut dyn WriteTxn) -> Result<Option<StoredSchema>, St
     txn.query(sql::CURRENT_SCHEMA, &[])?
         .first()
         .map(|row| {
-            Ok(StoredSchema {
-                version: unsigned(int(row, 0)?, "schema version")?,
-                source: text(row, 1)?.to_owned(),
-                hash: text(row, 2)?.to_owned(),
-                created_rev: revision(int(row, 3)?)?,
-            })
+            Ok(StoredSchema::new(
+                unsigned(int(row, 0)?, "schema version")?,
+                text(row, 1)?.to_owned(),
+                text(row, 2)?.to_owned(),
+                revision(int(row, 3)?)?,
+            ))
         })
         .transpose()
 }

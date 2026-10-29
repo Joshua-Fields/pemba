@@ -112,9 +112,10 @@ fn history() -> (Vec<WriteRequest>, Vec<BTreeSet<Relationship>>) {
         }
         set.insert(token(i));
         ops.push(WriteOp::Touch(token(i)));
-        batches.push(WriteRequest {
-            ops,
-            preconditions: Vec::new(),
+        batches.push({
+            let mut api_request = WriteRequest::new(ops);
+            api_request.preconditions = Vec::new();
+            api_request
         });
         sets.push(set);
     }
@@ -188,11 +189,10 @@ fn reader<S: WritableStore>(
         };
         let (d, u) = &queries[q];
         let resp = engine
-            .check(CheckRequest {
-                resource: d.clone(),
-                permission: view.clone(),
-                subject: u.clone(),
-                consistency,
+            .check({
+                let mut api_request = CheckRequest::new(d.clone(), view.clone(), u.clone());
+                api_request.consistency = consistency;
+                api_request
             })
             .unwrap();
         let r = resp.revision;
@@ -210,11 +210,7 @@ fn reader<S: WritableStore>(
         let before = engine.head_revision().unwrap();
         let items = queries
             .iter()
-            .map(|(d, u)| CheckItem {
-                resource: d.clone(),
-                permission: view.clone(),
-                subject: u.clone(),
-            })
+            .map(|(d, u)| CheckItem::new(d.clone(), view.clone(), u.clone()))
             .collect();
         let bulk: Vec<bool> = engine
             .check_bulk(items, Consistency::AtLeast(before))

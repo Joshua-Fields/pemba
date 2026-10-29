@@ -14,7 +14,8 @@ from conftest import NEGATION_SCHEMA, SCHEMA
 from pemba import _pemba  # type: ignore[attr-defined]
 
 # Code -> class, as 06 §2.3 specifies.
-EXPECTED: dict[str, type[pemba.PembaError]] = {
+EXPECTED: dict[str, type[Exception]] = {
+    "PARSE": ValueError,
     "SCHEMA_ERROR": pemba.SchemaError,
     "SCHEMA_CHANGE_ORPHANS": pemba.SchemaChangeOrphansError,
     "NO_SCHEMA": pemba.NoSchemaError,
@@ -50,9 +51,9 @@ def test_every_rust_code_maps_to_exactly_one_class() -> None:
     for code in codes:
         name = _pemba._exception_class_name(code)
         assert name is not None, code
-        cls = getattr(pemba, name)
+        cls = ValueError if code == "PARSE" else getattr(pemba, name)
         assert cls is EXPECTED[code], code
-        assert issubclass(cls, pemba.PembaError)
+        assert issubclass(cls, ValueError if code == "PARSE" else pemba.PembaError)
     assert _pemba._exception_class_name("NOT_A_CODE") is None
 
 
@@ -64,6 +65,8 @@ def test_hierarchy_shape() -> None:
         pemba.WriteRolledBack: pemba.ConsistencyError,
     }
     for cls in set(EXPECTED.values()):
+        if cls is ValueError:
+            continue
         assert cls.__bases__ == (subclasses.get(cls, pemba.PembaError),), cls
     assert pemba.PembaError.__bases__ == (Exception,)
     assert issubclass(pemba.PembaWarning, UserWarning)

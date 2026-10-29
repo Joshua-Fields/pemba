@@ -301,6 +301,7 @@ fn top_level_blocks(source: &str) -> Vec<(Option<&str>, &str)> {
 
 /// One failing assertion, or a fixture problem that stopped part of it from running.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Failure {
     /// Where in the fixture: `assertTrue`, `steps[2].assertFalse`, `schema`, ...
     pub location: String,
@@ -326,6 +327,7 @@ impl fmt::Display for Failure {
 
 /// The outcome of one fixture on one store kind.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Report {
     /// Assertions and expected errors evaluated (passing or not).
     pub checked: usize,
@@ -597,11 +599,11 @@ enum Op {
 
 impl Report {
     fn fail(&mut self, location: &str, assertion: &str, message: impl Into<String>) {
-        self.failures.push(Failure {
-            location: location.to_owned(),
-            assertion: assertion.to_owned(),
-            message: message.into(),
-        });
+        self.failures.push(Failure::new(
+            location.to_owned(),
+            assertion.to_owned(),
+            message.into(),
+        ));
     }
 }
 
@@ -800,10 +802,7 @@ impl<'o, S: WritableStore> Runner<'o, S> {
         if ops.is_empty() {
             return Ok(());
         }
-        self.engine.write(WriteRequest {
-            ops: ops.clone(),
-            preconditions: Vec::new(),
-        })?;
+        self.engine.write(WriteRequest::new(ops.clone()))?;
         for op in ops {
             match op {
                 WriteOp::Create(r) | WriteOp::Touch(r) => {
@@ -1095,9 +1094,10 @@ impl<'o, S: WritableStore> Runner<'o, S> {
         req: &LookupResourcesRequest,
         limit: Option<u32>,
     ) -> Result<Vec<String>, Error> {
-        let mut req = LookupResourcesRequest {
-            limit,
-            ..req.clone()
+        let mut req = {
+            let mut api_request = req.clone();
+            api_request.limit = limit;
+            api_request
         };
         let mut ids = Vec::new();
         loop {
@@ -1115,12 +1115,11 @@ impl<'o, S: WritableStore> Runner<'o, S> {
 
     fn check(&self, query: &Relationship) -> Result<bool, Error> {
         self.engine
-            .check(CheckRequest {
-                resource: query.resource.clone(),
-                permission: query.relation.clone(),
-                subject: query.subject.clone(),
-                consistency: Consistency::Latest,
-            })
+            .check(CheckRequest::new(
+                query.resource.clone(),
+                query.relation.clone(),
+                query.subject.clone(),
+            ))
             .map(|r| r.allowed)
     }
 }
@@ -1194,5 +1193,16 @@ fn error_code(e: &Error) -> String {
     match e {
         Error::InvalidRelationship { code, .. } => code.as_str().to_owned(),
         e => e.code().to_owned(),
+    }
+}
+
+impl Failure {
+    /// A failing assertion or fixture problem at the supplied location.
+    pub fn new(location: String, assertion: String, message: String) -> Self {
+        Self {
+            location,
+            assertion,
+            message,
+        }
     }
 }

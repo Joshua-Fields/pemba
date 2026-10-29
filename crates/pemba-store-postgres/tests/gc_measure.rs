@@ -32,11 +32,14 @@ fn paging_p50(engine: &Engine<PostgresStore>, c: Consistency) -> Duration {
             let mut consistency = c;
             for _ in 0..PAGES {
                 let resp = engine
-                    .read_relationships(ReadRelationshipsRequest {
-                        filter: RelationshipFilter::new("doc".parse().unwrap()),
-                        consistency,
-                        limit: Some(PAGE),
-                        cursor: cursor.take(),
+                    .read_relationships({
+                        let mut api_request = ReadRelationshipsRequest::new(
+                            RelationshipFilter::new("doc".parse().unwrap()),
+                        );
+                        api_request.consistency = consistency;
+                        api_request.limit = Some(PAGE);
+                        api_request.cursor = cursor.take();
+                        api_request
                     })
                     .unwrap();
                 assert_eq!(resp.relationships.len(), PAGE as usize);

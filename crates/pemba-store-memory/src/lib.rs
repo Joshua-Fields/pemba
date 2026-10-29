@@ -100,14 +100,14 @@ impl Inner {
             .into_iter()
             .map(
                 |((resource_type, relation, subject_type, subject_relation, wildcard), count)| {
-                    RelationCount {
+                    RelationCount::new(
                         resource_type,
                         relation,
                         subject_type,
                         subject_relation,
                         wildcard,
                         count,
-                    }
+                    )
                 },
             )
             .collect()
@@ -396,12 +396,12 @@ impl WritableStore for MemoryStore {
         let head = inner.head;
         check(&inner.counts(head))?;
         let rev = inner.next_revision()?;
-        let stored = StoredSchema {
-            version: inner.schema_versions.len() as u64 + 1,
-            source: source.to_owned(),
-            hash: hash.to_owned(),
-            created_rev: rev,
-        };
+        let stored = StoredSchema::new(
+            inner.schema_versions.len() as u64 + 1,
+            source.to_owned(),
+            hash.to_owned(),
+            rev,
+        );
         inner.schema_versions.push(stored.clone());
         inner.head = rev;
         Ok(stored)
@@ -429,11 +429,7 @@ impl WritableStore for MemoryStore {
             }
         }
         inner.head = rev;
-        Ok(DeleteResult {
-            deleted: matching.len() as u64,
-            more,
-            revision: rev,
-        })
+        Ok(DeleteResult::new(matching.len() as u64, more, rev))
     }
 
     fn raise_gc_horizon(&self, keep_from: Revision) -> Result<Revision, Error> {

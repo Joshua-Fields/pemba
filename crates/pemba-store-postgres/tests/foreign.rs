@@ -58,24 +58,28 @@ impl Fixture {
 
     fn can_view(&self, user: &str, c: Consistency) -> Result<bool, Error> {
         self.engine
-            .check(CheckRequest {
-                resource: "document:readme".parse().unwrap(),
-                permission: "view".parse().unwrap(),
-                subject: format!("user:{user}").parse().unwrap(),
-                consistency: c,
+            .check({
+                let mut api_request = CheckRequest::new(
+                    "document:readme".parse().unwrap(),
+                    "view".parse().unwrap(),
+                    format!("user:{user}").parse().unwrap(),
+                );
+                api_request.consistency = c;
+                api_request
             })
             .map(|r| r.allowed)
     }
 }
 
 fn viewer(user: &str) -> WriteRequest {
-    WriteRequest {
-        ops: vec![WriteOp::Touch(
+    {
+        let mut api_request = WriteRequest::new(vec![WriteOp::Touch(
             format!("document:readme#viewer@user:{user}")
                 .parse()
                 .unwrap(),
-        )],
-        preconditions: Vec::new(),
+        )]);
+        api_request.preconditions = Vec::new();
+        api_request
     }
 }
 

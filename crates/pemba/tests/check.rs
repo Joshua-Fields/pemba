@@ -58,9 +58,11 @@ fn rel(s: &str) -> Relationship {
 }
 
 fn touch(rels: &[&str]) -> WriteRequest {
-    WriteRequest {
-        ops: rels.iter().map(|r| WriteOp::Touch(rel(r))).collect(),
-        preconditions: Vec::new(),
+    {
+        let mut api_request =
+            WriteRequest::new(rels.iter().map(|r| WriteOp::Touch(rel(r))).collect());
+        api_request.preconditions = Vec::new();
+        api_request
     }
 }
 
@@ -92,21 +94,16 @@ fn fanout_config(max_check_fanout: usize) -> EngineConfig {
 /// Splits a check string `resource#permission@subject` (`docs/02-data-model.md` §3).
 fn request(s: &str, consistency: Consistency) -> CheckRequest {
     let r = rel(s);
-    CheckRequest {
-        resource: r.resource,
-        permission: r.relation,
-        subject: r.subject,
-        consistency,
+    {
+        let mut api_request = CheckRequest::new(r.resource, r.relation, r.subject);
+        api_request.consistency = consistency;
+        api_request
     }
 }
 
 fn item(s: &str) -> CheckItem {
     let r = rel(s);
-    CheckItem {
-        resource: r.resource,
-        permission: r.relation,
-        subject: r.subject,
-    }
+    CheckItem::new(r.resource, r.relation, r.subject)
 }
 
 fn check<S: WritableStore>(e: &Engine<S>, s: &str) -> Result<bool, Error> {
@@ -220,9 +217,11 @@ fn check_returns_the_resolved_revision() {
 fn check_at_exact_revision_reads_that_snapshot() {
     let e = engine(SCHEMA, &[]);
     let r1 = e.write(touch(&["document:d#owner@user:anne"])).unwrap();
-    e.write(WriteRequest {
-        ops: vec![WriteOp::Delete(rel("document:d#owner@user:anne"))],
-        preconditions: Vec::new(),
+    e.write({
+        let mut api_request =
+            WriteRequest::new(vec![WriteOp::Delete(rel("document:d#owner@user:anne"))]);
+        api_request.preconditions = Vec::new();
+        api_request
     })
     .unwrap();
     let old = e
@@ -1285,9 +1284,11 @@ fn stale_history(v2: &str, rels: &[&str], gone: &[&str]) -> (Engine<MemoryStore>
     let old = e.head_revision().unwrap();
     let err = e.write_schema(v2).unwrap_err();
     assert!(matches!(err, Error::SchemaChangeOrphans(_)), "{err:?}");
-    e.write(WriteRequest {
-        ops: gone.iter().map(|r| WriteOp::Delete(rel(r))).collect(),
-        preconditions: Vec::new(),
+    e.write({
+        let mut api_request =
+            WriteRequest::new(gone.iter().map(|r| WriteOp::Delete(rel(r))).collect());
+        api_request.preconditions = Vec::new();
+        api_request
     })
     .unwrap();
     e.write_schema(v2).unwrap();

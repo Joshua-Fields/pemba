@@ -123,10 +123,7 @@ fn engine_agrees_with_reference(case: &Case) {
     engine.write_schema(&src).unwrap();
     if !case.tuples.is_empty() {
         engine
-            .write(WriteRequest {
-                ops: case.tuples.iter().cloned().map(WriteOp::Touch).collect(),
-                preconditions: Vec::new(),
-            })
+            .write({ let mut api_request = WriteRequest::new(case.tuples.iter().cloned().map(WriteOp::Touch).collect()); api_request.preconditions = Vec::new(); api_request })
             .unwrap();
     }
 
@@ -142,12 +139,7 @@ fn engine_agrees_with_reference(case: &Case) {
         .collect();
 
     for ((o, m, s), want) in queries.iter().zip(&expected) {
-        let got = engine.check(CheckRequest {
-            resource: o.clone(),
-            permission: m.clone(),
-            subject: s.clone(),
-            consistency: Consistency::Latest,
-        });
+        let got = engine.check({ let mut api_request = CheckRequest::new(o.clone(), m.clone(), s.clone()); api_request.consistency = Consistency::Latest; api_request });
         match got {
             Ok(r) => assert_eq!(r.allowed, *want, "check({o}#{m}@{s})\n{case:?}"),
             Err(e) if accepted(&oracle, o, m, s, e.code()) => {}
@@ -157,11 +149,7 @@ fn engine_agrees_with_reference(case: &Case) {
 
     let items = queries
         .iter()
-        .map(|(o, m, s)| CheckItem {
-            resource: o.clone(),
-            permission: m.clone(),
-            subject: s.clone(),
-        })
+        .map(|(o, m, s)| CheckItem::new(o.clone(), m.clone(), s.clone()))
         .collect();
     let bulk = engine
         .check_bulk(items, Consistency::Latest)

@@ -13,6 +13,9 @@ use crate::store::StoreError;
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum Error {
+    /// A string argument is not in canonical object, permission or subject syntax.
+    #[error(transparent)]
+    Parse(#[from] crate::model::ParseError),
     /// A schema failed to compile; every error is collected.
     #[error(transparent)]
     Schema(SchemaErrors),
@@ -192,6 +195,7 @@ fn reports(r: &[OrphanReport]) -> String {
 /// One group of live relationships a schema change would orphan: same resource type,
 /// relation and subject form.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct OrphanReport {
     /// Resource type of the tuples.
     pub resource_type: TypeName,
@@ -222,6 +226,7 @@ impl Error {
     /// Every code [`code`](Self::code) can return, so bindings can prove each one is mapped
     /// (`docs/06-api.md` §2.3).
     pub const CODES: &'static [&'static str] = &[
+        "PARSE",
         "SCHEMA_ERROR",
         "SCHEMA_CHANGE_ORPHANS",
         "NO_SCHEMA",
@@ -255,6 +260,7 @@ impl Error {
     /// the caller to retry the whole transaction, unlike every other `STORE_ERROR`.
     pub fn code(&self) -> &'static str {
         match self {
+            Self::Parse(_) => "PARSE",
             Self::Schema(_) => "SCHEMA_ERROR",
             Self::SchemaChangeOrphans(_) => "SCHEMA_CHANGE_ORPHANS",
             Self::NoSchema => "NO_SCHEMA",
@@ -297,7 +303,8 @@ mod tests {
     /// if its code is new, to [`Error::CODES`].
     fn covered(e: &Error) {
         match e {
-            Error::Schema(_)
+            Error::Parse(_)
+            | Error::Schema(_)
             | Error::SchemaChangeOrphans(_)
             | Error::NoSchema
             | Error::InvalidRelationship { .. }
@@ -329,6 +336,7 @@ mod tests {
         let r = Revision(1);
         let s = String::new;
         vec![
+            Error::Parse("invalid".parse::<crate::model::ObjectRef>().err().unwrap()),
             Error::Schema(pemba_schema::compile("?").err().unwrap()),
             Error::SchemaChangeOrphans(Vec::new()),
             Error::NoSchema,

@@ -344,9 +344,11 @@ fn pemba_engine<S: WritableStore>(case: &DiffCase, store: S) -> Result<Engine<S>
         .map_err(|e| format!("pemba refused the schema: {e}"))?;
     if !case.tuples.is_empty() {
         engine
-            .write(WriteRequest {
-                ops: case.tuples.iter().cloned().map(WriteOp::Touch).collect(),
-                preconditions: Vec::new(),
+            .write({
+                let mut api_request =
+                    WriteRequest::new(case.tuples.iter().cloned().map(WriteOp::Touch).collect());
+                api_request.preconditions = Vec::new();
+                api_request
             })
             .map_err(|e| format!("pemba refused the tuples: {e}"))?;
     }
@@ -520,11 +522,11 @@ fn spread<T>(items: Vec<T>, n: usize) -> Vec<T> {
 
 fn ask_pemba<S: WritableStore>(engine: &Engine<S>, q: &Question) -> Answer {
     match q {
-        Question::Check(resource, permission, subject) => match engine.check(CheckRequest {
-            resource: resource.clone(),
-            permission: permission.clone(),
-            subject: subject.clone(),
-            consistency: Consistency::Latest,
+        Question::Check(resource, permission, subject) => match engine.check({
+            let mut api_request =
+                CheckRequest::new(resource.clone(), permission.clone(), subject.clone());
+            api_request.consistency = Consistency::Latest;
+            api_request
         }) {
             Ok(c) => Answer::Allowed(c.allowed),
             Err(e) => Answer::Error(format!("{}: {e}", e.code())),

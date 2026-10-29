@@ -30,18 +30,22 @@ impl Drop for TempDir {
 }
 
 fn write(op: &str) -> WriteRequest {
-    WriteRequest {
-        ops: vec![WriteOp::Touch(op.parse().unwrap())],
-        preconditions: Vec::new(),
+    {
+        let mut api_request = WriteRequest::new(vec![WriteOp::Touch(op.parse().unwrap())]);
+        api_request.preconditions = Vec::new();
+        api_request
     }
 }
 
 fn view(subject: &str) -> CheckRequest {
-    CheckRequest {
-        resource: "doc:readme".parse().unwrap(),
-        permission: "viewer".parse().unwrap(),
-        subject: subject.parse().unwrap(),
-        consistency: Consistency::Latest,
+    {
+        let mut api_request = CheckRequest::new(
+            "doc:readme".parse().unwrap(),
+            "viewer".parse().unwrap(),
+            subject.parse().unwrap(),
+        );
+        api_request.consistency = Consistency::Latest;
+        api_request
     }
 }
 
