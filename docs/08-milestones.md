@@ -590,15 +590,321 @@ AC:
 
 ---
 
-## M7–M10 — Later milestones (outline)
+## M7 — Stable 0.1.0 and public launch
+
+Goal: satisfy T3.7, ship the stable Rust and Python packages, and give new users a
+verified path from installation to transactional permission writes. This is release
+preparation, not a new evaluator, storage design or supported WASM distribution.
+Refs use the numbered specifications above; `CLAUDE.md` golden rules apply throughout.
+
+### Baseline inspected for T7.0 (2026-10-29)
+
+- Planning starts at main `10ad07a`, after release PR #78. Tags alpha.1–alpha.4 exist;
+  GitHub Releases list alpha.1, alpha.3 and alpha.4 (a tag alone is not publication
+  evidence). Alpha.4's wheel/tag runs succeeded; there is no stable release yet.
+- ADR-012 and OQ-001 already chose pemba and completed the rename. Do not rename again.
+- Alpha.1 delivered SQLite foreign writes, Python bindings and packaging; alpha.2 added
+  traces and `EngineConfig` setters; alpha.3 delivered Postgres and `PendingRevision`;
+  alpha.4 delivered the playground and removed Python's deprecated integer conversions.
+  Use `CHANGELOG.md` as migration history, not the old pre-alpha examples.
+- README already has every topic named by T3.7, plus Postgres, limits and credits.
+  `test_readme_example.py` runs its Python example and checks it against `06` §2.1;
+  `test_examples.py` exercises `examples/agent_authz.py`. Improve and verify these;
+  do not recreate their tests or rewrite guides merely to satisfy a checklist.
+- `ci.yml`, `wheels.yml`, `difftest.yml`, `proptest.yml` and `playground.yml` already
+  provide package dry runs, licence-copy checks, platform wheels, TLS/SQLite probes,
+  property/differential tests and versioned Pages deployment. Extend only proven gaps.
+  Docs-only PRs intentionally skip heavy CI jobs; skipped jobs are not release evidence.
+- T3.9 has not been completed: request structs still use literals and OQ-044 is open.
+  T7.2 below completes T3.9 once; it is not a second independent audit.
+- No documentation-site source, CONTRIBUTING, SECURITY, issue templates or public roadmap
+  exists on this main. PR #79 separately proposes Pages deployment fixes; inspect its
+  eventual disposition before T7.6/T7.11, and do not copy or assume unmerged changes.
+
+### Ordering, evidence and approval boundaries
+
+Execute **T7.0 → T7.17 strictly in order**, one reviewable task/PR at a time. Each task
+requires the preceding task's acceptance criteria; no task authorises later actions.
+T7.1 and T7.14–T7.15/T7.17 are explicitly human actions. An agent may prepare evidence
+but must not approve, merge, tag, upload packages or post launch announcements for them.
+T7.16 is read-only verification after publication. Implementation PRs end with the local
+green checks in `CLAUDE.md` §5; use relevant CI/service jobs for platform-only checks and
+record failures or unavailable environments without calling them passes.
+
+Use `docs/RELEASE-0.1.0.md` (created in T7.2) as the release evidence index: requirement,
+source reference, completed task/PR, command or workflow URL, exact commit, result and
+human approval where required. Keep credentials and generated build output out of Git.
+Any change after final verification invalidates affected evidence and requires a rerun
+before approval; a new release candidate needs a new approval. No unresolved blocker,
+missing required job, skipped backend suite or unexplained regression is a waiver.
+
+### T7.0 Plan M7 (documentation only; this task)
+Refs: T3.7, T3.9; `09` §4–§6; `CLAUDE.md` §2, §8.
+AC:
+- Record the inspected implementation/release baseline, ordered tasks, acceptance criteria,
+  spec references, verification requirements and separate human actions in this milestone.
+- Record genuine decisions in OPEN_QUESTIONS; retain existing resolved decisions.
+- Check task numbering, dependencies, referenced files/sections, Markdown links and whitespace;
+  run the repository's documentation checks and report any local-green limitations.
+- Commit on `t7.0-plan`, push and open a PR; stop. Do not start T7.1.
+
+### T7.1 Confirm release scope and publication decisions (human only)
+Refs: T3.9; OQ-044, OQ-058–OQ-060; ADR-003, ADR-014, ADR-016; `10` §2.4.
+AC:
+- Maintainer records whether the already shipped sync Postgres scope is sufficient for
+  0.1.0, leaving T5.13 async adapters for later, or explicitly revises this ordering.
+- Resolve OQ-044's helper choice and approve the public-surface audit approach before
+  changing APIs. No convenience helpers are silently added or deleted by this plan.
+- Choose docs-site generator, location and stable/development content policy (OQ-059),
+  preserving the existing playground routes unless an ADR change is explicitly approved.
+- Choose a private security-reporting route, responsible maintainer and support/triage
+  commitments (OQ-060). Record decisions, not credentials or invented service guarantees.
+
+### T7.2 Complete the existing T3.9 public API audit
+Refs: T3.9 (all AC); `06` §1–§2; `09` §3; OQ-044.
+Files: published crates' public types; `docs/06-api.md`, `CHANGELOG.md`,
+`docs/PUBLIC_API_AUDIT.md`, `docs/RELEASE-0.1.0.md` (new evidence index).
+AC:
+- Inventory every public struct/enum in every publishable crate, including facade
+  re-exports and Postgres types; list exhaustive/non-exhaustive decision and reason for
+  each. Reuse existing `EngineConfig` constructors/setters rather than reworking them.
+- Apply the approved decisions and OQ-044 resolution with spec and migration entries;
+  keep request construction usable from a downstream crate. Add focused downstream
+  compilation/doctest coverage for changed construction and helper behaviour.
+- Update affected stubs/examples and exception/parse-error tests if the chosen helpers
+  change them. No on-disk format change. Record T3.9 satisfied in the evidence index.
+
+### T7.3 Close public API documentation gaps
+Refs: T3.7 rustdoc/docstrings AC; `06` §1–§3; `09` §3–§4.
+Files: public Rust doc comments, `crates/pemba-py/src/`, Python stubs/docstrings.
+AC:
+- Audit public items and Python methods against `06` and the T7.2 inventory; fix missing
+  docs, broken links and stale signatures, documenting error, limit and transaction
+  behaviour. Verify Python help/docstrings on the built extension, not stubs alone.
+- `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --all-features` and
+  workspace doctests pass; docs.rs metadata builds the intended features. A downstream
+  Rust quick start compiles with published-facing imports and explicit feature choices.
+- Reconcile the removed alpha.4 integer conversions wherever examples still use them;
+  spec, docstrings and stubs agree. Record audited coverage, not only warning counts.
+
+### T7.4 Verify installation, quick starts and user guides
+Refs: T3.7 README AC; ADR-006, ADR-014–ADR-015; `05` §4.3–§4.4, §10;
+`06` §2.1, §2.5; `10` §1.6.4, §1.6.7–§1.6.8, §2–§3.
+Files: `README.md`, mirrored `crates/pemba-py/README.md`, `docs/guides/` (new).
+AC:
+- Retain the concise README and link deeper install, schema, consistency, transaction
+  and troubleshooting guides. Cover Python ≥3.11, SQLite ≥3.26.0, pinned Rust toolchain,
+  Postgres ≥15, wheel platforms, source-build prerequisites and CLI installation.
+  Any support-floor change requires its own explicit decision/spec update.
+- Run Python and Rust quick starts in clean directories/environments. Explain features,
+  migrations, caller-owned commit/rollback, reads on engine connections, `PendingRevision`,
+  no read-your-uncommitted-write promise, and same-database/one-SQLite-copy restrictions.
+- Cover supported DSL and known differences, fail-closed errors vs denial, bounds,
+  GC/historical schema caveats, sync/async integration limits and when to use SpiceDB.
+  Postgres instructions include privileges, TLS, PgBouncer, 2PC, early constraints and
+  SERIALIZABLE retries; do not promise capabilities deferred in T7.1.
+- Existing verbatim README/spec test remains green; mirrored README is byte-identical.
+  Add checks only for newly executable guide snippets; stable install text switches in T7.12.
+
+### T7.5 Add a focused transactional-write tutorial and regression examples
+Refs: ADR-006, ADR-008, ADR-015; `05` §10; `06` §1, §2.1–§2.3;
+`07` §3, §6; `10` §1.6.4, §2.3, §4.1.
+Files: `examples/`, `docs/guides/`, existing Rust integration/Python example tests.
+AC:
+- Add runnable app-row + permission examples in Rust and Python for SQLite and Postgres,
+  reusing current foreign-write APIs and test helpers. Each demonstrates successful
+  commit and forced rollback: both app row and relationship persist, or neither does.
+- Assert pending-before-commit behaviour as specified per store, resolution after commit,
+  read-after-write with `AtLeast`, and denial/error distinction. Reuse existing rollback,
+  mismatched-database, savepoint and driver guard tests; fill only uncovered tutorial paths.
+- Tests execute examples against temporary databases (Postgres service required, never
+  silently skipped in release runs). No live credentials in examples or snippets.
+- Link existing agent, document-sharing and GitHub-like examples/fixtures and explain the
+  playground's memory-store limit: it cannot demonstrate a real database transaction.
+
+### T7.6 Build and integrate the documentation site
+Refs: T3.7; OQ-059 resolution; ADR-016; `11` §5–§5.1; `09` §4.
+Files: `docs/site/` (site source/config), selected generator lock/config files,
+`.github/workflows/playground.yml`, existing `playground/web/scripts/check-site.mjs`,
+`docs/09-repo-and-tooling.md`, `docs/11-playground.md` if the approved layout needs it.
+AC:
+- Implement only the T7.1-approved generator/content policy; justify every new dependency.
+  Reuse T7.4–T7.5 guides as source; navigation exposes install, quick starts, schema,
+  transactions, consistency, limits, API links and troubleshooting. Add contributor, security
+  and roadmap navigation only when their content lands in T7.7–T7.9; no dead links.
+- Build with warnings/broken local links as failures, correct project base paths, readable
+  narrow-screen navigation and keyboard access. Show which release the content describes
+  and distinguish development content under the approved policy.
+- Integrate with the existing single Pages assembly/deployer so deploying docs preserves
+  root playground, `/next/`, immutable `/v/<version>/` assets and shared fragments.
+  Do not create competing whole-site deployments. Inspect PR #79's merged state first.
+- Extend existing site/release tests to prove docs routes/assets and old playground routes
+  coexist, including stable vs prerelease selection and a deploy from an older tag.
+  Reuse stable-release classification from OQ-057; do not implement it again.
+
+### T7.7 Document and exercise developer onboarding
+Refs: `CLAUDE.md` §2–§6; `07` §1–§6; `09` §1–§5.
+Files: `CONTRIBUTING.md` (new), docs-site contributor navigation, existing CI as needed.
+AC:
+- Document clean checkout, pinned Rust/Node/Python prerequisites, isolated test venv,
+  workspace layout, fixture/regression workflow, focused checks and full local-green
+  commands, separate fuzz workspace and service-backed test environment variables.
+- Distinguish required pre-PR checks from long release checks; include one-task branches,
+  spec/API-change rules, dependency justification and original-code/attribution rules.
+- Follow the guide from a clean environment to compile Rust, import Python, run one
+  fixture, build the docs and run focused tests. Record commands/results; reuse CI setup
+  rather than introducing a second conflicting toolchain or hidden global dependencies.
+
+### T7.8 Establish security reporting and review release safeguards
+Refs: `CLAUDE.md` §2; ADR-008, ADR-011; `07` §5; `09` §4;
+`10` §3.3; OQ-060 resolution.
+Files: `SECURITY.md` (new), docs-site security navigation, `docs/RELEASE-0.1.0.md`,
+workflows only for identified gaps.
+AC:
+- Publish the approved private reporting route, supported-version policy and maintainer
+  handling process; explain public issues must not contain exploit details or secrets.
+  Human enables any account/repository security feature; instructions alone are not proof.
+- Review token permissions, fork behaviour, trusted publishing, required `pypi` reviewer,
+  secret handling, package ownership/access and licence/NOTICE copies. Record findings
+  and remediation; no credentials or automated publishing added to normal PR runs.
+- Run `cargo deny check` and the shipping npm audit; review fail-closed/limit tests,
+  SQLite-symbol and TLS probes and privileged vs normal-role Postgres paths. Carry genuine
+  release-blocking findings to OPEN_QUESTIONS and require regression tests for fixes.
+
+### T7.9 Prepare issue triage and a public roadmap
+Refs: M8–M10 below; `CLAUDE.md` §2, §6; `09` §5–§6; OQ-060 resolution.
+Files: `.github/ISSUE_TEMPLATE/`, `docs/TRIAGE.md`, `ROADMAP.md` (new), site links.
+AC:
+- Provide bug and feature templates requesting version, store/platform, minimal schema/
+  tuples, expected/actual result and safe reproduction; point vulnerabilities to SECURITY.
+- Document approved labels, severity/priority, maintainer ownership, duplicate handling,
+  regression-fixture follow-up and how to promote a report to a spec/task. Label setup
+  and any response commitments require the human action recorded in T7.17.
+- Roadmap distinguishes shipped alpha/stable capabilities, M7 remaining gates and M8/M9/
+  M10 candidates; clearly place T5.13 per T7.1. No promised dates or scope expansion.
+  Link the known Postgres round-trip follow-up and known differences/limitations.
+
+### T7.10 Draft launch materials (no posting)
+Refs: `00` §1–§4, §7; ADR-006, ADR-011, ADR-015; T3.7;
+`10` §1.6.4; `benches/RESULTS.md`.
+Files: `docs/launch/0.1.0.md` (new draft and channel checklist).
+AC:
+- Draft release summary, long-form post and short announcement variants centred on app
+  data and permissions committing/rolling back together; use the tested T7.5 tutorial.
+- Include installation, docs, playground, API, migration, issues and roadmap links,
+  supported scope/limitations, credits and when a separate service is preferable.
+- Explain PendingRevision and caller commit ownership accurately; no unsupported async,
+  WASM distribution, wire compatibility or unqualified performance/security claims.
+  Any benchmark claim links measured version/hardware/context, not a blanket comparison.
+- Mark destinations, timing and final text as requiring human approval; drafts stay local
+  to the repository and do not contact third parties or create public announcements.
+
+### T7.11 Rehearse release verification and close regression gaps
+Refs: T3.7; T3.4–T3.6; `07` §2–§7; `09` §4–§4.1; `10` §4; `11` §6.
+Files: `docs/RELEASE-0.1.0.md`, test/workflow files only for demonstrated gaps.
+AC:
+- Record exact-commit full local-green results, package dry run and manual build-only
+  wheel run. Require all five wheel platforms on CPython 3.11/3.14, sdist rebuild away
+  from checkout, SQLite-symbol/TLS checks, oldest SQLite/Python job and Postgres 15/18
+  tests including every supported Python driver. No upload/tag in rehearsal.
+- Run properties at ≥1,000 cases, store conformance/equivalence and Postgres revision-order
+  tests (including isolation levels, constraints and retries). Run memory and Postgres
+  difftests with required-service flags, fixtures and ≥500 compared generated cases each;
+  review known-difference detectors and save any new failing case as a regression fixture.
+- Run all three fuzz targets ≥10 minutes each with no crashes, retain useful corpus,
+  and review surviving evaluator/validator mutants against `docs/MUTANTS.md`. Existing
+  reports are baseline evidence, not proof that the candidate passed a new run.
+- Run docs-site link/snippet checks and playground conformance, unit, size and browser
+  checks from `09` §4.1. Review benchmark changes against the recorded baseline; explain
+  measured regressions rather than inventing a new release threshold.
+- Check all OPEN_QUESTIONS entries semantically: resolved historical `Blocking: yes`
+  text is not an open blocker; unresolved gate dependencies such as OQ-044 must be closed.
+  Record T3.7 coverage row by row. Fix discovered bugs in separately reviewed preceding
+  work and rerun affected evidence before advancing, preserving the task order.
+
+### T7.12 Prepare the stable release PR (no publishing)
+Refs: `09` §4.1; ADR-014; T3.7; OQ-057; `CHANGELOG.md` release history.
+Files: root `Cargo.toml`, root and fuzz `Cargo.lock`, `CHANGELOG.md`, both READMEs,
+package metadata and release evidence index.
+AC:
+- Apply the existing checklist for `0.1.0` (Rust and Python), including all internal
+  dependency versions and both lockfiles; only own crate versions change in lockfiles.
+  Do not bump versions in T7.0 or recreate the packaging pipeline.
+- Derive publishable crates and dependency order from current manifests (including
+  Postgres), not OQ-035's historical pre-Postgres list. Keep testkit/difftest, Python-only
+  crates and playground crates unpublished on crates.io; check package contents, docs.rs
+  metadata, licences, README, `.pyi`/`py.typed` and sdist dependencies.
+- Changelog covers alpha-to-stable API migrations, notably T7.2 and PendingRevision;
+  change alpha-only stability language to the approved stable contract (`06` header),
+  update install/status links and documentation metadata consistently.
+- Existing release script extracts stable notes and classifies `0.1.0` as **not** a
+  prerelease; test both stable and alpha/rc cases. Record the human publishing sequence,
+  partial-failure recovery and immutable-version policy; never overwrite a release or
+  roll back an existing tag to repair it. All release PR checks must pass before approval.
+
+### T7.13 Verify the exact stable release candidate
+Refs: T3.7; `09` §4.1; T7.11 verification matrix.
+Files: release evidence index (candidate SHA and linked artifacts/results).
+AC:
+- Repeat T7.11's release matrix on the final T7.12 candidate, including build-only wheel
+  workflow, dry runs (`cargo publish --workspace --dry-run --locked`), docs and playground.
+  A stable package version must be tested; passing alpha builds are insufficient.
+- Install built wheels and build the sdist in isolated environments outside the source
+  tree; run the transactional tutorial and check version, API/stubs, imports and CLI.
+  Verify packaged crates build without local path-only dependencies.
+- Evidence ties every required job/artifact to the candidate SHA and records all T3.7 AC,
+  T3.9 inventory, completed rename and absence of unresolved blocking questions. No
+  publication side effect is needed for any acceptance criterion in this task.
+
+### T7.14 Sign off T3.7 and the release candidate (human only)
+Refs: T3.7 human gate; `09` §4.1; T7.13 evidence.
+AC:
+- Maintainer reviews every T3.7 row, security findings, known differences, API audit,
+  documentation and migration guide, confirms no open blocking question and explicitly
+  approves the exact candidate SHA, release text and supported scope.
+- Merge the release PR only with current green required checks. Verify the intended main
+  tree matches approved content; any substantive change returns to T7.13 and new sign-off.
+  Record approval and release commit before tagging. CI green alone is not human sign-off.
+
+### T7.15 Tag and publish 0.1.0 (human only)
+Refs: `09` §4.1 steps 6–7; ADR-014, ADR-016; OQ-057.
+AC:
+- Human tags `v0.1.0` on the approved main release commit and publishes crates in the
+  recorded dependency order, waiting for registry availability before dependent uploads.
+- Human approves the protected `pypi` environment after tag wheel/sdist smoke tests;
+  trusted publishing uploads those artifacts. Confirm tag workflows create a full GitHub
+  Release with approved changelog notes and immutable playground archive and deploy Pages.
+- Record registry versions, tag SHA and workflow/release URLs. On partial failure, stop
+  launch and follow the reviewed recovery procedure; do not retag or overwrite artifacts.
+
+### T7.16 Verify public artifacts and live documentation (read-only)
+Refs: `09` §4.1 step 7; `11` §5.1; T7.4–T7.6 and T7.13.
+AC:
+- From fresh environments outside the repository, install `pemba==0.1.0` from PyPI and
+  the Rust/CLI 0.1.0 packages from crates.io; run quick starts and transactional commit/
+  rollback smoke examples. Confirm installed versions/paths and docs.rs build success.
+- Check the approved docs URL, release notes and navigation, playground root and
+  `/v/0.1.0/`, an existing alpha version/share link and `/next/`; version/footer, assets
+  and development labels must agree. Verify registry metadata and public links resolve.
+- Record results in the release evidence index (documentation PR if needed). A failure
+  blocks T7.17 and goes through the approved recovery path; publication is not completion.
+
+### T7.17 Launch and activate community processes (human only)
+Refs: T7.9–T7.10 drafts; T7.14 approval; T7.16 public verification.
+AC:
+- Human approves final announcement text, destinations and timing, then posts the launch
+  materials with verified stable links. Record public URLs; do not promise unapproved work.
+- Human enables/verifies the chosen private reporting route, labels and triage ownership,
+  publishes the roadmap links, and triages initial reports through the documented process.
+- Release evidence records final launch approval, package/docs verification and follow-up
+  issues. M7 is complete only after these actions; no M8/T5.13 work starts automatically.
+
+---
+
+## M8–M10 — Later milestones (outline)
 
 Outlines only. Detailed tasks and acceptance criteria get written when each milestone
 starts, against the spec as it stands then.
-
-### M7 — 0.1.0 and launch
-- Pass the T3.7 gate, cut 0.1.0 on crates.io and PyPI
-- Docs site, examples and a launch post centred on transactional writes.
-- Triage process for issues and a public roadmap.
 
 ### M8 — Authorised queries
 - Filter application queries by permission inside the database (SQL predicates or a

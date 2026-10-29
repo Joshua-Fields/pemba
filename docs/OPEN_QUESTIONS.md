@@ -1476,3 +1476,44 @@ it is resolved.
   when its version has a prerelease suffix (a hyphen, e.g. `-alpha.N`, `-rc.N`), so 0.1.0
   and other plain versions are full releases; (c) accepted: an attached archive is never
   rebuilt, a re-run only refreshes the notes.
+
+## OQ-058 — Does stable 0.1.0 require the deferred async adapters?
+- Raised in: T7.0 (M7 scope; T5.13 and ADR-003)
+- Blocking: yes, for T7.1 scope approval and the stable release; not for the planning PR.
+- Problem: M5 includes T5.13 after the first Postgres release, but M7's outline does not
+  say whether it is a stable-release prerequisite. Alpha.3 already shipped sync Postgres.
+- Current choice: plan 0.1.0 around the shipped sync APIs and documented `run_sync` /
+  thread integration; leave T5.13 as a later task. Do not claim native async support.
+- Resolve by: maintainer in T7.1; if async is required, revise sequencing and verification
+  before implementing M7 rather than silently adding it to a release task.
+- Resolution: (fill in)
+
+## OQ-059 — Documentation site tooling, route and version policy
+- Raised in: T7.0 (M7 docs site; ADR-016; `11` §5.1)
+- Blocking: yes, for T7.6 and release; not for the planning PR.
+- Problem: the specs select no documentation generator or documentation version policy.
+  The existing Pages root, `/next/` and `/v/<version>/` belong to the playground; an
+  independent Pages deploy would replace them. PR #79 proposes deployment fixes and
+  must be reassessed against main when implementation starts.
+- Current choice: reserve no new public route yet; propose an additive `/docs/` subtree,
+  source under `docs/site/`, using the existing single site assembly/deployment. Preserve
+  all playground URLs and immutable archives. This is a proposal, not an accepted ADR.
+- Options: maintainer chooses generator and dependency budget, additive Pages subtree vs
+  separate hosting, and stable-only documentation vs versioned/development documentation.
+  Moving the playground root requires explicit ADR-016/spec approval.
+- Resolve by: maintainer in T7.1; record the chosen tooling, public URL and content update
+  policy before T7.6. No custom domain, host account or new runtime is assumed.
+- Resolution: (fill in)
+
+## OQ-060 — Security reporting ownership and public support commitments
+- Raised in: T7.0 (M7 security, issue triage and launch)
+- Blocking: yes, for T7.8–T7.9 and release; not for the planning PR.
+- Problem: main has no SECURITY policy or named private reporting route, and no approved
+  response cadence, supported-version policy or triage ownership. Public issue templates
+  must not direct sensitive reports to a guessed address or promise an invented SLA.
+- Current choice: propose GitHub private vulnerability reporting if the maintainer
+  enables it; otherwise require a maintainer-provided private route. Do not publish a
+  contact address, response deadline or support guarantee until approved.
+- Resolve by: maintainer in T7.1, with repository-setting activation/verification by a
+  human and confirmation before launch (T7.17). Record ownership and approved policy.
+- Resolution: (fill in)
