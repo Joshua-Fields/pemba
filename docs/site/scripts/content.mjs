@@ -24,9 +24,11 @@ export function prepare(source, out, info) {
     : `development build (main) — ${info.version} — ${info.commit.slice(0, 7)}`;
   const complete = available && (!published || !!info.version);
   const contributing = complete && fs.existsSync(path.join(source, 'CONTRIBUTING.md'));
+  const security = complete && fs.existsSync(path.join(source, 'SECURITY.md'));
   const sourcePages = new Map(pages);
   if (contributing) sourcePages.set('CONTRIBUTING.md', 'contributing');
-  const metadata = { ...info, label, complete, contributing };
+  if (security) sourcePages.set('SECURITY.md', 'security');
+  const metadata = { ...info, label, complete, contributing, security };
   fs.writeFileSync(path.join(out, 'build-info.json'), JSON.stringify(metadata));
   const next = '[Development documentation](https://joshua-fields.github.io/pemba/docs/next/)';
   if (!complete) {

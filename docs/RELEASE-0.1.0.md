@@ -1,8 +1,8 @@
 # 0.1.0 release evidence
 
 This is the evidence index required by M7. No stable release is approved or published.
-T7.2–T7.7 implementation evidence is recorded here; T7.8–T7.17 remain separate
-tasks and gates. T7.6 is merged; see T7.7 evidence below.
+T7.2–T7.8 implementation evidence is recorded here; T7.9–T7.17 remain separate
+tasks and gates. T7.7 is merged; see T7.8 evidence below.
 
 ## Preceding gates
 
@@ -511,3 +511,119 @@ T7.11/T7.13/T7.16 gates, not claims made by this onboarding task.
 No API, storage format, package version, release, tag or deployed artifact changed.
 Human review/merge is required before T7.8. No release approval or next-task action is
 performed by this PR.
+
+## T7.8 security reporting and release safeguards
+
+Sources: T7.8 all AC; CLAUDE §2; ADR-008/ADR-011; `07` §5; `09` §4;
+`10` §3.3; approved OQ-060. Verification results and limitations are recorded below.
+
+### Preceding gates and implementation
+
+Fresh clone, `git checkout main` and `git pull` yielded clean main
+`ed63ed3dcfcf2ad43023029c82b4d5bfd3fd9733`. T7.0–T7.7 PRs #80–#87 are merged in
+first-parent history. GitHub metadata confirms previous implementation PR #87 merged
+2026-10-29 at that SHA. Earlier AC evidence and T7.1 decisions are indexed above.
+The maintainer authorizes proceeding while other Actions runs finish; no pending or
+skipped prior check is relabelled a pass. Later human release/launch gates remain.
+
+`SECURITY.md` implements OQ-060: private GitHub reporting, owner handling, latest stable
+0.1.x security/correctness maintenance on a best-effort basis, case-by-case older
+versions, no SLA/guaranteed patch/LTS, and no public exploit details or secrets.
+The existing docs builder includes security content/navigation only when present in
+the selected source revision. SECURITY changes now trigger the single existing docs/
+playground workflow. No runtime/API, dependency, package version or deployment change.
+
+### Read-only safeguards review, 2026-10-29
+
+| Area / evidence | Finding and disposition |
+|---|---|
+| Workflow permissions and events: all `.github/workflows/*.yml`; GitHub Actions permissions APIs | All workflows declare `contents: read` by default. Live repository default is read; Actions cannot approve PRs. No `pull_request_target` or `workflow_run` execution of untrusted PR code. Fork PRs use ordinary `pull_request`; no repository/environment secrets referenced. |
+| Elevated release/Pages jobs: `playground.yml` | `contents: write` only for tag release asset; `actions: write` only for tag deploy dispatch; Pages/id-token writes only in main push/manual deploy. PRs do not enter these jobs. Tag asset immutability and single Pages deployer retained. No workflow event/permission changes needed. |
+| PyPI trusted publishing: `wheels.yml` | Publishing needs build/sdist/all platform smoke/Postgres smoke success, tag push, `pypi` environment and job-only `id-token: write`. Manual and PR runs build/test only. No API token in workflow. Downloaded artifacts come from the same run; five wheels/one sdist required. Human must verify PyPI's registered publisher binding to owner/repo, `wheels.yml`, `pypi`; workflow text or old uploads do not prove current account configuration. |
+| Live required reviewer: `gh api repos/Joshua-Fields/pemba/environments/pypi` | Required reviewer is `Joshua-Fields`. `prevent_self_review=false`, `can_admins_bypass=true`, no deployment branch restriction. These are recorded residual controls, not independent two-person approval or a tag-only environment guarantee. Existing job condition enforces tag pushes; retain explicit human approval, no settings modified. |
+| Secret handling: workflow review; repository and `pypi` secrets APIs | Both secret counts are zero (values never requested). `GH_TOKEN` uses ephemeral `github.token` in the three trusted release/deploy jobs only. No shell tracing or secret echo. Database trust auth/test-only passwords are disposable CI fixtures, not production credentials. Review excludes personal/org secret stores and developer credential files. |
+| Public crate ownership: crates.io `/api/v1/crates/<name>/owners` for all nine publishable crates | Sole returned owner is `Joshua-Fields` for pemba, pemba-cli, pemba-core, pemba-fixtures, pemba-schema, pemba-sqlite-common, pemba-store-memory, pemba-store-postgres and pemba-store-sqlite. Actual account access, 2FA and token scopes still need human verification; no publishing probe performed. |
+| Repository access / protection APIs | Sole returned collaborator is owner/admin `Joshua-Fields`; no rulesets and main protection API reports 404 (branch not protected). Actions allowed-actions is `all`, SHA pinning not required; actions use version tags. Record as hardening opportunities for human review, not proof of enforced merge review, immutable action pins or protected release tags. No repository policy altered or new approval policy invented. |
+| GitHub security APIs | Private vulnerability reporting returns `enabled: true`; this is observed configuration, not a human end-to-end submission/notification test. Dependabot security updates and secret scanning/push protection are disabled; weekly npm Dependabot configuration and cargo-deny/npm audits remain existing checks. Human may review additional settings. |
+| Package ownership/access unavailable from this session | Authenticated PyPI owner/maintainer list, trusted publisher registration, registry 2FA/recovery and scoped publishing access are not observable through available connected tools/CLI. Human must verify these before T7.14/T7.15; never infer them from package metadata or previous successful publishing. |
+| Attribution and licence copies | ADR-011 retained: Apache-2.0, original implementation, no SpiceDB copying. CI's byte-identical LICENSE/NOTICE copies across ten package directories plus README mirror will be checked below; no attribution/package changes made. |
+
+### Human follow-up
+
+Repository owner must confirm the private report form/notification path works without
+submitting a fabricated vulnerability; verify authenticated PyPI owners and trusted
+publisher configuration, registry access/2FA/recovery and appropriate token scopes.
+Record that confirmation before release sign-off/publication, then reconfirm reporting
+and triage activation at T7.17. Enabled settings alone do not supply human approval.
+Existing required `pypi` reviewer is observed; do not bypass it. Main/tag protection,
+SHA-pinned actions and additional scanning are recorded hardening choices for the owner,
+not silently activated or treated as newly approved policy.
+
+### Reviewed security regression coverage
+
+Reviewed existing assertions instead of duplicating tests: `crates/pemba/tests/check.rs`
+checks store failures, union/intersection/exclusion error propagation, stale schema
+subjects, depth, fanout and read budgets as typed errors; `lookup.rs` fails the whole
+page on a candidate-check error and `lookup_subjects.rs` enforces depth/fanout.
+`pemba-testkit` trace/cycle/cost tests and fixture/oracle comparisons cover bounded
+cyclic evaluation without changing fail-closed semantics. These ran in the workspace
+suite below. No evaluator optimization or regression fix was introduced.
+
+Postgres `tests/migrate.rs::a_hostile_search_path_cannot_redirect_the_store` checks
+qualified tables, spoofed functions and trigger `search_path=pg_catalog, pg_temp`;
+`bad_configuration_is_an_invalid_request` checks invalid configuration and password
+redaction. `tests/foreign.rs::an_unprivileged_role_can_write_in` creates a NOSUPERUSER
+NOINHERIT app role with limited schema/table/sequence privileges and commits a foreign
+write; migrations use the separate privileged test connection. All passed against
+required PG18. This verifies the tested normal-role path, not every possible production
+grant configuration. No schema rename/repair capability is added (OQ-062 remains).
+
+Reviewed the SQLite-symbol and rustls/no-OpenSSL byte probes in `crates/pemba-py/ci/`
+and their installed-extension/wheel CI call sites. The Python TLS test requires an
+untrusted TLS server, asserts a certificate handshake error, then proves the same
+server is reachable without TLS. It ran with both service URLs and all drivers below;
+no TLS skip is counted as a pass. Wheel/platform execution remains the release matrix.
+The three fuzz targets match `07` §5 and existing manual fuzz CI; only build checks ran
+here. Fresh >=10-minute runs per target remain T7.11/T7.13.
+
+### Verification, 2026-10-29
+
+Source commit [`3c94b6901565bb412b7930b2f09dd4dff7ec2172`](https://github.com/Joshua-Fields/pemba/commit/3c94b6901565bb412b7930b2f09dd4dff7ec2172).
+Subsequent edits change release evidence only. Windows x86_64, Rust 1.99.0, CPython
+3.12.10, Node 24.20.0, wasm-bindgen 0.2.129, cargo-deny 0.20.2. Disposable PostgreSQL
+18.6 and untrusted-certificate TLS services bind loopback 57432/57433; required-service
+flags are set for Rust and the separate driver venv. Logs/harness under ignored
+`target/t7.8-*`; fresh venvs and generated assets are not committed.
+
+| Command / check | Actual result |
+|---|---|
+| Full §5 once: `cargo fmt --all -- --check`; `cargo clippy --workspace --all-targets --all-features -- -D warnings`; `cargo test --workspace --all-features` | Passed: 687 Rust tests/doctests, zero failures, required PG18 including privileged/normal-role and hostile-search-path tests. 18 ignored tests unrun; slow/property tests and implementation were not changed. |
+| `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --all-features`; separate fuzz `cargo fmt -- --check` and `cargo check --all-targets` | Passed strict docs and fuzz workspace build/format checks; fuzz targets not executed. |
+| Fresh tool-only venv, CI-pinned tools: `maturin develop`; `python -m pytest -q -rs`; `python -m mypy --strict tests` | Passed build, 168 tests and typing (15 files). One skipped Postgres module with no drivers/service URL in this venv; not a service pass. |
+| `cargo deny check` | Passed: advisories, bans, licences and sources all OK. Seven duplicate-version warnings (base64, const-oid, fallible-iterator, getrandom, syn, wasi, windows-sys), allowed by the existing warn policy; reviewed transitive/dev/platform overlap, no dependency or policy changes. |
+| `npm audit --omit=dev --prefix playground/web`; `npm audit --prefix docs/site` | Both passed: zero vulnerabilities; shipping playground graph and full documentation-tooling graph respectively. |
+| `npm test --prefix docs/site`; strict development and no-stable builds; `node docs/site/scripts/browser.mjs` | Eight regressions passed, including expected red-before-green security generation. Both builds and local link/anchor/asset checks passed without warnings. Wide/narrow keyboard navigation reaches Security with the correct heading, channel label and private-reporting URL; no browser/asset errors or horizontal overflow. Screenshots inspected. |
+| wasm32 Clippy for engine/playground and smoke target; wasm32 `wasm_smoke` under Node | Passed; four smoke tests, zero failures. |
+| `bash playground/conformance/run.sh` | Passed: 1,000 generated reference-checked cases, 1,037 fixtures; 45,323 native/WASM transcript lines byte-identical (12,499 checks, three expected check errors, 15,678 lookups). |
+| Playground WASM generation; `npm test`; production/typecheck build; size; Chromium e2e | Passed: 170 unit tests, 72 browser tests; 578.2 KB total gzip within 700 KB budget. |
+| Fresh separate CI-pinned all-driver venv with required PG18/TLS: maturin, `python -m pytest -q -rs tests/test_postgres.py tests/test_errors.py`, strict mypy, `ci/check_tls.py`, `ci/check_no_sqlite.py` | Passed: 63 Python tests, zero skips, all four driver families installed; build/typing and both binary probes passed on the built development extension. No all-platform wheel claim. |
+| `cargo test -p pemba-store-postgres --no-default-features` with required PG18 | Passed plaintext-only configuration, including conformance, equivalence, foreign writes and migrations. Full-feature paths ran in the workspace run above. |
+| CI package-file copy check; actionlint (`-shellcheck=`); final whitespace/scope check | All 20 LICENSE/NOTICE copies and README mirror byte-identical; actionlint passed with unavailable shellcheck disabled, not claimed. Whitespace/scope checks passed. |
+| Independent review of implementation and acceptance coverage | No actionable findings; reviewed approved policy, selected-source navigation, older sources, workflow filters and qualified safeguard findings. Verification results were completed afterwards. |
+
+The first container readiness probe ran before startup and reported unavailable;
+a later explicit readiness probe and `SHOW ssl=on` succeeded before test execution.
+No application fix or service skip was hidden. No confirmed release-blocking security
+finding or genuine specification ambiguity arose; no OPEN_QUESTIONS entry was added.
+Unobservable account controls remain explicit human verification gates above.
+
+Remote checks for this PR are unobserved at preparation; docs-only skips are not release
+evidence. PG15, oldest supported Python/SQLite, all-platform wheel/sdist/package dry
+runs, long properties/differential/fuzz/mutation and public deployment verification
+remain T7.11/T7.13/T7.16 gates. Nothing here supplies release sign-off or launch approval.
+No settings, APIs, on-disk formats, versions, releases, tags or deployed artifacts were
+changed. Human review/merge of this PR is required; T7.9 is not started.
+
+An ad-hoc final log-summary reader initially failed on Windows console encoding while
+printing cargo-deny's Unicode diagnostic tree. Explicit UTF-8 output rerun succeeded
+and verified every recorded check's zero exit code; no test or source change was needed.

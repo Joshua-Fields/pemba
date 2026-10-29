@@ -13,6 +13,7 @@ const items = info.complete ? [
   { text: 'Limits and troubleshooting', link: '/guides/troubleshooting' },
   { text: 'API reference', link: '/api' },
   ...(info.contributing ? [{ text: 'Contributing', link: '/contributing' }] : []),
+  ...(info.security ? [{ text: 'Security', link: '/security' }] : []),
 ] : [];
 
 export default defineConfig({
