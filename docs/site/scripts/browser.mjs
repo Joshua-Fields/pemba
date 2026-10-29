@@ -54,6 +54,14 @@ try {
     await page.keyboard.press('Enter');
     await page.waitForURL('**/contributing.html');
     await expect(page.getByRole('heading', { level: 1 })).toHaveText('Contributing to pemba');
+    if (viewport.width < 600) await page.getByRole('button', { name: 'Menu', exact: true }).click();
+    const security = page.locator('.VPSidebar').getByRole('link', { name: 'Security', exact: true });
+    await security.focus();
+    await page.keyboard.press('Enter');
+    await page.waitForURL('**/security.html');
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Security policy');
+    await expect(page.getByRole('link', { name: 'GitHub private vulnerability reporting', exact: true }))
+      .toHaveAttribute('href', 'https://github.com/Joshua-Fields/pemba/security/advisories/new');
     await expect(page.getByRole('note')).toContainText('development build (main)');
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
     await page.screenshot({ path: path.join(root, `docs-${viewport.width}.png`), fullPage: false });

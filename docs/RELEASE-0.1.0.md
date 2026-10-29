@@ -511,3 +511,50 @@ T7.11/T7.13/T7.16 gates, not claims made by this onboarding task.
 No API, storage format, package version, release, tag or deployed artifact changed.
 Human review/merge is required before T7.8. No release approval or next-task action is
 performed by this PR.
+
+## T7.8 security reporting and release safeguards
+
+Sources: T7.8 all AC; CLAUDE §2; ADR-008/ADR-011; `07` §5; `09` §4;
+`10` §3.3; approved OQ-060. Verification results will be recorded below before PR.
+
+### Preceding gates and implementation
+
+Fresh clone, `git checkout main` and `git pull` yielded clean main
+`ed63ed3dcfcf2ad43023029c82b4d5bfd3fd9733`. T7.0–T7.7 PRs #80–#87 are merged in
+first-parent history. GitHub metadata confirms previous implementation PR #87 merged
+2026-10-29 at that SHA. Earlier AC evidence and T7.1 decisions are indexed above.
+The maintainer authorizes proceeding while other Actions runs finish; no pending or
+skipped prior check is relabelled a pass. Later human release/launch gates remain.
+
+`SECURITY.md` implements OQ-060: private GitHub reporting, owner handling, latest stable
+0.1.x security/correctness maintenance on a best-effort basis, case-by-case older
+versions, no SLA/guaranteed patch/LTS, and no public exploit details or secrets.
+The existing docs builder includes security content/navigation only when present in
+the selected source revision. SECURITY changes now trigger the single existing docs/
+playground workflow. No runtime/API, dependency, package version or deployment change.
+
+### Read-only safeguards review, 2026-10-29
+
+| Area / evidence | Finding and disposition |
+|---|---|
+| Workflow permissions and events: all `.github/workflows/*.yml`; GitHub Actions permissions APIs | All workflows declare `contents: read` by default. Live repository default is read; Actions cannot approve PRs. No `pull_request_target` or `workflow_run` execution of untrusted PR code. Fork PRs use ordinary `pull_request`; no repository/environment secrets referenced. |
+| Elevated release/Pages jobs: `playground.yml` | `contents: write` only for tag release asset; `actions: write` only for tag deploy dispatch; Pages/id-token writes only in main push/manual deploy. PRs do not enter these jobs. Tag asset immutability and single Pages deployer retained. No workflow event/permission changes needed. |
+| PyPI trusted publishing: `wheels.yml` | Publishing needs build/sdist/all platform smoke/Postgres smoke success, tag push, `pypi` environment and job-only `id-token: write`. Manual and PR runs build/test only. No API token in workflow. Downloaded artifacts come from the same run; five wheels/one sdist required. Human must verify PyPI's registered publisher binding to owner/repo, `wheels.yml`, `pypi`; workflow text or old uploads do not prove current account configuration. |
+| Live required reviewer: `gh api repos/Joshua-Fields/pemba/environments/pypi` | Required reviewer is `Joshua-Fields`. `prevent_self_review=false`, `can_admins_bypass=true`, no deployment branch restriction. These are recorded residual controls, not independent two-person approval or a tag-only environment guarantee. Existing job condition enforces tag pushes; retain explicit human approval, no settings modified. |
+| Secret handling: workflow review; repository and `pypi` secrets APIs | Both secret counts are zero (values never requested). `GH_TOKEN` uses ephemeral `github.token` in the three trusted release/deploy jobs only. No shell tracing or secret echo. Database trust auth/test-only passwords are disposable CI fixtures, not production credentials. Review excludes personal/org secret stores and developer credential files. |
+| Public crate ownership: crates.io `/api/v1/crates/<name>/owners` for all nine publishable crates | Sole returned owner is `Joshua-Fields` for pemba, pemba-cli, pemba-core, pemba-fixtures, pemba-schema, pemba-sqlite-common, pemba-store-memory, pemba-store-postgres and pemba-store-sqlite. Actual account access, 2FA and token scopes still need human verification; no publishing probe performed. |
+| Repository access / protection APIs | Sole returned collaborator is owner/admin `Joshua-Fields`; no rulesets and main protection API reports 404 (branch not protected). Actions allowed-actions is `all`, SHA pinning not required; actions use version tags. Record as hardening opportunities for human review, not proof of enforced merge review, immutable action pins or protected release tags. No repository policy altered or new approval policy invented. |
+| GitHub security APIs | Private vulnerability reporting returns `enabled: true`; this is observed configuration, not a human end-to-end submission/notification test. Dependabot security updates and secret scanning/push protection are disabled; weekly npm Dependabot configuration and cargo-deny/npm audits remain existing checks. Human may review additional settings. |
+| Package ownership/access unavailable from this session | Authenticated PyPI owner/maintainer list, trusted publisher registration, registry 2FA/recovery and scoped publishing access are not observable through available connected tools/CLI. Human must verify these before T7.14/T7.15; never infer them from package metadata or previous successful publishing. |
+| Attribution and licence copies | ADR-011 retained: Apache-2.0, original implementation, no SpiceDB copying. CI's byte-identical LICENSE/NOTICE copies across ten package directories plus README mirror will be checked below; no attribution/package changes made. |
+
+### Human follow-up
+
+Repository owner must confirm the private report form/notification path works without
+submitting a fabricated vulnerability; verify authenticated PyPI owners and trusted
+publisher configuration, registry access/2FA/recovery and appropriate token scopes.
+Record that confirmation before release sign-off/publication, then reconfirm reporting
+and triage activation at T7.17. Enabled settings alone do not supply human approval.
+Existing required `pypi` reviewer is observed; do not bypass it. Main/tag protection,
+SHA-pinned actions and additional scanning are recorded hardening choices for the owner,
+not silently activated or treated as newly approved policy.
