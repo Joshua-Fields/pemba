@@ -14,7 +14,10 @@ Only T7.2 is implemented here; T7.3–T7.17 remain separate tasks and gates.
 T7.1 approves sync Postgres scope, only Rust `check_str`, the extensible-type audit,
 VitePress routes/content policy, and best-effort owner-led security/triage. Private
 vulnerability reporting activation/verification remains human work at its later gates.
-PR #79 is still open and unrelated to the T7.2 dependency gate; reassess it in T7.6/T7.11.
+PR #79 was open during initial T7.2 preparation. It subsequently merged as main
+`9e2d894`; that main revision is incorporated into the T7.2 branch to resolve the
+Unreleased changelog conflict, retaining both tasks' entries. Reassess deployment
+integration against this merged state in T7.6/T7.11.
 
 ## T7.2 / T3.9 public API audit
 
@@ -126,3 +129,15 @@ Review OQ-061's conservative `PARSE` → built-in `ValueError` mapping with this
 Human review/merge is required before T7.3; nothing here approves a release candidate,
 activates security settings, merges a PR, changes a tag, publishes a package or deploys.
 T7.3 and all later tasks have not started.
+
+### PR #82 merge-conflict refresh
+
+Merged main `9e2d894` (PR #79) into the T7.2 branch. The only conflict was the
+Unreleased section of CHANGELOG; both the T7.2 Breaking/Added entries and the merged
+playground Fixed entry are retained. No Rust, Python, manifest, lockfile, fuzz, WASM or
+conformance source differs from verified `4dc21b7`; earlier source evidence is retained.
+The imported deployment changes are from main, and no deployment is executed here.
+On the resolved tree, `npm test` passed 169 tests in 10 files, `npm run build` passed,
+workspace and separate fuzz rustfmt checks passed, and `git diff --cached --check`
+passed with no unmerged index entries. Full functional suites were not repeated for
+this changelog resolution; remote CI must validate the refreshed PR tree.
