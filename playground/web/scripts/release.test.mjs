@@ -162,4 +162,10 @@ describe('checkSite', () => {
     page('next', '/pemba/next/', '0.1.0-alpha.6');
     expect(checkSite(site, [])).toEqual([]);
   });
+
+  it('requires stable and development docs without replacing playground routes', () => {
+    assemble();
+    expect(checkSite(site, releases, { docs: true })).toContain('docs: no index.html');
+    expect(checkSite(site, releases, { docs: true })).toContain('docs/next: no index.html');
+  });
 });
