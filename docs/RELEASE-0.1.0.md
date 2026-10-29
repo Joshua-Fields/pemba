@@ -1,8 +1,8 @@
 # 0.1.0 release evidence
 
 This is the evidence index required by M7. No stable release is approved or published.
-T7.2–T7.9 implementation evidence is recorded here; T7.10–T7.17 remain separate
-tasks and gates. T7.8 is merged; see T7.9 evidence below.
+T7.2–T7.10 implementation evidence is recorded here; T7.11–T7.17 remain separate
+tasks and gates. T7.9 is merged; see T7.10 evidence below.
 
 ## Preceding gates
 
@@ -697,3 +697,69 @@ was needed. T7.10 is not started; no release or launch approval is supplied here
 An ad-hoc final log-summary reader initially failed on Windows console encoding while
 printing cargo-deny's Unicode diagnostic tree. Explicit UTF-8 output rerun succeeded
 and verified every recorded check's zero exit code; no test or source change was needed.
+
+## T7.10 launch drafts
+
+Sources: T7.10 all AC; `00` §§1–4,7; ADR-006/ADR-011/ADR-015; T3.7;
+`10` §1.6.4; measured context/caveats in `benches/RESULTS.md`.
+
+### Preceding gates and acceptance coverage
+
+Updated clean main after verifying [PR #89](https://github.com/Joshua-Fields/pemba/pull/89)
+merged at `5bec1eb`. All applicable checks on its exact head `7419748` succeeded in
+[CI](https://github.com/Joshua-Fields/pemba/actions/runs/40951006855) and
+[Playground](https://github.com/Joshua-Fields/pemba/actions/runs/40951007041), including
+PG15/18, platform Python/Rust, oldest SQLite/Python, property, package dry run,
+wasm32, conformance and documentation/site. PR-only release/deploy jobs were skipped;
+no publication or deployment result is inferred. T7.0–T7.9 and required T7.1 decisions
+remain recorded in the preceding evidence. The maintainer now explicitly authorizes
+waiting for checks and merging implementation PRs before continuing. Release sign-off,
+release-PR merge, tagging/publishing and launch approvals remain their human gates.
+
+`docs/launch/0.1.0.md` contains a proposed release summary, long-form post, two short
+variants and channel checklist centered on the tested T7.5 app-row/permission commit
+and forced-rollback examples. It accurately describes caller ownership, SQLite versus
+Postgres pending/rollback behavior, post-commit resolution/AtLeast, engine-connection
+reads and error versus denial. Links cover installation, docs, tutorial, playground,
+Rust/Python API contracts, migrations, issues, roadmap, limitations and original-code
+credits. It states when a separate service is preferable and preserves sync-only,
+memory-playground, no general WASM/Node/wire-API and deferred T5.13 boundaries.
+
+All materials are explicitly drafts, with stable URLs/install commands marked as
+proposed post-publication targets requiring T7.16 validation. No numerical performance
+or comparative security claims are proposed; any later benchmark claim must carry
+measured version/commit, hardware/backend/context and existing caveats. Venue/account,
+final text and timing remain unchosen/unapproved, with six unchecked human gates.
+No third party was contacted or public announcement/external draft created. No new
+specification ambiguity or OPEN_QUESTIONS entry was needed.
+
+### Verification
+
+Source commit `edcaf32ddcb449611b496b40e8dfc13101839cbc`; subsequent edits change this
+index only. Windows x86_64, Rust 1.99.0, CPython 3.12.10, Node 24.20.0,
+wasm-bindgen 0.2.129. Disposable required PG18.6/plaintext and untrusted-TLS services
+bind loopback 57632/57633. Tool-only Python venv remains isolated from the separate
+CI-pinned all-driver venv. Explicit MSVC linker selection avoids Git Bash's GNU link
+collision. Logs/harness are ignored `target/t7.10-*`; no credentials/build output committed.
+
+| Command / check | Actual result |
+|---|---|
+| Focused draft audit and relative link/anchor validation | Passed: required sections, transaction/scope/draft boundaries, installation/docs/playground/API/migration/issues/roadmap/security/credits link families and six unapproved human checklist items. Proposed stable external links are not claimed live before publication. |
+| `node --test docs/site/scripts/*.test.mjs`; strict `npm run build --prefix docs/site` | Nine tests and warnings/broken-link-failing development build passed. Launch drafts remain repository-only and are not added to public docs navigation. |
+| Independent review | No actionable findings on AC coverage, policy/transaction accuracy, draft status, credits and approval boundaries. |
+| Full CLAUDE §5 once: fmt, all-target/all-feature Clippy with `-D warnings`, workspace tests | Passed: 687 Rust tests/doctests, zero failures, required PG18 service exercised (no 'not run' lines). 18 ignored tests unrun; no slow/property implementation was touched. |
+| Strict all-feature rustdoc; separate fuzz workspace fmt and all-target check | Passed; fuzz targets were built, not executed. Fresh long runs remain T7.11/T7.13. |
+| Tool-only venv: maturin develop, pytest, strict mypy | Passed build, 168 tests and typing of 15 files. One skipped Postgres module without driver/service in this venv, not a service pass. |
+| wasm32 portable-crate/smoke-target Clippy with `-D warnings`; four Node smoke tests | Passed both lints and all four tests. |
+| Native/WASM conformance | Passed 1,000 generated reference-evaluator cases, 1,037 fixtures and 45,323 identical transcript lines. Native DLL creation prints the existing informational linker-stdout warning; no warning-free release-build claim. |
+| Playground WASM generation, unit, typecheck/build, gzip size and browser tests | Passed: 170 unit tests, production/typecheck build, 578.2 KB/700 KB budget and 72 Chromium browser tests. |
+| Separate all-driver required PG18/untrusted-TLS venv and Rust plaintext configuration | Passed maturin build, 63 Python tests with zero skips, strict mypy, `cargo test -p pemba-store-postgres --no-default-features` and installed-extension rustls/no-OpenSSL/no-SQLite probes. |
+| Shipping playground and full docs npm audits; package copies | Zero vulnerabilities in each audit; all 20 LICENSE/NOTICE copies and Python README mirror match. |
+
+All recorded checks above exited zero on the source commit. No runtime/API, on-disk
+format, dependency, version, release, tag, deployment or repository setting changed.
+Remote T7.10 PR checks are unobserved at evidence preparation; the authorized wait
+and implementation merge occur only after inspecting their actual results. Skipped
+release/deploy jobs or code-filtered suites are not execution evidence. Platform wheels,
+PG15/oldest-runtime, properties/differential/fuzz and live publication remain later
+release gates. Approval of the final launch copy, channels and timing remains T7.17.
