@@ -9,9 +9,9 @@ name: Playground
 # - release (T6.9, `v*` tags): creates or updates the GitHub Release (notes from
 #   CHANGELOG.md; pre-release if the version has a `-` part), then attaches the site built
 #   for `/pemba/v/<version>/`;
-# - deploy (T6.9, tags and pushes to main): assembles the whole Pages site (§5.1) from
+# - deploy (T6.9, main pushes/dispatches; tags dispatch after release): assembles the whole Pages site (§5.1) from
 #   every release asset, the newest release at the root and main at `/next/`, checks it,
-#   and deploys it.
+#   and deploys it, then verifies the bytes served publicly.
 # Runs on PRs that can change an answer or the playground.
 on:
   pull_request:
@@ -195,11 +195,27 @@ jobs:
           tar -czf "$RUNNER_TEMP/playground-$VERSION.tar.gz" -C dist .
           gh release upload "$TAG" "$RUNNER_TEMP/playground-$VERSION.tar.gz"
 
+  dispatch-deploy:
+    name: deploy release through main
+    if: startsWith(github.ref, 'refs/tags/v') && needs.release.result == 'success'
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      # A tag can reuse a SHA already deployed by main. Pages may then report
+      # success but keep serving the earlier artifact (actions/deploy-pages#383).
+      # A main dispatch assembles all immutable release assets just like a push.
+      - run: gh workflow run playground.yml --repo "$GITHUB_REPOSITORY" --ref main
+
   deploy:
     name: deploy Pages
-    # After `release` on a tag; `release` is skipped on main.
+    # Tags dispatch main after attaching their asset; PRs never deploy.
     if: >-
-      !cancelled() && github.event_name == 'push'
+      !cancelled() && github.ref == 'refs/heads/main'
+      && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
       && needs.conformance.result == 'success' && needs.site.result == 'success'
       && (needs.release.result == 'success' || needs.release.result == 'skipped')
     needs: [conformance, site, release]
@@ -283,5 +299,12 @@ jobs:
       - uses: actions/upload-pages-artifact@v5
         with:
           path: site
+          name: github-pages-${{ github.run_id }}-${{ github.run_attempt }}
       - id: deployment
         uses: actions/deploy-pages@v5
+        with:
+          artifact_name: github-pages-${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Verify the publicly served pages and assets
+        env:
+          PAGE_URL: ${{ steps.deployment.outputs.page_url }}
+        run: node playground/web/scripts/verify-deployed.mjs "$SITE" "$PAGE_URL"

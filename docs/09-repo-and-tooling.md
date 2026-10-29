@@ -152,8 +152,9 @@ them, never `set -x` around them, and do not expose them to workflows triggered 
   prerelease`; notes from the version's `CHANGELOG.md` section, `scripts/release.mjs
   notes`; a release made by hand keeps its title), and only then attaches
   `playground-<version>.tar.gz`, built with `base` `/pemba/v/<version>/`. An asset
-  already attached is never rebuilt; a re-run only refreshes the notes. The
-  `deploy` job (tags and pushes to main, after `release` on a tag) assembles the whole
+  already attached is never rebuilt; a re-run only refreshes the notes. After attaching
+  a tag's asset, `dispatch-deploy` dispatches the workflow on main. The `deploy` job
+  (main pushes and manual dispatches on main) assembles the whole
   Pages site: every release's `playground-*.tar.gz` unpacked at `/v/<version>/`, the
   newest release (`scripts/release.mjs newest`) rebuilt from its tag with `base`
   `/pemba/` at the root (a redirect to `/next/` before the first one, OQ-057), and main
@@ -161,7 +162,12 @@ them, never `set -x` around them, and do not expose them to workflows triggered 
   asset has its `/v/<version>/`, each page's own URLs stay under its path, the root's
   footer version is the newest release, and only `/next/` carries the "development
   build (main)" label; then `actions/deploy-pages` publishes it.
-  One deploy runs at a time (`concurrency: pages`). The page footer shows the version and
+  One deploy runs at a time (`concurrency: pages`). Each run attempt uses a unique
+  Pages artifact name, so retries cannot select a stale artifact with the same name.
+  After Pages reports success, `scripts/verify-deployed.mjs` fetches every page and
+  asset back over HTTP and compares its bytes with the assembled site, retrying for
+  CDN propagation. A stale root, a missing version directory or a wrong WASM file
+  fails deployment verification. The page footer shows the version and
   commit (`vite.config.ts`).
   Dependabot (`.github/dependabot.yml`) updates the npm dependencies weekly. Cargo
   crates are still updated by hand.
@@ -221,7 +227,7 @@ manual human steps after it merges.
    branch is the same thing, for when the PR run was cancelled or is stale.
 6. After merge (human): tag `v<version>` on main (`wheels.yml` uploads to PyPI after
    review), then `cargo publish` the crates.
-7. Pages (`playground.yml` on the tag): the GitHub Release has
+7. Pages (`playground.yml` on the tag, then its dispatched main run): the GitHub Release has
    `playground-<version>.tar.gz`, the deploy is green, and both
    `https://joshua-fields.github.io/pemba/` and `…/pemba/v/<version>/` load, with
    `<version>` in their footers.

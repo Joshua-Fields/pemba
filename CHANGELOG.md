@@ -10,6 +10,13 @@ The Rust crates and the Python package share one version: `0.1.0-alpha.4` on cra
 
 ## [Unreleased]
 
+### Fixed
+
+- Playground deployment: tags dispatch deployment through main so GitHub Pages does
+  not silently retain the pre-release artifact. Distinct Pages artifact names make
+  reruns unambiguous. Deployment now verifies public page and asset bytes, including
+  every versioned directory and its WASM, instead of trusting the deployment status.
+
 ## [0.1.0-alpha.4] - 2026-10-28
 
 The first release with the browser playground.

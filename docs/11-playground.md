@@ -315,13 +315,22 @@ joshua-fields.github.io/pemba/next/            the latest commit on main
   versions are full releases (OQ-057). The workflow then attaches the site as
   `playground-<version>.tar.gz`. A release's asset is never rebuilt: a re-run for a tag
   whose release already has it only refreshes the notes.
-- **Every deploy assembles the whole site.** This runs on a tag, or on a push to
-  `main`. The job downloads every `playground-*.tar.gz` release asset into
+- **Every deploy assembles the whole site.** This runs on pushes and manual
+  dispatches on `main`. After a tag attaches its immutable release asset, it dispatches
+  the workflow on main rather than deploying under the tag event: GitHub Pages can
+  report success for a tag while still serving the prior main artifact at the same
+  commit (`actions/deploy-pages#383`). The job downloads every `playground-*.tar.gz` release asset into
   `/v/<version>/`. It copies the newest release's build to the root, rebuilt with `base`
   `/pemba/` from the same tag. It then builds `main` into `/next/` and runs
   `actions/deploy-pages`. Because the old builds come from their assets, an old link at
   `/v/<version>/` runs the very `.wasm` that version shipped. Until the first tag with a
   playground asset, the root is a redirect to `/next/` (OQ-057).
+- **Verify what Pages serves.** Each deployment attempt uses a distinct Actions
+  artifact name. After `actions/deploy-pages` succeeds, fetch every assembled page
+  (using its directory URL) and every JS/CSS/WASM asset from the public site and compare
+  bytes with the build. Retry briefly for CDN propagation, then fail on any HTTP error
+  or mismatch. Artifact validation and a successful deployment API response alone do
+  not verify a browser release; the tag's dispatched main run must pass live checks.
 - **`/next/` says it is main.** Its header carries a visible "development build (main)"
   label, which no release build has; the deploy's site check enforces both.
 - **Prereleases count as releases** (all current releases are alphas). The root follows
