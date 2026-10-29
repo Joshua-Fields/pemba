@@ -653,7 +653,8 @@ Rules:
   `StorageError` `FOREIGN_CONNECTION_MISMATCH` for another file); the caller commits or
   rolls back, and the returned `PendingRevision` is readable only after commit. Pass it
   as `at_least=` or call `.revision()` after commit; `at_exactly=` takes only a revision. No open
-  transaction → `ValueError` unless `allow_autocommit=True`. Memory engine → `ValueError`.
+  transaction → `ValueError` unless `allow_autocommit=True`. `allow_autocommit=True`
+  requires `conn`; without it, `ValueError`. Memory engine → `ValueError`.
 - On a Postgres engine (T5.9, `10` §2.3), `c` is a psycopg 3 or psycopg2 connection, a
   SQLAlchemy `Session` or `Connection` on one, or `django.db.connection`, recognised by
   duck typing (pemba imports none of them). Its database must be the engine's (else

@@ -9,17 +9,20 @@
 //!
 //! The engine runs inside the application's process. With the SQLite store, relationship
 //! writes can join the application's own database transaction ([`Engine::write_in`] with a
-//! [`SqliteTxn`]), so the relationship and the application row it describes commit or roll
+//! `SqliteTxn`), so the relationship and the application row it describes commit or roll
 //! back together.
 //!
 //! This crate re-exports `pemba-core` and the stores enabled by its features:
-//! `sqlite` ([`SqliteStore`], default) and `memory` ([`MemoryStore`], default).
+//! `sqlite` (`SqliteStore`, default) and `memory` (`MemoryStore`, default).
+//!
+//! With `pemba = { version = "0.1.0-alpha.4", default-features = false, features = ["memory"] }`:
 //!
 //! ```
+//! # #[cfg(feature = "memory")]
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! use pemba::model::{Consistency, WriteOp, WriteRequest};
 //! use pemba::{Engine, LookupResourcesRequest, MemoryStore};
 //!
-//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! let engine = Engine::builder().store(MemoryStore::new()).build()?;
 //! engine.write_schema(
 //!     "definition user {}
@@ -45,6 +48,8 @@
 //! assert_eq!(page.resource_ids.len(), 1);
 //! # Ok(())
 //! # }
+//! # #[cfg(not(feature = "memory"))]
+//! # fn main() {}
 //! ```
 //!
 //! Errors fail closed: evaluation never turns a store error or an exceeded limit into

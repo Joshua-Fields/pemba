@@ -204,7 +204,7 @@ def test_argument_mistakes(engine: pemba.Engine, connect: Callable[..., sqlite3.
     with pytest.raises(TypeError, match="sqlite3.Connection"):
         engine.write(touch=[ANNE], conn=object())
     with pytest.raises(ValueError, match="conn"):
-        engine.write(touch=[ANNE], allow_autocommit=True)  # type: ignore[call-overload]
+        engine.write(touch=[ANNE], allow_autocommit=True)
     memory = pemba.Engine.memory()
     memory.write_schema(SCHEMA)
     before = memory.head_revision()

@@ -39,7 +39,12 @@ class PendingRevision:
         self._resolver = resolver
 
     def revision(self) -> Revision:
-        """The committed revision."""
+        """Return the number, cached once known. Call after a successful commit.
+
+        On SQLite the number is known before commit but cannot be read yet; rollback
+        voids it and a later write may reuse it. On Postgres raises RevisionPending
+        before commit and WriteRolledBack after rollback, including a savepoint rollback.
+        """
         if self._revision is None:
             resolver = self._resolver
             if resolver is None:
