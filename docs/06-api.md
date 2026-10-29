@@ -638,6 +638,11 @@ Rules:
 - `read_relationships` returns every match, paging internally at the first page's
   revision; bound it with filters.
 - Malformed tuple/object strings raise `ValueError` (argument mistakes), not `PembaError`.
+- Native unsigned integer arguments (for example, `lookup_resources(limit=...)` as
+  `u32` and `delete_relationships(limit=...)` as `usize`) reject negative or
+  unrepresentable integers with built-in `OverflowError` during argument conversion.
+  Representable limits of zero or above the engine's configured maximum instead raise
+  `InvalidRequestError`. These are existing argument-conversion rules, not new limits.
 - Migration is a store concern (OQ-025 (d)), so there is no `Engine.migrate()`:
   `Engine.sqlite(path)` migrates on open while `auto_migrate=True` (the default); a
   production deploy step runs `Engine.sqlite(path, auto_migrate=True)` once, and app
@@ -653,7 +658,8 @@ Rules:
   `StorageError` `FOREIGN_CONNECTION_MISMATCH` for another file); the caller commits or
   rolls back, and the returned `PendingRevision` is readable only after commit. Pass it
   as `at_least=` or call `.revision()` after commit; `at_exactly=` takes only a revision. No open
-  transaction → `ValueError` unless `allow_autocommit=True`. Memory engine → `ValueError`.
+  transaction → `ValueError` unless `allow_autocommit=True`. `allow_autocommit=True`
+  requires `conn`; without it, `ValueError`. Memory engine → `ValueError`.
 - On a Postgres engine (T5.9, `10` §2.3), `c` is a psycopg 3 or psycopg2 connection, a
   SQLAlchemy `Session` or `Connection` on one, or `django.db.connection`, recognised by
   duck typing (pemba imports none of them). Its database must be the engine's (else
@@ -712,7 +718,8 @@ something that works but costs more than it should (on Postgres, an early trigge
 firing, `10` §1.6.7).
 `retryable` is `StoreError::is_retryable()` (true for `TRANSACTION_CONFLICT` and a
 persistent `SchemaChanged`), else false.
-Python argument mistakes raise built-in `ValueError` / `TypeError`, not `PembaError`.
+Python argument mistakes raise built-in `ValueError` / `TypeError` (or `OverflowError`
+for native integer conversion as above), not `PembaError`.
 
 ### 2.4 FastAPI helper (stretch, `pemba.contrib.fastapi`)
 

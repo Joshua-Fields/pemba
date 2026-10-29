@@ -427,7 +427,11 @@ impl<S: WritableStore> Engine<S> {
     /// after committing.
     ///
     /// The engine neither commits nor rolls back `txn`. Until the caller commits, the
-    /// revision is invisible: reads at it fail with [`Error::RevisionNotYetAvailable`].
+    /// engine's own connections cannot read the caller's uncommitted writes. On SQLite
+    /// the number is known immediately, but reads at it fail with
+    /// [`Error::RevisionNotYetAvailable`] before commit. On Postgres no number is known
+    /// yet: [`resolve`](Self::resolve) returns [`Error::RevisionPending`] before commit
+    /// and [`Error::WriteRolledBack`] after rollback (including a covering savepoint).
     /// If the caller rolls back, the revision is **void** and, on SQLite, a later write may
     /// be given the same number. On error the batch's own statements are undone (to a savepoint),
     /// but the caller should still roll back, since it decided on a write that did not
@@ -699,7 +703,8 @@ impl<S: WritableStore> Engine<S> {
     /// [`Error::FanoutExceeded`] / [`Error::ReadLimitExceeded`] if evaluation hits a limit
     /// or an undefined cycle;
     /// [`Error::StaleRelationship`] if it meets a stored subject set the schema no longer
-    /// allows; [`Error::Store`] if the store fails.
+    /// allows; [`Error::AmbiguousWildcardExclusion`] if an exclusion cannot be decided
+    /// for a subject set containing a wildcard; [`Error::Store`] if the store fails.
     #[allow(
         clippy::needless_pass_by_value,
         reason = "signature fixed by docs/06-api.md §1"
@@ -850,7 +855,9 @@ impl<S: WritableStore> Engine<S> {
     /// Every page is its own request on its own read snapshot. To page through one
     /// consistent answer, pass `Consistency::Exact(first_response.revision)` with the
     /// cursor for every later page; otherwise a later page may read a newer revision than
-    /// the one its cursor came from.
+    /// the one its cursor came from. A page may be empty even when candidates remain:
+    /// continue until [`LookupResourcesResponse::next_cursor`] is `None`, not until
+    /// `resource_ids` is empty. A candidate's check error fails the entire page.
     ///
     /// # Errors
     ///
@@ -949,7 +956,9 @@ impl<S: WritableStore> Engine<S> {
     ///
     /// Object subjects only; never `false` (or `true`) in place of an error. The whole
     /// request is one evaluation, bounded like one [`check`](Self::check): store reads
-    /// count against [`EngineConfig::max_check_reads`].
+    /// count against [`EngineConfig::max_check_reads`]. It is not paginated. Every stored
+    /// subject set on a reached node is resolved, so historical data can raise
+    /// [`Error::StaleRelationship`] where `check` short-circuits past the stale tuple.
     ///
     /// # Errors
     ///

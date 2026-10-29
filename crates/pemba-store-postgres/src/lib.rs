@@ -15,8 +15,9 @@
 //! A write that fails with SQLSTATE `40001` (serialization failure) or `40P01`
 //! (deadlock) returns the retryable [`StoreError::Conflict`] (code
 //! `TRANSACTION_CONFLICT`): roll back and run the whole transaction again, with
-//! exponential backoff and jitter (`docs/06-api.md` §1). Every other database error is
-//! [`StoreError::Backend`] and is not retryable.
+//! exponential backoff and jitter (`docs/06-api.md` §1). A unique violation is
+//! [`StoreError::UniqueViolation`], mapped by the write algorithm to `AlreadyExists`.
+//! Every other database error is [`StoreError::Backend`] and is not retryable.
 //!
 //! # Schemas and `search_path`
 //!

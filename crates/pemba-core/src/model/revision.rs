@@ -156,6 +156,10 @@ pub enum Consistency {
     /// Use head, but fail with `RevisionNotYetAvailable` if head < r.
     AtLeast(Revision),
     /// Use exactly r. Fails if r > head or r < GC horizon.
+    ///
+    /// Applies the current schema to historical data, not the schema that was current
+    /// at `r`: this is not an audit log. A later schema change may change the answer or
+    /// expose stale tuples and fail closed.
     Exact(Revision),
 }
 
