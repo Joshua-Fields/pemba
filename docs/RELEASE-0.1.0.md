@@ -1,8 +1,8 @@
 # 0.1.0 release evidence
 
 This is the evidence index required by M7. No stable release is approved or published.
-T7.2–T7.10 implementation evidence is recorded here; T7.11–T7.17 remain separate
-tasks and gates. T7.9 is merged; see T7.10 evidence below.
+T7.2–T7.11 implementation/rehearsal evidence is recorded here; T7.12–T7.17 remain
+separate tasks and gates. T7.10 is merged; see T7.11 evidence below.
 
 ## Preceding gates
 
@@ -763,3 +763,214 @@ and implementation merge occur only after inspecting their actual results. Skipp
 release/deploy jobs or code-filtered suites are not execution evidence. Platform wheels,
 PG15/oldest-runtime, properties/differential/fuzz and live publication remain later
 release gates. Approval of the final launch copy, channels and timing remains T7.17.
+
+## T7.11 release rehearsal
+
+Source: `73b8b8fa3657f68f15aaf48155cfeff734ca96d7` (merged T7.10).
+Refs: T7.11; T3.7; T3.4–T3.6; `07` §§2–7; `09` §§4–4.1; `10` §4; `11` §6.
+This is an alpha-version rehearsal, not stable candidate approval. Built alpha.4-version
+artifacts contain current source and are **unpublished rehearsal builds**, not the
+registry's already-published alpha.4 bytes. They must never be uploaded over that
+version. Stable-version verification is T7.13.
+
+### Ordered prerequisites and verification scope
+
+T7.0–T7.10 implementation/decision PRs are merged. [PR #90](https://github.com/Joshua-Fields/pemba/pull/90)
+merged at the source SHA after its [CI](https://github.com/Joshua-Fields/pemba/actions/runs/40975057401)
+completed: six success checks including GitGuardian, nine code-filtered suites skipped,
+none failed/pending. Local full checks are recorded above; skipped remote suites were
+not executions. The maintainer authorized waiting and merging implementation PRs,
+then continuing. This grants no release sign-off, tag, publication, announcement,
+account approval or release-PR merge before its T7.14 human gate.
+
+Manual workflows used `t7.11-release-rehearsal` at the exact source SHA, with build-only,
+non-main conditions preventing publication/deployment. Audit, test, artifact-install
+and fuzz workspaces did not modify source. Subsequent commits document evidence.
+
+### Platform and package matrix
+
+| Requirement | Exact-source evidence and actual result |
+|---|---|
+| Full main CI | [40975224698](https://github.com/Joshua-Fields/pemba/actions/runs/40975224698): 19 successful jobs, zero skipped/failed jobs. All three native OSes, Python, wasm32, package dry run/copies, rustdoc, cargo-deny, 1,000-case properties and required PG15/18. Platform suites without services are not PG evidence; separate required-service jobs supply it. |
+| Manual build-only wheels | [40975448442](https://github.com/Joshua-Fields/pemba/actions/runs/40975448442): 18 successful jobs, publish correctly skipped. Five builds: Linux x86_64/aarch64, macOS arm64/x86_64, Windows x86_64. Ten installed-wheel smoke jobs: each platform on CPython 3.11/3.14; architecture/import-path assertions and SQLite/rustls/no-OpenSSL probes passed. No tag/upload/publish. |
+| Wheel service paths | Same run: PG15/18 all-driver/TLS smoke each passed 63 tests, zero skips. Each plain platform smoke passed 166 tests with three known skips: two CLI tests without the separate CLI binary and one PG module. Those skips are not CLI/PG evidence; native CLI tests and required backend jobs passed separately. |
+| sdist outside checkout | Same run: `/tmp/sdist-venv` rebuilt/installed the sdist and imported its site-packages extension outside checkout. Five wheels/one sdist downloaded; `.pyi`, `py.typed`, LICENSE/NOTICE and manifest/lock members checked; SHA256s below. |
+| Oldest supported combination | Main CI Rocky Linux 8 CPython 3.11/SQLite 3.26.0 passed build/import/no-SQLite probe and 166 tests; three CLI/PG skips as above, not those suites' evidence. No support floor changed. |
+| PG15/18 and revision order | Main CI covered privileged/normal-role foreign transactions, hostile search path, gaps, constraints, migrations, GC and supported Python drivers/TLS. All production concurrency variants had zero correctness violations and zero exhausted retries; negative allocate-at-write controls produced violations as required. Forced inversion, commit-cost and immediate-constraint variants passed. |
+
+PG18 REPEATABLE READ writer wait p99 334.58 ms and PG15 SERIALIZABLE p99 117.44 ms
+were reported above 100 ms, within the **existing** 500 ms shared-runner ceiling
+(`10` §4). These are report-only under that policy, not strict-100-ms passes or a new
+waiver. The largest reported production visibility-lag p99 was 14.930284 ms; this
+does not bound every individual observation. Immediate-constraint long-transaction
+waits near one second are expected and separately unbounded. Correctness stayed strict.
+CI also reported runner-migration, Node-action deprecation and capacity notices;
+successful checks do not imply those notices were absent.
+
+### Full local and installed-artifact checks
+
+Windows x86_64, Rust 1.99.0, CPython 3.12.10, Node 24.20.0, wasm-bindgen 0.2.129.
+Required local PG18.6 and untrusted-TLS services: loopback 57732/57733. Tool-only and
+all-driver venvs separate; MSVC linker explicit for Git Bash. Logs, harness and remote
+snapshots are ignored `target/t7.11-*`.
+
+| Command / check | Actual result |
+|---|---|
+| Full CLAUDE §5 once: fmt, all-target/all-feature Clippy, workspace tests, strict all-feature rustdoc, separate fuzz fmt/all-target build | All passed. 687 Rust tests/doctests, zero failures; 18 ignored tests excluded from this ordinary suite. Separate release/property/differential/order runs supply long-test evidence; ignored cases are not passed by the ordinary run. |
+| Tool-only maturin/pytest/strict mypy | Passed build, 168 tests and typing of 15 files; one PG-module skip, not a service pass. |
+| All-driver required PG18/untrusted-TLS environment | 63 Python tests, zero skips, strict mypy, Rust no-default-features and installed-extension no-SQLite/rustls/no-OpenSSL probes passed. |
+| `cargo publish --workspace --dry-run --locked` | Passed packaged build verification for all publishable crates. Existing alpha.4 index-version and dry-run-aborted-upload warnings expected; no upload. |
+| wasm32 Clippy and four Node smoke tests | Portable-crate and fixture-smoke-target Clippy passed with `-D warnings`; four tests passed. |
+| Native/WASM conformance | 1,000 generated oracle-checked cases, 1,037 fixtures, 45,323 identical transcript lines. Native DLL creation prints the known informational linker-stdout warning. |
+| Playground WASM, unit/typecheck/build/size/browser; npm audits | 170 unit tests, production/typecheck build, 578.2 KB/700 KB gzip and 72 Chromium tests passed; shipping playground and docs audits zero vulnerabilities. |
+| Docs tests and strict development/no-stable builds | Nine tests and both builds passed. [Manual Playground 40975457885](https://github.com/Joshua-Fields/pemba/actions/runs/40975457885) independently passed conformance, site/browser and docs desktop/mobile/keyboard/link checks at this source; release/deploy jobs correctly skipped. |
+| Verbatim README Rust quick start outside checkout | Fresh sibling project, explicit Rust 1.99.0, memory-only facade/current source path compiled and ran allowed-check/lookup assertions. The example also remains a workspace doctest. |
+| Built Windows wheel outside checkout | Fresh venv asserted `0.1.0a4` and site-packages import, then passed verbatim README Python and copied SQLite/Postgres commit/forced-rollback tutorials using the artifact, not an editable import. |
+| Three-store equivalence at 1,000 cases | Required PG18, `PROPTEST_CASES=1000`, `cargo test -p pemba-store-postgres --all-features --test equivalence -- --nocapture`: one property passed, zero failures/ignored, 416.72 s test time (428.11 s total). Explicitly raises the normal 32-case count. |
+
+### Properties and fresh fuzzing
+
+[Property run 40975454878](https://github.com/Joshua-Fields/pemba/actions/runs/40975454878)
+passed all three jobs at source `73b8b8f`, with `cases=1000` and
+`postgres_cases=1000`: 13 full memory/SQLite properties, 18 trace tests and four core
+trace tests; each PG15/18 job passed 25 selected tests with no ignored tests in that
+selection. Both PostgreSQL store selections actually ran against their service.
+The printer harness fixes its count at 512, so two focused `print_roundtrip` runs
+with distinct `PROPTEST_RNG_SEED=7111001` and `7112002` supply **1,024 cases per
+printer property** (three tests passed per invocation). Schema robustness already
+uses a 2,048-case floor. No count was silently reduced or harness changed.
+
+Review identified one additional ignored backend property outside those workflow
+selections. `PROPTEST_CASES=1000 cargo test -p pemba-store-pysqlite --test prop5 -- --ignored`
+passed its fixed 1,000-case memory/PySqlite property: one passed, zero failed/ignored,
+20.02 s. It used the isolated tool-only Python interpreter for embedded CPython and
+the host's SQLite library. This is fresh backend evidence, not an ordinary-suite skip
+relabelled as a pass.
+
+Fresh sanitizer-enabled fuzz runs used isolated Linux Docker `rust:bookworm`, image
+`sha256:9181b56c2a21ab1d5e73cffe04fc762426d30aa7fac3c91141dd033f49a7fc8b`,
+rustc `1.101.0-nightly (92ffebece 2026-10-28)` and cargo-fuzz 0.13.2. A git archive's
+PAX commit header confirms exact source `73b8b8f`. Each command was
+`cargo +nightly fuzz run <target> <isolated-corpus> -- -max_total_time=610 -print_final_stats=1 -artifact_prefix=<isolated-artifacts>/`.
+The three targets ran concurrently with separate corpus/artifact directories after
+the instrumented build. Project source and toolchain pins were unchanged.
+
+| Target | Actual fuzzer duration | Executions | Result / retained corpus |
+|---|---:|---:|---|
+| `fuzz_schema_parse` | 611 s (611.698 s command elapsed) | 6,146,736 | Exit 0; no crashes; 6,412 retained inputs, 4,649 absent from the starting corpus |
+| `fuzz_tuple_parse` | 611 s (611.345 s elapsed) | 121,981,282 | Exit 0; no crashes; 1,003 retained inputs, 138 absent from the starting corpus |
+| `fuzz_check_vs_reference` | 611 s (611.457 s elapsed) | 194,495 | Exit 0; no crashes; 2,118 retained inputs, 438 absent from the starting corpus |
+
+All crash-artifact directories are empty and the container exited zero. Completed
+runs span 2026-10-29 23:49:41–23:59:53 UTC. Full retained corpus, SHA256 manifest,
+commands, environment and run logs are preserved in the local user deliverable
+`t7.11-fuzz-evidence-73b8b8f.tar.gz` (3,281,169 bytes), SHA256
+`5762b429cc2b87047da7916c7ab9ce9f35efed040e29290e22f19b2f0766403a`.
+Existing committed seeds remain intact; no crash regression input was found.
+This archive is local test evidence, not a package/release upload. `09` §4 lists a
+manual `fuzz.yml`, but that file is absent: no remote fuzz-workflow pass is claimed.
+These fresh local Linux executions fulfill the duration requirement independently.
+
+### Semantic questions, mutants, differences and benchmarks
+
+Independent source review examined all 63 OPEN_QUESTIONS entries by heading range.
+No unresolved release blocker was found. Historical blocking OQ-001/021/024/032/045
+have explicit resolutions; OQ-044's decision and T7.2 implementation are complete.
+OQ-058–060 decisions are resolved. Remaining nonblocking reviews include OQ-008/014/
+017/019/022–023/031/033–040/041–043/050/061–063 and formally unclosed SpiceDB
+observations OQ-004–007; they are not silently marked resolved. In particular OQ-062
+allows the documented no-rename path, not an implemented repair command. OQ-063 keeps
+no-stable/legacy presentation. Human reporting/account/publisher confirmations in
+T7.8 remain prerequisites for release sign-off/publication.
+
+Reviewed `docs/MUTANTS.md`: its 2026-10-19 `d6f9fd3` baseline had zero survivors
+(evaluator 78 caught/27 unviable; validator 72 caught/25 unviable). Unviable means
+compilation failure, not equivalent behavior. Six former real gaps retain targeted
+assertions for bulk stats, negated memo hits, `.all` depth, two span mutants and
+direct-cycle components; these tests ran in current suites. The validator is
+unchanged since that baseline; evaluator tracing/memo code has changed. No new
+mutation run or transfer of old counts to this candidate is claimed, and review
+found no demonstrated untested correctness gap.
+
+KD-1/2/3 detector review matches the documented cycle/depth, narrowly classified
+wildcard-schema and wildcard/subject-set exclusion shapes. KD-3 retains typed
+fail-closed ambiguity and the agreeing no-wildcard re-check; the unsafe former
+true/false direction stays unexplained. KD-2 skips do not count toward the required
+500 comparisons. Focused negative tests, the wildcard fixture, error/memo/lookup
+regressions and generated non-vacuity assertions remain. Review limitations: two
+errors are intentionally considered agreement, KD-1's cycle criterion is case-level,
+and dedicated probe-control-flow/arrow-branch unit tests are absent; no broader
+suppression bug was demonstrated. Fresh differential outcomes are recorded separately.
+
+Benchmark artifacts/scenarios/datasets are unchanged. Reviewed provenance and source
+diffs from the recorded Rust/Python/Postgres baselines: request constructors moved
+outside timed check calls; native clock alias still uses `std::time::Instant`;
+OQ-054's equivalent below-head planner fix is documented. The overall generated
+marker includes uncommitted changes, so it is not a reproducible whole-tree baseline
+SHA. Historical same-runner point increases (for example wide groups +5.0%, exclusion
+below head +4.2%, direct below head +3.1%, unchanged round trips) lack repeated-run
+distributions; review cannot declare significance or conclusively attribute them to
+noise. They are not new candidate measurements. The recorded batching improvements
+and round-trip costs remain context-qualified. No fresh latency run, blanket
+no-regression assertion or new threshold is claimed. OQ-040's cross-language write
+comparison restriction and SpiceDB transport-stall caveat remain in force.
+
+### Rehearsal artifact SHA256s
+
+All six artifacts are from the exact-source manual wheel run above; these identify
+local downloaded rehearsal builds, not registry content.
+
+| Artifact | SHA256 |
+|---|---|
+| manylinux aarch64 wheel | `caa41ffcfc70616e839af8a07dafeb29c3133b8e1fd5c7a85425d489a78066b8` |
+| manylinux x86_64 wheel | `faa391f760c32c5e3f2f5be49aec8aeaf6377315b9d3563c8e42418aceeb1213` |
+| macOS arm64 wheel | `9585ea1ce2b5726dd67e97659a3f186e16affb10ef97513f535e5658896d637d` |
+| macOS x86_64 wheel | `9b40910272401350f019651709b34ae4e380316e4cbf8cc28c0aac3fe4354ef7` |
+| Windows x86_64 wheel | `6b9ec1c0281ebbf4ae46650c00efb2e6508324446529cb77efaef70b717c70e0` |
+| sdist | `619ecf3dafab438e44d76a487c8bab298e9efb845204678c64f6f93e29c39294` |
+
+### T3.7 coverage by acceptance row
+
+| T3.7 requirement | Rehearsal coverage / remaining human boundary |
+|---|---|
+| README pitch, install and Python/Rust quick starts | Topics present; current-source verbatim Rust quick start ran outside checkout, Python README ran against built wheel outside checkout, packaged artifacts/imports and all-platform smoke verified above. Published stable installation is still T7.16. |
+| Transaction example, schema/differences, consistency, limits, service alternative and credits | README/linked T7.4–T7.5 guides retain all named topics; fresh ordinary/required-PG tests and installed-wheel tutorials check commit/forced rollback, doc snippets, denial/error and pending semantics. Docs link/build/browser checks passed. |
+| Public rustdoc and Python docstrings | T7.3 contract audit retained; fresh strict all-feature rustdoc/doctests, Python docstring/stub/error tests and mypy passed. docs.rs publication success cannot be observed before publication; candidate builds and public artifact verification remain separate. |
+| CI, differential testing and blocking questions | Exact-source workflow/local matrices and semantic audit above; both differential legs completed successfully with 19 compared fixtures and 500 compared generated cases each, as detailed below. No unresolved release blocker found. |
+| Final project name and rename | ADR-012/OQ-001 choose pemba; current manifests, package metadata, wheels, installed import and CLI use pemba. Historical codename text is intentional, not an unfinished rename. |
+| T3.9 public API audit | T7.2's 98 declarations/nine publishable crates inventory and approved extensible constructors/check_str remain; current downstream quick start, public API tests and doctests compile. No new API decision. |
+| Human release gate | Rehearsal evidence is not T7.13's stable-version candidate verification or T7.14 sign-off. Reporting/account/publisher confirmations, exact-candidate approval, release-PR merge, tags/publication and launch remain human actions. |
+
+Fresh independent review found the visibility-lag wording error corrected above and
+the extra PySqlite property coverage gap closed by its targeted run. Artifact hashes,
+exact sources, platform/property/fuzz counts, retained corpus and old-report limitations
+matched inspected evidence. No runtime/test/workflow source changed and no new
+specification ambiguity requiring an OPEN_QUESTIONS entry was identified.
+
+### Completed differential matrix and task disposition
+
+[Differential run 40975451586](https://github.com/Joshua-Fields/pemba/actions/runs/40975451586)
+completed both jobs successfully at source `73b8b8f`, using pinned SpiceDB 1.56.2,
+`PEMBA_DIFFTEST_REQUIRED=1`, `cases=500` and the selected memory/Postgres backend.
+The PostgreSQL service was used; no backend suite was skipped. Summed comparison
+logs establish the actual minimum, rather than treating attempted/KD-2-skipped
+cases as comparisons:
+
+| Backend | Generated attempts / actually compared | Generated questions | Fixtures compared / questions | Result |
+|---|---:|---:|---:|---|
+| Memory | 663 / 500 | 500,106 | 19 / 23,990 | Two tests passed; zero failed/ignored; no unexplained mismatch |
+| PostgreSQL | 665 / 500 | 499,517 | 19 / 23,990 | Two tests passed; zero failed/ignored; no unexplained mismatch |
+
+Differences in attempted count are explained by KD-2's documented nondeterministic
+schema-refusal probes; each backend still reached 500 **compared** generated cases.
+PG ran 2026-10-29 23:47:07–2026-10-30 00:08:08 UTC. No new failing case required a
+regression fixture. Existing KD-1/2/3 differences remain explicitly classified, not
+newly waived. All required rehearsal runs completed with their actual qualifications
+above; no failing/unavailable/skipped check was called passed.
+
+This PR changes only the evidence index; all tested source/runtime/package bytes
+remain from `73b8b8f`. Evidence-only PR CI is a separate merge check, not a replacement
+for this exact-source matrix. Implementation merge is authorized after its applicable
+checks finish; T7.12 preparation follows that merge. The eventual release PR stays
+open for T7.13 stable-version verification and explicit T7.14 human approval/merge.
+No release approval, tag, publication, deployment or announcement occurred here.
