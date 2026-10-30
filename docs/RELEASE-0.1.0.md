@@ -1,8 +1,9 @@
 # 0.1.0 release evidence
 
 This is the evidence index required by M7. No stable release is approved or published.
-T7.2–T7.11 implementation/rehearsal evidence is recorded here; T7.12–T7.17 remain
-separate tasks and gates. T7.10 is merged; see T7.11 evidence below.
+T7.2–T7.12 implementation/rehearsal/preparation evidence is recorded here. T7.13's
+exact-candidate verification record is linked below; T7.14–T7.17 remain human/public
+verification gates. T7.11 is merged; the stable release PR remains unmerged.
 
 ## Preceding gates
 
@@ -1105,3 +1106,41 @@ preparation. All release PR checks and the fresh **stable-version** T7.13 matrix
 pass before T7.14 approval. Alpha rehearsal evidence is not substituted for that final
 matrix. This release PR must remain unmerged for explicit human sign-off/merge; no tag,
 registry upload, deployment or announcement is authorized by these preparations.
+
+## T7.13 exact stable candidate verification record
+
+The canonical exact candidate SHA, per-job results, workflow URLs and artifact digests
+are recorded in the **verification matrix in [release PR #92's description](https://github.com/Joshua-Fields/pemba/pull/92)**.
+That record must explicitly state completion, identify the full 40-character candidate
+SHA and match the PR's current head before it can supply T7.14 review evidence.
+An in-progress, stale, skipped, unavailable or failed entry is not a pass.
+
+This index is committed **before** freezing and testing that candidate. Recording
+observed results in the linked PR description/local evidence manifest afterwards
+avoids changing the candidate merely to write its own SHA/results into a tracked
+file. The tested commit therefore includes this verification index. No subsequent
+candidate edit is permitted without rerunning affected checks and recording the new
+SHA. GitHub workflow metadata and downloaded artifact manifests independently tie
+each result to the candidate; source-tree identity is checked for PR merge-ref jobs.
+
+Required candidate version is **0.1.0**, Rust and Python. Alpha rehearsal results above
+are historical context and cannot satisfy this matrix. The fresh record must cover:
+
+| Requirement | Required final-candidate evidence |
+|---|---|
+| Full local green / package contents | CLAUDE §5 once; strict rustdoc, ordinary tests and explicit ignored-property/service runs; locked workspace publish dry run; nine packaged crates build without local production paths; licence/README/docs.rs metadata and Python stubs/typing/sdist dependencies checked. |
+| Wheels and sdist | Build-only five-platform wheels on CPython 3.11/3.14; installed-extension SQLite/rustls/no-OpenSSL probes; isolated sdist rebuild away from checkout; installed version/path assertions. No publish job. |
+| Native/platform/oldest/runtime services | Current required CI, oldest CPython/SQLite, required PG15/18 and all supported Python drivers/TLS, conformance/equivalence and revision-order/constraint/retry paths. Known skips and report-only latency are separately identified. |
+| Properties/differential | At least 1,000 cases for full properties, host-Python SQLite and three-store equivalence; schema printer aggregate counts explicit; memory and PG difftests each prove fixtures plus at least 500 actually compared generated cases with required-service flags and known-difference review. |
+| Fuzz/mutation/benchmarks | Fresh three-target runs of at least 600 seconds with exact source, no crashes and retained corpus; existing mutant disposition and benchmark changes reviewed without inventing fresh old-report results or a numerical threshold. |
+| Docs/playground | Strict docs link/snippet/build and desktop/mobile/keyboard checks; wasm32 lint/smoke, native/WASM/oracle conformance, playground unit/build/size/browser tests. Candidate metadata must identify this source/version; no deployment. |
+| Isolated installation/tutorials | Built stable wheel and sdist installed outside source; quick starts and SQLite/Postgres commit/forced-rollback examples, API/stubs/import/version/CLI checks. Packaged Rust crate verification and an outside-checkout Rust quick start. |
+| T3.7/T3.9 and questions | Every T3.7 row mapped to fresh technical evidence and human approval boundary; 98-declaration audit/constructors retained, final name/rename complete and no unresolved release-blocking question. |
+
+The existing T3.7 coverage map, T7.2 public inventory, semantic question audit and
+T7.8 human account/reporting requirements remain references; the final record must
+confirm their applicability to this exact candidate. T7.14 must review all rows and
+the current SHA, then supply explicit human approval/merge. T7.15 tagging/publishing,
+T7.16 public-artifact verification and T7.17 launch/activation are not executed or
+approved by T7.13. No tag, registry upload, deployment or announcement is needed to
+complete this verification task.
