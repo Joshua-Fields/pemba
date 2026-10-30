@@ -19,6 +19,7 @@ dynamic = ["version"]
 
 [project.urls]
 Homepage = "https://github.com/Joshua-Fields/pemba"
+Documentation = "https://joshua-fields.github.io/pemba/docs/"
 Repository = "https://github.com/Joshua-Fields/pemba"
 Issues = "https://github.com/Joshua-Fields/pemba/issues"
 

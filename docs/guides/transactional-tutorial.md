@@ -7,7 +7,7 @@ back. Every example asserts that only the committed document and permission surv
 
 Run from the repository root, using the [installation guide](installation.md) for
 the pinned Rust toolchain and Python >=3.11/source bindings. These examples exercise
-the current checkout, including its post-alpha.4 Rust constructors/check helper.
+the 0.1.0 APIs, including the audited Rust constructors/check helper.
 They add no supported API or new package. Use fresh disposable databases/schemas;
 the scripts create tables and write a schema, and are intentionally not rerunnable
 against populated tutorial data.

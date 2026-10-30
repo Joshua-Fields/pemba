@@ -974,3 +974,98 @@ for this exact-source matrix. Implementation merge is authorized after its appli
 checks finish; T7.12 preparation follows that merge. The eventual release PR stays
 open for T7.13 stable-version verification and explicit T7.14 human approval/merge.
 No release approval, tag, publication, deployment or announcement occurred here.
+
+## T7.12 stable release preparation
+
+Refs: T7.12 all AC; `09` §4.1; ADR-014; T3.7; OQ-057; CHANGELOG history.
+Base main `77a63afbcc57023d7785f0115c1c9533fb5ec69d`: [T7.11 PR #91](https://github.com/Joshua-Fields/pemba/pull/91)
+merged after [PR CI 40978150027](https://github.com/Joshua-Fields/pemba/actions/runs/40978150027)
+completed with six success checks and nine intentionally code-filtered skips. Its
+full exact-source rehearsal matrix above is complete. Required T7.1 decisions remain.
+
+### Prepared changes and package scope
+
+Workspace version and all nine versioned internal dependencies are `0.1.0`;
+Python obtains the same version dynamically through maturin. `cargo update -w` ran
+at the root and in the separate fuzz workspace. A TOML structural comparison against
+main confirms **only own package version fields changed**: 16 root-lock entries,
+seven fuzz-lock entries; no external version, checksum, source or dependency changed.
+
+CHANGELOG has an empty Unreleased section and dated `0.1.0` section with alpha-to-stable
+request/output constructor migration, `PendingRevision`/caller-commit migration and
+removed Python integer conversions, plus guides/site/release changes. Historical alpha
+notes remain intact. Both READMEs are byte-identical, use stable install commands and
+the frozen public contract, and distinguish a versioned candidate from publication.
+Installation/tutorial/troubleshooting and roadmap status agree; Python metadata links
+the approved docs URL. No public API, on-disk format, supported scope or floor changes.
+
+Existing release classification/extraction is reused. The added real-changelog
+regression was observed failing before the stable section existed, then passed:
+stable `0.1.0` notes include both migrations and classify as not prerelease, while
+alpha/rc classify as prerelease. No packaging workflow or deployment pipeline rebuilt.
+
+### Derived crates.io publication order — HUMAN ONLY
+
+Derived from current `cargo metadata --no-deps` and non-dev dependency edges, not the
+pre-Postgres historical list. Each crate's registry version must be available before
+publishing a dependent crate. This is a plan; no publication has occurred.
+
+| Order | Publishable crate | Internal production dependencies |
+|---:|---|---|
+| 1 | `pemba-schema` | None |
+| 2 | `pemba-core` | schema |
+| 3 | `pemba-sqlite-common` | core |
+| 4 | `pemba-store-memory` | core |
+| 5 | `pemba-store-postgres` | core |
+| 6 | `pemba-fixtures` | core, schema, memory |
+| 7 | `pemba-store-sqlite` | core, sqlite-common |
+| 8 | `pemba` | core, memory, sqlite |
+| 9 | `pemba-cli` | pemba, fixtures, schema |
+
+Keep `pemba-testkit`, `pemba-difftest`, `pemba-store-pysqlite`, `pemba-py`,
+`pemba-benches`, `pemba-playground` and `pemba-playground-conformance` unpublished on
+crates.io (`publish=false`). Python-only source dependencies remain in the sdist;
+the browser WASM crates gain no distribution/API promise. Docs.rs feature metadata,
+LICENSE/NOTICE, README, `.pyi`/`py.typed` and packaged dependency contents are verified
+with the candidate checks; a manifest declaration alone is not a package-build pass.
+
+### Human publishing sequence and immutable recovery
+
+1. **T7.14 human gate:** review T7.13's exact stable candidate SHA, every T3.7 row,
+   migrations/limitations, security findings and current green required checks.
+   Complete the outstanding authenticated PyPI ownership/publisher/access/2FA and
+   private-report form/notification confirmations from T7.8. Record explicit approval,
+   then human merges the release PR and verifies intended main matches approved content.
+   Any substantive change returns to verification and new exact-candidate approval.
+2. **T7.15 human only:** tag `v0.1.0` on that approved main release commit. The existing
+   tag workflows build/test wheels and sdist, create the non-prerelease GitHub Release
+   from the stable changelog section, attach the immutable playground archive and
+   dispatch the existing single Pages assembly. An existing tag/asset is never replaced.
+3. Human publishes the nine crates in the dependency order above using the approved
+   source/package contents and locked dependencies. Check each registry version and
+   availability before the next dependent upload; record crate versions and checksums.
+   Do not interpret a dry-run's upload wording as an actual upload.
+4. After tag build/sdist/all-platform/required-PG smoke tests pass, human reviews the
+   protected `pypi` environment and approves trusted publishing of **those artifacts**.
+   Never bypass its reviewer or substitute a locally rebuilt file. Record tag SHA,
+   workflow/artifact/release URLs and registry versions. Authenticated account settings
+   are a human verification requirement, not inferred from a prior successful upload.
+5. **T7.16:** independently verify public packages, docs.rs, quick starts/tutorials,
+   migration/status links, docs and all playground routes/share links. Only after this
+   succeeds may human approve/post launch materials and activate triage in T7.17.
+
+If a pre-publication check fails, stop and fix/review it; rerun affected evidence before
+approval. After any partial publication, stop subsequent uploads, PyPI approval and
+launch. Inventory exactly which immutable versions/files exist and their original
+source/digests. For a transient transport/registry-delay failure with unchanged approved
+source, human may retry only a confirmed missing artifact in order after availability
+checks. Never blindly rerun a batch uploader over existing versions/files.
+
+A source/packaging defect after publication needs a separately reviewed corrected
+version/recovery plan and fresh verification/approval. Do not overwrite a registry
+version, delete/recreate or move a tag, or rebuild an already attached playground
+archive. A partial PyPI upload needs human reconciliation of original digests and a
+reviewed missing-file/new-version recovery decision; no bypass or invented automation
+is approved here. A Pages failure keeps launch blocked; recover through the existing
+single assembler using original versioned assets, with reviewed fixes as needed.
+Documentation of this sequence authorizes none of its human actions.

@@ -1,13 +1,12 @@
 # Installation and quick starts
 
-These guides describe the current development checkout preparing 0.1.0. The published
-release is still **0.1.0-alpha.4**; no stable release is available. Installation commands
-continue to select alpha packages until T7.12. New Rust request constructors and
-`Engine::check_str` landed after alpha.4: use the checkout recipe below for the current
-[Rust quick start](../../README.md#rust-quick-start), rather than mixing it with alpha.4.
-Python's [README quick start](../../README.md#python-quick-start) remains compatible.
-See [CHANGELOG](../../CHANGELOG.md) for alpha migrations and
-[API documentation](../06-api.md) for the current signatures.
+These guides describe the 0.1.0 API. Installation commands target 0.1.0 after
+publication; for an unpublished release candidate, use the checkout recipes below.
+Check [release status](https://github.com/Joshua-Fields/pemba/releases) and
+[release evidence](../RELEASE-0.1.0.md) before assuming a registry artifact exists.
+The [Rust quick start](../../README.md#rust-quick-start) uses the 0.1.0 constructors
+and `Engine::check_str`; older alphas need their own versioned examples.
+See [CHANGELOG](../../CHANGELOG.md) for migrations and [API documentation](../06-api.md).
 
 ## Requirements
 
@@ -28,24 +27,24 @@ extension uses CPython's SQLite instead. Postgres support uses rustls, with plat
 certificate roots, and needs no OpenSSL or libpq for engine-owned connections. Optional
 application drivers have their own installation requirements.
 
-## Published alpha packages
+## Registry installation
 
 ```sh
 python -m venv .venv
 # POSIX: . .venv/bin/activate
 # PowerShell: .venv\Scripts\Activate.ps1
-python -m pip install --pre pemba
-cargo add pemba@0.1.0-alpha.4
-cargo add pemba-store-postgres@0.1.0-alpha.4
-cargo install pemba-cli@0.1.0-alpha.4 --locked
+python -m pip install pemba==0.1.0
+cargo add pemba@0.1.0
+cargo add pemba-store-postgres@0.1.0
+cargo install pemba-cli@0.1.0 --locked
 pemba --help
 ```
 
 Run Python and Rust commands in their respective projects. `pemba-cli` installs the
 `pemba` executable into Cargo's bin directory; put that directory on PATH. The CLI
 validates/formats schemas, runs fixtures and explains checks against SQLite or fixtures;
-it is not a Postgres migration CLI. Retain the explicit prerelease version for Cargo.
-For a reproducible Python alpha install use `pemba==0.1.0-alpha.4`.
+it is not a Postgres migration CLI. Explicit versions keep installation tied to the
+documented API. For a prior alpha, select that exact version and its own documentation.
 
 ## Current-checkout Python quick start
 

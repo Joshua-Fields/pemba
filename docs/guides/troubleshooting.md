@@ -10,7 +10,7 @@ or unrepresentable unsigned limits can raise `OverflowError` before engine valid
 | Symptom | What to check |
 |---|---|
 | Python import/build fails | Correct venv/interpreter, CPython >=3.11, matching wheel platform; source build needs Rust 1.99.0, C tools and Python headers |
-| Rust alpha.4 example fails to compile | Current docs use post-alpha.4 constructors and `check_str`; follow the checkout quick start or that tag's docs |
+| Current Rust example fails with an alpha dependency | Current docs use 0.1.0 constructors and `check_str`; use matching 0.1.0 dependencies or the alpha tag's own docs |
 | SQLite `StorageError` on opening | Interpreter SQLite >=3.26.0 and `sqlite3.threadsafety > 0`; do not install a second SQLite build to bypass this |
 | `ForeignConnectionMismatch` | Same file (not an in-memory SQLite connection), or same Postgres cluster/database; configured Postgres schema is fixed by the engine |
 | Foreign-write `ValueError` / `TypeError` | Transaction already open, supported synchronous driver, correct connection type; raw async connections are deferred |
@@ -60,7 +60,9 @@ pemba fits one application, or a few services sharing one database, that wants a
 and permissions to commit together. Choose [SpiceDB](https://github.com/authzed/spicedb)
 or another Zanzibar service when many languages/services need centralised permissions,
 horizontal or multi-region scale, caveats/expiration/Watch, or a mature supported
-product today. pemba remains alpha. No native async API, supported WASM package,
+product with service-level support commitments. pemba's 0.1.0 API contract carries
+best-effort maintenance, without an SLA, guaranteed patch or long-term support.
+No native async API, supported WASM package,
 SpiceDB wire compatibility, distributed dispatch or server mode is promised here.
 WASM is the browser playground build only. Review semantic differences before
 migrating schemas; common syntax alone does not guarantee identical answers.

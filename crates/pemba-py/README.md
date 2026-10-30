@@ -25,10 +25,13 @@ reconciliation job, and no window where a document exists that nobody can open.
   <img src="https://raw.githubusercontent.com/Joshua-Fields/pemba/main/assets/transactional-writes.svg" alt="Diagram. Left, service-based authorisation: the application writes the row to its own database and the relationship to a separate authorisation service with its own database, a dual write that lets the two drift apart if either fails. Right, pemba: the application writes the row and the relationship to its own database in one transaction." width="900">
 </p>
 
-**Status: alpha, 0.1.0-alpha.4. The API may change.** `check`, `lookup_resources`,
+**Version: 0.1.0.** The public surface is frozen as specified in
+[the API contract](https://github.com/Joshua-Fields/pemba/blob/main/docs/06-api.md).
+`check`, `lookup_resources`,
 `lookup_subjects`, the memory, SQLite and Postgres stores, transactional writes and the
-Python bindings are implemented and tested, including against SpiceDB. Until 0.1.0,
-expect breaking changes.
+Python bindings are implemented and tested, including against SpiceDB. A versioned
+checkout is not publication evidence: consult [releases](https://github.com/Joshua-Fields/pemba/releases)
+and the [release gates](https://github.com/Joshua-Fields/pemba/blob/main/docs/RELEASE-0.1.0.md).
 
 **[Try it in the browser](https://joshua-fields.github.io/pemba/)**: the playground runs
 the real engine, compiled to WebAssembly, in your browser. Write a schema and
@@ -38,14 +41,14 @@ Nothing you type leaves your machine.
 ## Install
 
 ```bash
-pip install --pre pemba                             # Python 3.11 or newer; includes Postgres
-cargo add pemba@0.1.0-alpha.4                       # Rust library
-cargo add pemba-store-postgres@0.1.0-alpha.4        # Rust: the Postgres store
-cargo install pemba-cli@0.1.0-alpha.4               # `pemba` command-line tool
+python -m pip install pemba==0.1.0                  # Python 3.11 or newer; includes Postgres
+cargo add pemba@0.1.0                              # Rust library
+cargo add pemba-store-postgres@0.1.0                 # Rust: the Postgres store
+cargo install pemba-cli@0.1.0 --locked              # `pemba` command-line tool
 ```
 
-Only pre-releases exist so far, so pip needs `--pre` and cargo needs the explicit version.
-The Rust example below uses post-alpha.4 APIs from the current checkout; follow the
+These commands target 0.1.0 after publication. For an unpublished release candidate,
+use the source-build recipe below. The Rust example uses the 0.1.0 API; follow the
 [installation and quick-start guide](https://github.com/Joshua-Fields/pemba/blob/main/docs/guides/installation.md)
 for its clean source-build recipe, supported platforms and prerequisites.
 
@@ -149,9 +152,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-This is a complete `src/main.rs` with a current-checkout dependency (see the install guide
-above), and the same example is a doctest on the `pemba` crate. The constructors and
-`check_str` shown here are newer than the published alpha.4. For persistence, use
+This is a complete `src/main.rs` for `pemba = "0.1.0"` (or the current-checkout dependency
+in the install guide), and the same example is a doctest on the `pemba` crate. For persistence, use
 `SqliteStore::open("app.db", SqliteConfig::default())` in place of `MemoryStore::new()`.
 
 ## Transactional writes
@@ -493,8 +495,8 @@ fine-grained sharing without running another service. Use
 - you need horizontal scale, multi-region deployment, or more relationships than one
   database comfortably holds;
 - you need caveats (conditional relationships), expiring relationships, or a Watch API;
-- you want a mature, supported product today. pemba is an alpha, published as
-  0.1.0-alpha.4.
+- you require service-level support commitments. pemba's 0.1.0 API contract comes
+  with best-effort maintenance, not a response SLA, guaranteed patch or long-term support.
 
 pemba's schema language is a strict subset of SpiceDB's, so if you outgrow pemba your
 schema and relationships move over as they are. The exceptions are listed in
