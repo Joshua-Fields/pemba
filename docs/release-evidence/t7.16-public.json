@@ -1,0 +1,227 @@
+{
+  "task": "T7.16",
+  "verified_date": "2026-10-30",
+  "release_commit": "41075c399f942b62280edeca81c0f68eaf314dab",
+  "tag": "v0.1.0",
+  "registry": {
+    "crates": [
+      {
+        "crate": "pemba-schema",
+        "version": "0.1.0",
+        "sha256": "be813c5257550c25cfcd8ae3a94b47ee419dcd0f454e465c729656e423b62455",
+        "source": "41075c399f942b62280edeca81c0f68eaf314dab",
+        "docs_rs": "https://docs.rs/crate/pemba-schema/0.1.0",
+        "rustdoc": "passed"
+      },
+      {
+        "crate": "pemba-core",
+        "version": "0.1.0",
+        "sha256": "21f1d2847ee95371c8e34f6e9e320f82932cdeb2cd8b6c1de196ac34d83c65a6",
+        "source": "41075c399f942b62280edeca81c0f68eaf314dab",
+        "docs_rs": "https://docs.rs/crate/pemba-core/0.1.0",
+        "rustdoc": "passed"
+      },
+      {
+        "crate": "pemba-sqlite-common",
+        "version": "0.1.0",
+        "sha256": "374a8913e6da8bbb572b91017b1f495f7d90d396e5726c9d807f7b2f4b28732f",
+        "source": "41075c399f942b62280edeca81c0f68eaf314dab",
+        "docs_rs": "https://docs.rs/crate/pemba-sqlite-common/0.1.0",
+        "rustdoc": "passed"
+      },
+      {
+        "crate": "pemba-store-memory",
+        "version": "0.1.0",
+        "sha256": "e08897cc5d716bedb76b63a60bb2011dff70d7fe466b359711ad5de0a15adc88",
+        "source": "41075c399f942b62280edeca81c0f68eaf314dab",
+        "docs_rs": "https://docs.rs/crate/pemba-store-memory/0.1.0",
+        "rustdoc": "passed"
+      },
+      {
+        "crate": "pemba-store-postgres",
+        "version": "0.1.0",
+        "sha256": "fc806f9207b6bd42d212ea2cf6a5deee7df4969fd0c787da0124070b2a79ad14",
+        "source": "41075c399f942b62280edeca81c0f68eaf314dab",
+        "docs_rs": "https://docs.rs/crate/pemba-store-postgres/0.1.0",
+        "rustdoc": "passed"
+      },
+      {
+        "crate": "pemba-fixtures",
+        "version": "0.1.0",
+        "sha256": "7f6003a0a095631c86acf29dea793938e852746d18f1be16dc82f3c855601032",
+        "source": "41075c399f942b62280edeca81c0f68eaf314dab",
+        "docs_rs": "https://docs.rs/crate/pemba-fixtures/0.1.0",
+        "rustdoc": "passed"
+      },
+      {
+        "crate": "pemba-store-sqlite",
+        "version": "0.1.0",
+        "sha256": "a9f188cfa3cfcca2c571b44900331f03d671c6bf4c7ce86a99188b8bb464079b",
+        "source": "41075c399f942b62280edeca81c0f68eaf314dab",
+        "docs_rs": "https://docs.rs/crate/pemba-store-sqlite/0.1.0",
+        "rustdoc": "passed"
+      },
+      {
+        "crate": "pemba",
+        "version": "0.1.0",
+        "sha256": "a1a6e8d762dbd8f12be8ed1ab387571a946a3e3477eb3d1b9c71d02516aa38ce",
+        "source": "41075c399f942b62280edeca81c0f68eaf314dab",
+        "docs_rs": "https://docs.rs/crate/pemba/0.1.0",
+        "rustdoc": "passed"
+      },
+      {
+        "crate": "pemba-cli",
+        "version": "0.1.0",
+        "sha256": "952ba5dcaddd71428d7d55df70126c4d09446e6cb7ae2ef6e035458c6e1d7803",
+        "source": "41075c399f942b62280edeca81c0f68eaf314dab",
+        "docs_rs": "https://docs.rs/crate/pemba-cli/0.1.0",
+        "rustdoc": "binary doc=false; crate page available"
+      }
+    ],
+    "pypi": {
+      "version": "0.1.0",
+      "files": [
+        {
+          "filename": "pemba-0.1.0-cp311-abi3-macosx_10_12_x86_64.whl",
+          "sha256": "9008614829db6720438654921003619eea3f1039b4bb5dc93a79e49ce6753534"
+        },
+        {
+          "filename": "pemba-0.1.0-cp311-abi3-macosx_11_0_arm64.whl",
+          "sha256": "0ba954906038782cea19eecda8fd2a0319146ffee78a56628312fde0830e3c03"
+        },
+        {
+          "filename": "pemba-0.1.0-cp311-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl",
+          "sha256": "f4d6417b5724544ca6c856ca70baa1bd3b54aa0ce626b12479372fe2dc9d113b"
+        },
+        {
+          "filename": "pemba-0.1.0-cp311-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
+          "sha256": "55a877a7ab0ead004e0269ad563efb9a4f98c0ef5c3b8d652b11a2cd97c9665e"
+        },
+        {
+          "filename": "pemba-0.1.0-cp311-abi3-win_amd64.whl",
+          "sha256": "690ed13a041299a901a0c79c0a806b4723c7783072260e8e88e63368f5d801f4"
+        },
+        {
+          "filename": "pemba-0.1.0.tar.gz",
+          "sha256": "1c90d0d18d9752315bf9e65f09841afc1c2e50d440bf19aa66f2a090c602b1ef"
+        }
+      ],
+      "project_urls": {
+        "Documentation": "https://joshua-fields.github.io/pemba/docs/",
+        "Homepage": "https://github.com/Joshua-Fields/pemba",
+        "Issues": "https://github.com/Joshua-Fields/pemba/issues",
+        "Repository": "https://github.com/Joshua-Fields/pemba"
+      }
+    }
+  },
+  "browser": {
+    "results": [
+      {
+        "path": "",
+        "version": "0.1.0",
+        "default_query": "allowed",
+        "share_reload": "passed",
+        "commit": "41075c399f942b62280edeca81c0f68eaf314dab"
+      },
+      {
+        "path": "v/0.1.0/",
+        "version": "0.1.0",
+        "default_query": "allowed",
+        "share_reload": "passed",
+        "commit": "41075c399f942b62280edeca81c0f68eaf314dab"
+      },
+      {
+        "path": "v/0.1.0-alpha.4/",
+        "version": "0.1.0-alpha.4",
+        "default_query": "allowed",
+        "share_reload": "passed",
+        "commit": "10ad07abb5339b331193fead0b03e1d57af5fdb3"
+      },
+      {
+        "path": "next/",
+        "version": "0.1.0",
+        "default_query": "allowed",
+        "share_reload": "passed",
+        "commit": "41075c399f942b62280edeca81c0f68eaf314dab"
+      },
+      {
+        "alpha_share_link": "mismatch banner and original-version link passed"
+      },
+      {
+        "docs": "stable",
+        "metadata": "0.1.0",
+        "navigation": 22,
+        "installation_tutorial_api_security_roadmap": "HTTP 200"
+      },
+      {
+        "docs": "next",
+        "metadata": "0.1.0",
+        "navigation": 22,
+        "installation_tutorial_api_security_roadmap": "HTTP 200"
+      }
+    ],
+    "page_errors": [],
+    "http_errors": []
+  },
+  "release": {
+    "release_notes": "exact CHANGELOG 0.1.0 section",
+    "archive_sha256": "80fdc732f5a57c7c3247c8e517990bb62708c346a517e7bccb9935175332bcae",
+    "archive_live_files_compared": 5,
+    "docs_build_metadata": [
+      {
+        "channel": "stable",
+        "version": "0.1.0",
+        "commit": "41075c399f942b62280edeca81c0f68eaf314dab",
+        "label": "Stable release 0.1.0",
+        "complete": true,
+        "contributing": true,
+        "security": true,
+        "roadmap": true,
+        "triage": true
+      },
+      {
+        "channel": "next",
+        "version": "0.1.0",
+        "commit": "41075c399f942b62280edeca81c0f68eaf314dab",
+        "label": "development build (main) \u2014 0.1.0 \u2014 41075c3",
+        "complete": true,
+        "contributing": true,
+        "security": true,
+        "roadmap": true,
+        "triage": true
+      }
+    ]
+  },
+  "python": {
+    "version": "0.1.0",
+    "path": "fresh-outside-repository-venv/Lib/site-packages/pemba/__init__.py",
+    "python": "3.12.10 (tags/v3.12.10:0cc8128, Apr  8 2025, 12:21:36) [MSC v.1943 64 bit (AMD64)]",
+    "quickstart": "passed",
+    "sqlite_commit_rollback": "passed",
+    "postgres_commit_rollback": "passed"
+  },
+  "rust": {
+    "quickstart": "passed",
+    "sqlite_commit_rollback": "passed",
+    "postgres_commit_rollback": "passed",
+    "registry_packages": "all resolved pemba libraries 0.1.0, registry source, no path/git overrides"
+  },
+  "cli": {
+    "registry_install": "cargo install pemba-cli --version 0.1.0 --locked",
+    "version": "pemba 0.1.0",
+    "schema_validate": "passed",
+    "fixture_checks_passed": 26
+  },
+  "artifact_provenance": "All six published PyPI files match the tag workflow artifact SHA256s",
+  "workflow_urls": [
+    "https://github.com/Joshua-Fields/pemba/actions/runs/41057627465",
+    "https://github.com/Joshua-Fields/pemba/actions/runs/41057627501",
+    "https://github.com/Joshua-Fields/pemba/actions/runs/41058082578"
+  ],
+  "limitations": [
+    "Fresh local registry execution is Windows CPython 3.12.10 and Rust 1.99.0 with disposable Postgres 18.6; platform matrix is tag workflow evidence.",
+    "Human sign-off/account confirmations and T7.17 launch approval are not supplied by technical verification.",
+    "No new fuzz/property/mutation suite or local sdist rebuild; prior candidate and tag tests remain their evidence.",
+    "Two main Playground tag-only jobs skipped; ordinary Python smoke test skips are not counted as passes."
+  ]
+}
