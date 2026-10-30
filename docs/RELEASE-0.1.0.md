@@ -1007,9 +1007,11 @@ alpha/rc classify as prerelease. No packaging workflow or deployment pipeline re
 
 ### Derived crates.io publication order — HUMAN ONLY
 
-Derived from current `cargo metadata --no-deps` and non-dev dependency edges, not the
-pre-Postgres historical list. Each crate's registry version must be available before
-publishing a dependent crate. This is a plan; no publication has occurred.
+The original T7.12 plan used non-dev dependency edges and incorrectly put Postgres
+before SQLite. Actual individual publication also resolves versioned development
+dependencies: Postgres needs `pemba-store-sqlite`. The corrected order below includes
+that edge; see the T7.16 publication/recovery record at the end of this document.
+Each crate's registry version must be available before publishing a dependent crate.
 
 | Order | Publishable crate | Internal production dependencies |
 |---:|---|---|
@@ -1017,9 +1019,9 @@ publishing a dependent crate. This is a plan; no publication has occurred.
 | 2 | `pemba-core` | schema |
 | 3 | `pemba-sqlite-common` | core |
 | 4 | `pemba-store-memory` | core |
-| 5 | `pemba-store-postgres` | core |
-| 6 | `pemba-fixtures` | core, schema, memory |
-| 7 | `pemba-store-sqlite` | core, sqlite-common |
+| 5 | `pemba-store-sqlite` | core, sqlite-common |
+| 6 | `pemba-store-postgres` | core; publication also resolves memory/sqlite dev dependencies |
+| 7 | `pemba-fixtures` | core, schema, memory |
 | 8 | `pemba` | core, memory, sqlite |
 | 9 | `pemba-cli` | pemba, fixtures, schema |
 
@@ -1144,3 +1146,101 @@ the current SHA, then supply explicit human approval/merge. T7.15 tagging/publis
 T7.16 public-artifact verification and T7.17 launch/activation are not executed or
 approved by T7.13. No tag, registry upload, deployment or announcement is needed to
 complete this verification task.
+
+## T7.16 public artifacts and live deployment verification — 2026-10-30
+
+Technical verification passed against the public release. This evidence does not
+substitute for T7.14 human sign-off, authenticated account/security confirmations or
+T7.17 human approval of launch text, destinations, timing and community activation.
+No publication, tag change, deployment, announcement or release mutation was performed
+during verification. Explicit human release approval was not independently observed
+in a PR comment; maintainers must retain that approval record.
+
+### Identity and publication recovery
+
+`v0.1.0` resolves directly to merged release commit
+`41075c399f942b62280edeca81c0f68eaf314dab`. All nine downloaded crates.io archives
+have that exact `.cargo_vcs_info.json` SHA and match their registry SHA256 checksums.
+All nine versions are 0.1.0 and not yanked.
+
+The human's transcript records successful schema/core/sqlite-common/memory uploads,
+then a Postgres failure **before upload** because its versioned SQLite dev dependency
+was absent from the registry. The original order omitted dev edges; workspace dry-run
+success did not prove the individual registry publication order. Read-only inventory
+confirmed exactly those first four versions present and the remaining five absent
+before proposing recovery. No package source changed. The corrected remaining sequence
+was SQLite → Postgres → fixtures → facade → CLI. Subsequent public inspection confirms
+all nine exist; no existing version/tag was replaced. Future order checks must include
+packaged versioned dev dependencies. The publication plan above is corrected.
+
+### Fresh registry installs and execution
+
+Installs and execution ran outside the repository in a new `work/t7.16-public`
+directory. A fresh CPython 3.12.10 Windows x86_64 venv installed `pemba==0.1.0` from
+`https://pypi.org/simple`, plus psycopg for the Postgres tutorial. Import resolves to
+that venv's site-packages; installed version, `.pyi` and `py.typed` were checked.
+
+| Check | Observed result |
+|---|---|
+| Python quick start | Verbatim README example passed in a fresh directory. |
+| Python transactions | Verbatim SQLite and Postgres tutorials passed committed app-row/permission, precommit visibility and forced full-rollback assertions. Disposable local Postgres 18.6, separate schema. |
+| Rust quick start | Verbatim README example passed in a new Cargo project using exact registry `=0.1.0` dependencies, no path/git overrides. |
+| Rust transactions | Verbatim SQLite/Postgres examples compiled against registry packages and passed commit/forced-rollback assertions; fresh database/schema. |
+| Rust provenance | Locked Cargo metadata confirms all resolved pemba library dependencies are registry 0.1.0. The initial quick start generated a consumer lockfile; subsequent tutorial runs used it with `--locked`. Consumer transitive resolution need not equal the release workspace lockfile. |
+| CLI | `cargo install pemba-cli --version 0.1.0 --locked` into an isolated root passed; version reports 0.1.0, help works, schema validation passed, direct fixture passed all 26 checks. |
+| docs.rs | All nine exact-version crate pages resolve; all eight library rustdoc pages load. CLI intentionally has `doc=false`; its crate page is available, not a claimed binary rustdoc build. |
+
+### Published artifacts and workflows
+
+[Tag Wheels run](https://github.com/Joshua-Fields/pemba/actions/runs/41057627465)
+succeeded: sdist, five platform builds, ten Python smoke jobs, two required Postgres
+smoke jobs and protected PyPI publishing. These are job statuses; individual skips
+inside ordinary smoke tests are not counted as passes. T7.13 qualifies that coverage.
+Fresh local execution above covers Windows CPython 3.12, not every wheel platform.
+
+PyPI contains five non-yanked abi3 wheels plus the source archive. All six files were
+downloaded and verified against their registry digests and corresponding downloaded
+artifacts from that **tag** workflow: all SHA256s match. Published sdist SHA256 is
+`1c90d0d18d9752315bf9e65f09841afc1c2e50d440bf19aa66f2a090c602b1ef`.
+
+[GitHub Release v0.1.0](https://github.com/Joshua-Fields/pemba/releases/tag/v0.1.0)
+is published, not draft/prerelease. Its body exactly matches the 0.1.0 CHANGELOG
+section. Immutable `playground-0.1.0.tar.gz` SHA256 is
+`80fdc732f5a57c7c3247c8e517990bb62708c346a517e7bccb9935175332bcae`;
+all five archived files match bytes fetched from live `/v/0.1.0/`.
+
+[Tag Playground run](https://github.com/Joshua-Fields/pemba/actions/runs/41057627501)
+and [dispatched main deployment](https://github.com/Joshua-Fields/pemba/actions/runs/41058082578)
+succeeded. The main deploy log reports that every public page/asset matches the
+assembled site. Its two tag-only jobs were skipped, not passed; the tag run performed
+release creation and deployment dispatch.
+
+### Actual public browser checks
+
+Fresh headless Chromium verification passed with no page errors or HTTP error responses:
+
+- Root and `/v/0.1.0/`: query allows; stable footer version/source agree; no development
+  label; generated share links reload successfully.
+- `/v/0.1.0-alpha.4/`: alpha footer/source preserved; share links reload.
+- Alpha share state at stable root restores the expected lookup, displays a mismatch
+  banner and links to the original version with the same fragment. Following the link
+  reproduces the result and removes the banner.
+- `/next/`: main development label, 0.1.0 footer and exact release/main commit;
+  generated share state identifies `0.1.0+41075c3`, and reload succeeds.
+- `/docs/` and `/docs/next/`: channel/version metadata and `docs-build.json` identify
+  stable/development respectively, version 0.1.0 and exact release/main commit.
+  Navigation loads; installation, transaction tutorial, API, security and roadmap
+  pages return HTTP 200. Registry documentation metadata uses the approved docs URL.
+
+The browser harness initially expected a commit-qualified development engine in the
+footer. Inspection confirmed that the footer intentionally holds the workspace version
+and share state holds the qualified engine. Correcting the harness to check both fields
+passed; no product source changed. An initial release-notes helper argument-order error
+was corrected before its successful exact-body comparison.
+
+Raw commands, logs, registry metadata/digests and machine-readable results are retained
+locally under `work/t7.16-public`; the [public verification manifest](release-evidence/t7.16-public.json)
+preserves all registry checksums, workflow URLs and observed versions/results.
+No fresh source fuzz/property/mutation run or sdist
+rebuild is claimed by this public-artifact verification; T7.13 and the tag workflow
+remain the broader release evidence. T7.17 remains human only.
