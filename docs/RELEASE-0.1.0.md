@@ -1,8 +1,9 @@
 # 0.1.0 release evidence
 
 This is the evidence index required by M7. No stable release is approved or published.
-T7.2–T7.11 implementation/rehearsal evidence is recorded here; T7.12–T7.17 remain
-separate tasks and gates. T7.10 is merged; see T7.11 evidence below.
+T7.2–T7.12 implementation/rehearsal/preparation evidence is recorded here. T7.13's
+exact-candidate verification record is linked below; T7.14–T7.17 remain human/public
+verification gates. T7.11 is merged; the stable release PR remains unmerged.
 
 ## Preceding gates
 
@@ -974,3 +975,172 @@ for this exact-source matrix. Implementation merge is authorized after its appli
 checks finish; T7.12 preparation follows that merge. The eventual release PR stays
 open for T7.13 stable-version verification and explicit T7.14 human approval/merge.
 No release approval, tag, publication, deployment or announcement occurred here.
+
+## T7.12 stable release preparation
+
+Refs: T7.12 all AC; `09` §4.1; ADR-014; T3.7; OQ-057; CHANGELOG history.
+Base main `77a63afbcc57023d7785f0115c1c9533fb5ec69d`: [T7.11 PR #91](https://github.com/Joshua-Fields/pemba/pull/91)
+merged after [PR CI 40978150027](https://github.com/Joshua-Fields/pemba/actions/runs/40978150027)
+completed with six success checks and nine intentionally code-filtered skips. Its
+full exact-source rehearsal matrix above is complete. Required T7.1 decisions remain.
+
+### Prepared changes and package scope
+
+Workspace version and all nine versioned internal dependencies are `0.1.0`;
+Python obtains the same version dynamically through maturin. `cargo update -w` ran
+at the root and in the separate fuzz workspace. A TOML structural comparison against
+main confirms **only own package version fields changed**: 16 root-lock entries,
+seven fuzz-lock entries; no external version, checksum, source or dependency changed.
+
+CHANGELOG has an empty Unreleased section and dated `0.1.0` section with alpha-to-stable
+request/output constructor migration, `PendingRevision`/caller-commit migration and
+removed Python integer conversions, plus guides/site/release changes. Historical alpha
+notes remain intact. Both READMEs are byte-identical, use stable install commands and
+the frozen public contract, and distinguish a versioned candidate from publication.
+Installation/tutorial/troubleshooting and roadmap status agree; Python metadata links
+the approved docs URL. No public API, on-disk format, supported scope or floor changes.
+
+Existing release classification/extraction is reused. The added real-changelog
+regression was observed failing before the stable section existed, then passed:
+stable `0.1.0` notes include both migrations and classify as not prerelease, while
+alpha/rc classify as prerelease. No packaging workflow or deployment pipeline rebuilt.
+
+### Derived crates.io publication order — HUMAN ONLY
+
+Derived from current `cargo metadata --no-deps` and non-dev dependency edges, not the
+pre-Postgres historical list. Each crate's registry version must be available before
+publishing a dependent crate. This is a plan; no publication has occurred.
+
+| Order | Publishable crate | Internal production dependencies |
+|---:|---|---|
+| 1 | `pemba-schema` | None |
+| 2 | `pemba-core` | schema |
+| 3 | `pemba-sqlite-common` | core |
+| 4 | `pemba-store-memory` | core |
+| 5 | `pemba-store-postgres` | core |
+| 6 | `pemba-fixtures` | core, schema, memory |
+| 7 | `pemba-store-sqlite` | core, sqlite-common |
+| 8 | `pemba` | core, memory, sqlite |
+| 9 | `pemba-cli` | pemba, fixtures, schema |
+
+Keep `pemba-testkit`, `pemba-difftest`, `pemba-store-pysqlite`, `pemba-py`,
+`pemba-benches`, `pemba-playground` and `pemba-playground-conformance` unpublished on
+crates.io (`publish=false`). Python-only source dependencies remain in the sdist;
+the browser WASM crates gain no distribution/API promise. Docs.rs feature metadata,
+LICENSE/NOTICE, README, `.pyi`/`py.typed` and packaged dependency contents are verified
+with the candidate checks; a manifest declaration alone is not a package-build pass.
+
+### Human publishing sequence and immutable recovery
+
+1. **T7.14 human gate:** review T7.13's exact stable candidate SHA, every T3.7 row,
+   migrations/limitations, security findings and current green required checks.
+   Complete the outstanding authenticated PyPI ownership/publisher/access/2FA and
+   private-report form/notification confirmations from T7.8. Record explicit approval,
+   then human merges the release PR and verifies intended main matches approved content.
+   Any substantive change returns to verification and new exact-candidate approval.
+2. **T7.15 human only:** tag `v0.1.0` on that approved main release commit. The existing
+   tag workflows build/test wheels and sdist, create the non-prerelease GitHub Release
+   from the stable changelog section, attach the immutable playground archive and
+   dispatch the existing single Pages assembly. An existing tag/asset is never replaced.
+3. Human publishes the nine crates in the dependency order above using the approved
+   source/package contents and locked dependencies. Check each registry version and
+   availability before the next dependent upload; record crate versions and checksums.
+   Do not interpret a dry-run's upload wording as an actual upload.
+4. After tag build/sdist/all-platform/required-PG smoke tests pass, human reviews the
+   protected `pypi` environment and approves trusted publishing of **those artifacts**.
+   Never bypass its reviewer or substitute a locally rebuilt file. Record tag SHA,
+   workflow/artifact/release URLs and registry versions. Authenticated account settings
+   are a human verification requirement, not inferred from a prior successful upload.
+5. **T7.16:** independently verify public packages, docs.rs, quick starts/tutorials,
+   migration/status links, docs and all playground routes/share links. Only after this
+   succeeds may human approve/post launch materials and activate triage in T7.17.
+
+If a pre-publication check fails, stop and fix/review it; rerun affected evidence before
+approval. After any partial publication, stop subsequent uploads, PyPI approval and
+launch. Inventory exactly which immutable versions/files exist and their original
+source/digests. For a transient transport/registry-delay failure with unchanged approved
+source, human may retry only a confirmed missing artifact in order after availability
+checks. Never blindly rerun a batch uploader over existing versions/files.
+
+A source/packaging defect after publication needs a separately reviewed corrected
+version/recovery plan and fresh verification/approval. Do not overwrite a registry
+version, delete/recreate or move a tag, or rebuild an already attached playground
+archive. A partial PyPI upload needs human reconciliation of original digests and a
+reviewed missing-file/new-version recovery decision; no bypass or invented automation
+is approved here. A Pages failure keeps launch blocked; recover through the existing
+single assembler using original versioned assets, with reviewed fixes as needed.
+Documentation of this sequence authorizes none of its human actions.
+
+### T7.12 local verification
+
+Prepared source [`5015775232b85bd2d66599a7bd24fa7f25c352c2`](https://github.com/Joshua-Fields/pemba/commit/5015775232b85bd2d66599a7bd24fa7f25c352c2);
+subsequent T7.12 edits record evidence only. Windows x86_64, Rust 1.99.0,
+CPython 3.12.10, Node 24.20.0, wasm-bindgen 0.2.129; required disposable PG18.6
+and untrusted-TLS services on loopback 57532/57533. Initial 57832/57833 bindings were
+unavailable before tests started; containers were recreated on free ports and readiness
+checked. Separate tool-only and CI-pinned all-driver venvs retained. Logs/harness:
+ignored `target/t7.12-*`.
+
+| Check | Actual result |
+|---|---|
+| Lockfile structural comparison and manifest-derived inventory | Passed: root 16/fuzz seven own version fields only; nine publishable/seven unpublished crates and dependency order above. All nine versioned workspace dependencies use 0.1.0; maturin obtains Python 0.1.0 dynamically. |
+| Focused release regression and memory-only facade doctest | New stable notes test failed before implementation, then all 19 release-script tests passed. Stable=false, alpha/rc=true classification verified through existing CLI. Facade memory-only doctest passed. |
+| Docs tests and strict development/stable builds | Nine tests and both builds passed; stable candidate build metadata says 0.1.0. These are local builds, not a deployed stable site or proof of publication. |
+| Full CLAUDE §5 once | Fmt, all-target/all-feature Clippy with `-D warnings`, 687 Rust tests/doctests, strict all-feature rustdoc and separate fuzz fmt/all-target build passed. Required PG18 ran; 18 ignored tests excluded (not passed by this ordinary suite). Release-length repetition belongs to T7.13. |
+| Tool-only maturin/pytest/mypy | Built/installed 0.1.0; 168 tests and strict typing of 15 files passed. One PG-module skip, not a service pass. Import metadata asserted 0.1.0. |
+| Separate required PG18/all-driver/untrusted-TLS environment | 63 Python tests, zero skips, strict typing, Rust no-default-features and installed-extension no-SQLite/rustls/no-OpenSSL probes passed. |
+| wasm32 lint/smoke and conformance | Both Clippy commands passed with `-D warnings`; four smoke tests passed; 1,000 oracle-checked generated cases, 1,037 fixtures and 45,323 identical native/WASM transcript lines. Known informational native linker-stdout message retained, not a warning-free-build claim. |
+| Playground and npm audits | 171 unit tests, typecheck/production build, 578.1 KB/700 KB gzip and 72 Chromium tests passed. Shipping playground and full docs audits report zero vulnerabilities. |
+| `cargo publish --workspace --dry-run --locked` | Passed packaged builds of all nine publishable crates at 0.1.0. Dry-run-aborted-upload warnings are expected; no upload occurred. |
+| Packaged Rust contents | Nine staged `.crate` archives have 0.1.0 manifests, LICENSE/NOTICE/README, preserved docs metadata and normalized production dependencies with versions and no local paths. Private/test/bench/playground crates remain unpublished. |
+| `maturin sdist` and contents | Built `pemba-0.1.0.tar.gz`; all Python Rust dependency manifests, lock, `.pyi`, `py.typed`, licenses and source-only contents verified (no extension/debug/bytecode artifacts). Metadata warnings concern the intentionally unpublished testkit/pysqlite/py Rust manifests, not missing Python project URLs or a failed build. Rebuild-away verification will run on the exact T7.13 candidate. |
+| Copies and independent review | All 20 LICENSE/NOTICE copies and Python README mirror match. Review found remaining alpha-only support wording; corrected in both READMEs and the related guide, preserving best-effort policy. No remaining actionable source findings. |
+
+The inspection helper initially compared absent Cargo metadata as `null` versus an
+empty table; normalizing those equivalent absent values corrected the helper and all
+package checks passed. This was not a source/package fix or a waived check.
+Local sdist SHA256: `425dfe622706668dd5f845ac6c8e6bb7277318e7952c38cbe646d01b1256bce5`.
+
+T7.12 prepares a reviewable release PR; its remote checks are not observed at evidence
+preparation. All release PR checks and the fresh **stable-version** T7.13 matrix must
+pass before T7.14 approval. Alpha rehearsal evidence is not substituted for that final
+matrix. This release PR must remain unmerged for explicit human sign-off/merge; no tag,
+registry upload, deployment or announcement is authorized by these preparations.
+
+## T7.13 exact stable candidate verification record
+
+The canonical exact candidate SHA, per-job results, workflow URLs and artifact digests
+are recorded in the **verification matrix in [release PR #92's description](https://github.com/Joshua-Fields/pemba/pull/92)**.
+That record must explicitly state completion, identify the full 40-character candidate
+SHA and match the PR's current head before it can supply T7.14 review evidence.
+An in-progress, stale, skipped, unavailable or failed entry is not a pass.
+
+This index is committed **before** freezing and testing that candidate. Recording
+observed results in the linked PR description/local evidence manifest afterwards
+avoids changing the candidate merely to write its own SHA/results into a tracked
+file. The tested commit therefore includes this verification index. No subsequent
+candidate edit is permitted without rerunning affected checks and recording the new
+SHA. GitHub workflow metadata and downloaded artifact manifests independently tie
+each result to the candidate; source-tree identity is checked for PR merge-ref jobs.
+
+Required candidate version is **0.1.0**, Rust and Python. Alpha rehearsal results above
+are historical context and cannot satisfy this matrix. The fresh record must cover:
+
+| Requirement | Required final-candidate evidence |
+|---|---|
+| Full local green / package contents | CLAUDE §5 once; strict rustdoc, ordinary tests and explicit ignored-property/service runs; locked workspace publish dry run; nine packaged crates build without local production paths; licence/README/docs.rs metadata and Python stubs/typing/sdist dependencies checked. |
+| Wheels and sdist | Build-only five-platform wheels on CPython 3.11/3.14; installed-extension SQLite/rustls/no-OpenSSL probes; isolated sdist rebuild away from checkout; installed version/path assertions. No publish job. |
+| Native/platform/oldest/runtime services | Current required CI, oldest CPython/SQLite, required PG15/18 and all supported Python drivers/TLS, conformance/equivalence and revision-order/constraint/retry paths. Known skips and report-only latency are separately identified. |
+| Properties/differential | At least 1,000 cases for full properties, host-Python SQLite and three-store equivalence; schema printer aggregate counts explicit; memory and PG difftests each prove fixtures plus at least 500 actually compared generated cases with required-service flags and known-difference review. |
+| Fuzz/mutation/benchmarks | Fresh three-target runs of at least 600 seconds with exact source, no crashes and retained corpus; existing mutant disposition and benchmark changes reviewed without inventing fresh old-report results or a numerical threshold. |
+| Docs/playground | Strict docs link/snippet/build and desktop/mobile/keyboard checks; wasm32 lint/smoke, native/WASM/oracle conformance, playground unit/build/size/browser tests. Candidate metadata must identify this source/version; no deployment. |
+| Isolated installation/tutorials | Built stable wheel and sdist installed outside source; quick starts and SQLite/Postgres commit/forced-rollback examples, API/stubs/import/version/CLI checks. Packaged Rust crate verification and an outside-checkout Rust quick start. |
+| T3.7/T3.9 and questions | Every T3.7 row mapped to fresh technical evidence and human approval boundary; 98-declaration audit/constructors retained, final name/rename complete and no unresolved release-blocking question. |
+
+The existing T3.7 coverage map, T7.2 public inventory, semantic question audit and
+T7.8 human account/reporting requirements remain references; the final record must
+confirm their applicability to this exact candidate. T7.14 must review all rows and
+the current SHA, then supply explicit human approval/merge. T7.15 tagging/publishing,
+T7.16 public-artifact verification and T7.17 launch/activation are not executed or
+approved by T7.13. No tag, registry upload, deployment or announcement is needed to
+complete this verification task.

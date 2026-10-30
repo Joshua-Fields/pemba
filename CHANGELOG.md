@@ -2,13 +2,21 @@
 
 All notable changes to pemba are recorded here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
-[Semantic Versioning](https://semver.org/spec/v2.0.0.html). While pemba is an alpha
-(0.1.0 pre-releases), any release may break the API.
+[Semantic Versioning](https://semver.org/spec/v2.0.0.html). The public surface for
+0.1.0 is frozen as specified in `docs/06-api.md`; documented non-exhaustive extension
+points remain. Earlier alpha releases could break the API.
 
-The Rust crates and the Python package share one version: `0.1.0-alpha.4` on crates.io is
-`0.1.0a4` on PyPI.
+The Rust crates and the Python package share version `0.1.0`. This section is prepared
+release content; publication and exact-candidate human approval are tracked in
+`docs/RELEASE-0.1.0.md`, not implied by a changelog heading.
 
 ## [Unreleased]
+
+## [0.1.0] - 2026-10-30
+
+The first stable API release: embedded Rust/CLI and Python authorization with memory,
+SQLite and synchronous Postgres stores. No supported async/Node/WASM distribution
+or storage-format change is introduced by stabilization.
 
 ### Breaking
 
@@ -21,6 +29,15 @@ The Rust crates and the Python package share one version: `0.1.0-alpha.4` on cra
   `Failure::new` and `Report::default`. See `docs/PUBLIC_API_AUDIT.md` for every decision.
   Existing config defaults/setters, stable tuple/revision value types and storage formats
   are unchanged.
+- Upgrading from alpha.1/alpha.2: foreign writes return `PendingRevision`, not a
+  committed `Revision`. The caller owns commit/rollback. Commit successfully, then
+  call Rust `engine.resolve(&pending)` or Python `pending.revision()` and use `AtLeast`
+  / `at_least=` for subsequent reads. SQLite already knows the number but cannot detect
+  rollback; Postgres reports pending/rolled-back states. Engine reads do not see the
+  app transaction's uncommitted writes. See the alpha.3 migration below and
+  `docs/guides/transactional-tutorial.md`.
+- Upgrading from alpha.3: Python `int(pending)` and index conversion were removed in
+  alpha.4 and remain unavailable. Resolve after commit or pass the token to `at_least=`.
 
 ### Added
 
@@ -31,6 +48,11 @@ The Rust crates and the Python package share one version: `0.1.0-alpha.4` on cra
 - OQ-044 is complete: only `check_str` is implemented. Use typed write/delete APIs and
   `pemba_schema::compile` instead of the removed promises of Rust `write_str`, `delete_str`
   and static `Engine::validate_schema`. Python schema validation remains available.
+- Installation, schema, consistency, transaction, troubleshooting and developer guides;
+  runnable Rust/Python SQLite/Postgres app-row-plus-permission commit/rollback tutorial;
+  stable/development documentation trees in the existing Pages assembly. Security
+  reporting policy, safe issue forms, triage process and scoped roadmap are prepared;
+  launch activation and final announcement text remain human gates.
 
 ### Fixed
 
@@ -249,7 +271,8 @@ First public pre-release.
 - The `pemba` CLI (`pemba-cli`): `schema validate`, `schema fmt` (experimental; keeps
   comments) and `test`, which runs YAML fixture files.
 
-[Unreleased]: https://github.com/Joshua-Fields/pemba/compare/v0.1.0-alpha.4...HEAD
+[Unreleased]: https://github.com/Joshua-Fields/pemba/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/Joshua-Fields/pemba/compare/v0.1.0-alpha.4...v0.1.0
 [0.1.0-alpha.4]: https://github.com/Joshua-Fields/pemba/compare/v0.1.0-alpha.3...v0.1.0-alpha.4
 [0.1.0-alpha.3]: https://github.com/Joshua-Fields/pemba/compare/v0.1.0-alpha.2...v0.1.0-alpha.3
 [0.1.0-alpha.2]: https://github.com/Joshua-Fields/pemba/compare/v0.1.0-alpha.1...v0.1.0-alpha.2

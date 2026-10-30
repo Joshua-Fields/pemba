@@ -90,6 +90,17 @@ describe('changelogSection', () => {
     const text = fs.readFileSync(new URL('../../../CHANGELOG.md', import.meta.url), 'utf8');
     expect(changelogSection(text, '0.1.0-alpha.4')).toMatch(/\S/);
   });
+
+  it('extracts the prepared stable migration notes and classifies the release correctly', () => {
+    const text = fs.readFileSync(new URL('../../../CHANGELOG.md', import.meta.url), 'utf8');
+    const notes = changelogSection(text, '0.1.0');
+    expect(notes).toContain('PendingRevision');
+    expect(notes).toContain('#[non_exhaustive]');
+    expect(notes).not.toContain('## [0.1.0-alpha.4]');
+    expect(isPrerelease('0.1.0')).toBe(false);
+    expect(isPrerelease('0.1.0-alpha.4')).toBe(true);
+    expect(isPrerelease('0.1.0-rc.1')).toBe(true);
+  });
 });
 
 describe('checkSite', () => {

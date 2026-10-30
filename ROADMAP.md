@@ -27,12 +27,10 @@ or rollback and is not a supported WASM package.
 
 ## M7 remaining gates
 
-T7.0–T7.8 are merged: scope decisions, API audit/documentation, user and transaction
-guides, documentation site, contributor onboarding and security review. T7.9 prepares
-these issue/roadmap materials; review and merge remain required.
+T7.0–T7.11 are merged: scope decisions, API audit/documentation, user and transaction
+guides, documentation site, contributor onboarding, security review, issue/roadmap
+materials, launch drafts and the release rehearsal. Launch text remains unapproved.
 
-- T7.10: draft launch materials for human review; no posting.
-- T7.11: rehearse the full release matrix and close demonstrated regression gaps.
 - T7.12–T7.13: prepare stable metadata/migrations and verify the exact stable candidate.
 - T7.14: human signs off T3.7 and the exact candidate and merges the release PR.
 - T7.15: human tags and publishes through the reviewed publishing sequence.
