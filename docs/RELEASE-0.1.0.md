@@ -1069,3 +1069,39 @@ reviewed missing-file/new-version recovery decision; no bypass or invented autom
 is approved here. A Pages failure keeps launch blocked; recover through the existing
 single assembler using original versioned assets, with reviewed fixes as needed.
 Documentation of this sequence authorizes none of its human actions.
+
+### T7.12 local verification
+
+Prepared source [`5015775232b85bd2d66599a7bd24fa7f25c352c2`](https://github.com/Joshua-Fields/pemba/commit/5015775232b85bd2d66599a7bd24fa7f25c352c2);
+subsequent T7.12 edits record evidence only. Windows x86_64, Rust 1.99.0,
+CPython 3.12.10, Node 24.20.0, wasm-bindgen 0.2.129; required disposable PG18.6
+and untrusted-TLS services on loopback 57532/57533. Initial 57832/57833 bindings were
+unavailable before tests started; containers were recreated on free ports and readiness
+checked. Separate tool-only and CI-pinned all-driver venvs retained. Logs/harness:
+ignored `target/t7.12-*`.
+
+| Check | Actual result |
+|---|---|
+| Lockfile structural comparison and manifest-derived inventory | Passed: root 16/fuzz seven own version fields only; nine publishable/seven unpublished crates and dependency order above. All nine versioned workspace dependencies use 0.1.0; maturin obtains Python 0.1.0 dynamically. |
+| Focused release regression and memory-only facade doctest | New stable notes test failed before implementation, then all 19 release-script tests passed. Stable=false, alpha/rc=true classification verified through existing CLI. Facade memory-only doctest passed. |
+| Docs tests and strict development/stable builds | Nine tests and both builds passed; stable candidate build metadata says 0.1.0. These are local builds, not a deployed stable site or proof of publication. |
+| Full CLAUDE §5 once | Fmt, all-target/all-feature Clippy with `-D warnings`, 687 Rust tests/doctests, strict all-feature rustdoc and separate fuzz fmt/all-target build passed. Required PG18 ran; 18 ignored tests excluded (not passed by this ordinary suite). Release-length repetition belongs to T7.13. |
+| Tool-only maturin/pytest/mypy | Built/installed 0.1.0; 168 tests and strict typing of 15 files passed. One PG-module skip, not a service pass. Import metadata asserted 0.1.0. |
+| Separate required PG18/all-driver/untrusted-TLS environment | 63 Python tests, zero skips, strict typing, Rust no-default-features and installed-extension no-SQLite/rustls/no-OpenSSL probes passed. |
+| wasm32 lint/smoke and conformance | Both Clippy commands passed with `-D warnings`; four smoke tests passed; 1,000 oracle-checked generated cases, 1,037 fixtures and 45,323 identical native/WASM transcript lines. Known informational native linker-stdout message retained, not a warning-free-build claim. |
+| Playground and npm audits | 171 unit tests, typecheck/production build, 578.1 KB/700 KB gzip and 72 Chromium tests passed. Shipping playground and full docs audits report zero vulnerabilities. |
+| `cargo publish --workspace --dry-run --locked` | Passed packaged builds of all nine publishable crates at 0.1.0. Dry-run-aborted-upload warnings are expected; no upload occurred. |
+| Packaged Rust contents | Nine staged `.crate` archives have 0.1.0 manifests, LICENSE/NOTICE/README, preserved docs metadata and normalized production dependencies with versions and no local paths. Private/test/bench/playground crates remain unpublished. |
+| `maturin sdist` and contents | Built `pemba-0.1.0.tar.gz`; all Python Rust dependency manifests, lock, `.pyi`, `py.typed`, licenses and source-only contents verified (no extension/debug/bytecode artifacts). Metadata warnings concern the intentionally unpublished testkit/pysqlite/py Rust manifests, not missing Python project URLs or a failed build. Rebuild-away verification will run on the exact T7.13 candidate. |
+| Copies and independent review | All 20 LICENSE/NOTICE copies and Python README mirror match. Review found remaining alpha-only support wording; corrected in both READMEs and the related guide, preserving best-effort policy. No remaining actionable source findings. |
+
+The inspection helper initially compared absent Cargo metadata as `null` versus an
+empty table; normalizing those equivalent absent values corrected the helper and all
+package checks passed. This was not a source/package fix or a waived check.
+Local sdist SHA256: `425dfe622706668dd5f845ac6c8e6bb7277318e7952c38cbe646d01b1256bce5`.
+
+T7.12 prepares a reviewable release PR; its remote checks are not observed at evidence
+preparation. All release PR checks and the fresh **stable-version** T7.13 matrix must
+pass before T7.14 approval. Alpha rehearsal evidence is not substituted for that final
+matrix. This release PR must remain unmerged for explicit human sign-off/merge; no tag,
+registry upload, deployment or announcement is authorized by these preparations.
