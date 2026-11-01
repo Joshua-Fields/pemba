@@ -1667,3 +1667,39 @@ it is resolved.
   5,664 → 5,192), although no write statement changed. One run does not give a noise floor, so
   these are reported rather than explained.
 - Resolve by: maintainer, on review of this PR: accept the p99 rows above, or ask for more.
+
+## OQ-067 — What the FastAPI helper does where `06` §2.4 is silent (M10, T10.2)
+- Raised in: T10.2
+- Blocking: no
+- Problem: §2.4 specified 403 on deny and 503 on `PembaError`, and nothing else. A check has
+  more outcomes than those, and several of them can be driven by the client.
+- Choices, the most conservative that keeps an error an error:
+  - **Refused id: 422**, fixed detail, no `check`. It is a `ValueError`, so §2.4 did not cover
+    it. 503 would let a client fake a store outage and trip alerts, and 403 would report bad
+    input as a decision. Updated in §2.4. The engine raises `ValueError` for a bad subject
+    too, so the helper parses the id and subject separately first, with the engine's own
+    parser. A `ValueError` from `check` is then not caught at all: a 500.
+  - **Sync dependency, not `pemba.aio`.** A `def` dependency puts `subject` and `check` in
+    FastAPI's threadpool. `aio.check` would leave `subject` on the loop and needs asyncio. Cost:
+    a slow store can hold threads that `def` routes also use.
+  - **Subject.** `None` is 401 with no challenge header, because the helper does not know the
+    scheme. Exceptions propagate (a 500, or the app's own `HTTPException`). Non-strings,
+    malformed subjects, `type:*` and subject sets raise, for a 500: a request acts for one
+    object, and allowing sets later is compatible while forbidding them later is not.
+  - **`user:None` is treated as no subject (401).** The spec's own example
+    `f"user:{request.state.user_id}"` produces it when `user_id` is `None`. It parses, and it
+    returned `True` on a `user:*` document when probed. A real account with the id `None`
+    cannot pass the helper; that is the accepted cost, and it is documented.
+  - **Missing `path_param`:** `LookupError` on every request, a 500. It cannot be caught when
+    declared, because a dependency does not know its route. The value is read only from
+    `path_params`, so a query string cannot supply it.
+  - **Configurable deny:** `deny_status` (400 to 499) and `deny_detail` (a string) on `Authz`.
+    No callback, because a callback could return an allow.
+  - **Consistency:** `Latest`, with `at_least=` a per-request callable. No `at_exactly`: a client
+    token reaching it would read from before a revocation. An `at_least` value of `True`, which
+    the engine accepts as 1, is refused.
+  - **Logging:** FastAPI does not log an `HTTPException`, so `raise ... from` alone would lose
+    the cause. The helper also logs to `pemba.contrib.fastapi` at `ERROR`, the first logger in
+    the Python package. Denies and bad input are not logged, so a client cannot fill the log.
+- Resolve by: maintainer, on review of this PR. The two most open to disagreement are the 401
+  with no `WWW-Authenticate` header and refusing the id `None`.

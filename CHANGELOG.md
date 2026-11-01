@@ -23,6 +23,10 @@ The Rust crates and the Python package share one version; the latest release is 
 
 ### Added
 
+- `pemba.contrib.fastapi.Authz`, a permission check for FastAPI routes, with the new extra
+  `pip install pemba[fastapi]`. A deny gets a configurable 4xx (403 by default) and a
+  `PembaError` gets a 503 with a fixed detail. An id the engine refuses gets a 422, and a
+  request with no subject a 401. See `docs/guides/fastapi.md`.
 - `ReadStore::batch_read_limit` and `ReadStore::read_batch`, provided methods a store may
   implement to batch reads, with `BatchRead` and `BatchAnswer`.
 

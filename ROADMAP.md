@@ -33,8 +33,9 @@ This is the intended order, with no promised dates.
   over 10,000 documents from 506 to 8 and from 72 ms to 16 ms
   ([measurements](benches/RESULTS.md#postgres-rust-linux)). Shallow checks gain less, and
   some are slower at p99.
-- **FastAPI helper.** `pip install pemba[fastapi]` adds a permission check for your routes:
-  a configurable 403 on deny, and errors that stay errors rather than turning into a deny.
+- **FastAPI helper.** Done on `main`, not yet released. `pip install pemba[fastapi]` adds a
+  permission check for your routes: a configurable 403 on deny, and errors that stay errors
+  rather than turning into a deny ([guide](docs/guides/fastapi.md)).
 
 **0.4.0: authorised queries**
 

@@ -119,3 +119,4 @@ assert engine.check("document:readme#view@user:anne", at_least=rev)
 
 Next: [schema](schema.md), [consistency](consistency.md),
 [transactions and Postgres](transactions.md), [troubleshooting and limits](troubleshooting.md).
+The [FastAPI helper](fastapi.md) is on `main` and not yet released.

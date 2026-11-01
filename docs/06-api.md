@@ -750,7 +750,7 @@ persistent `SchemaChanged`), else false.
 Python argument mistakes raise built-in `ValueError` / `TypeError` (or `OverflowError`
 for native integer conversion as above), not `PembaError`.
 
-### 2.4 FastAPI helper (stretch, `pemba.contrib.fastapi`)
+### 2.4 FastAPI helper (`pemba.contrib.fastapi`, unreleased, for 0.3.0)
 
 ```python
 from pemba.contrib.fastapi import Authz
@@ -760,8 +760,50 @@ authz = Authz(engine, subject=lambda request: f"user:{request.state.user_id}")
 def get_doc(doc_id: str, _=Depends(authz.require("document", "view", path_param="doc_id"))):
     ...
 ```
-Raises `HTTPException(403)` on deny, `HTTPException(503)` on `PembaError` (fail closed).
-Pure Python, optional extra `pip install pemba[fastapi]`.
+
+```python
+class Authz:
+    def __init__(self, engine: Engine, *, subject: Callable[[Request], str | None],
+                 deny_status: int = 403, deny_detail: str = "Forbidden") -> None: ...
+    def require(self, resource_type: str, permission: str, *, path_param: str,
+                at_least: Callable[[Request], int | PendingRevision | None] | None = None
+                ) -> Callable[[Request], None]: ...
+```
+
+Pure Python, optional extra `pip install pemba[fastapi]`. `import pemba` does not import
+FastAPI; importing this module without it raises `ImportError` naming the extra. User guide:
+`docs/guides/fastapi.md`. Decisions: OQ-067.
+
+The route body runs only after `Engine.check` returned `True`. The dependency is a `def`, so
+FastAPI runs `subject` and the check in its threadpool on `def` and `async def` routes alike;
+`pemba.aio` is not used, because it leaves `subject` on the event loop and requires asyncio.
+
+| Outcome | Raises |
+|---|---|
+| `check` returned anything but `True` | `HTTPException(deny_status, deny_detail)`, 403 by default |
+| `PembaError` from `check` | `HTTPException(503)`, fixed detail; cause logged and on `__cause__` |
+| The id is not a valid object id for the type | `HTTPException(422)`, fixed detail, no `check` |
+| `subject` returned `None`, or a subject whose id is exactly `None` | `HTTPException(401)`, fixed detail, no `check` |
+| `subject` raised | That exception, unchanged (an `HTTPException` is how an app sends its own 401) |
+| `subject` returned a non-`str`, a malformed subject, `type:*` or a subject set | `TypeError` / `ValueError`, no `check`: a 500 |
+| `path_param` is not in `request.path_params` | `LookupError`, no `check`: a 500. Never read from the query |
+| `at_least` raised, or `check` refused its value | That exception (`TypeError`, `ValueError`): a 500 |
+
+- **Departure from the first version of this section:** a refused id is 422, not 503. It raises
+  `ValueError`, so "503 on `PembaError`" did not cover it, and a client must not be able to
+  make its input look like a store outage. The helper parses the id and the subject separately
+  before `check`, because the engine raises `ValueError` for both, and only the id is the
+  client's fault. A `ValueError` from `check` itself is therefore a server error.
+- `deny_status` must be 400 to 499 (`ValueError`), and neither `deny_status` nor `deny_detail`
+  reaches any other row of the table.
+- `Latest` by default (`04` §1). `at_least` is a per-request callable; `None` means no bound. A
+  bound the store has not reached is `ConsistencyError`, so 503. `at_exactly` is not offered: a
+  gate must not answer from before a revocation.
+- `check` gets three arguments, never the tuple string, so an id cannot supply a subject.
+- `subject`, `at_least`, `resource_type`, `permission` and `path_param` are validated when
+  `Authz` or `require` is called. `async def` callables raise `TypeError` there.
+- `subject_id == "None"` is refused because `f"user:{None}"` parses, and a `user:*` grant would
+  admit it. Such an id cannot pass this helper.
 
 ### 2.5 SQLite in the same process
 
