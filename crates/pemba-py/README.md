@@ -25,13 +25,15 @@ reconciliation job, and no window where a document exists that nobody can open.
   <img src="https://raw.githubusercontent.com/Joshua-Fields/pemba/main/assets/transactional-writes.svg" alt="Diagram. Left, service-based authorisation: the application writes the row to its own database and the relationship to a separate authorisation service with its own database, a dual write that lets the two drift apart if either fails. Right, pemba: the application writes the row and the relationship to its own database in one transaction." width="900">
 </p>
 
-**Version: 0.1.0.** The public surface is frozen as specified in
+**Release candidate: 0.2.0 (unpublished).** Adds async Postgres foreign writes and
+`pemba.aio` read helpers; synchronous APIs and storage formats are unchanged.
+The API contract is documented in
 [the API contract](https://github.com/Joshua-Fields/pemba/blob/main/docs/06-api.md).
 `check`, `lookup_resources`,
 `lookup_subjects`, the memory, SQLite and Postgres stores, transactional writes and the
 Python bindings are implemented and tested, including against SpiceDB. A versioned
 checkout is not publication evidence: consult [releases](https://github.com/Joshua-Fields/pemba/releases)
-and the [release gates](https://github.com/Joshua-Fields/pemba/blob/main/docs/RELEASE-0.1.0.md).
+and the [release gates](https://github.com/Joshua-Fields/pemba/blob/main/docs/RELEASE-0.2.0.md).
 
 **[Try it in the browser](https://joshua-fields.github.io/pemba/)**: the playground runs
 the real engine, compiled to WebAssembly, in your browser. Write a schema and
@@ -41,14 +43,15 @@ Nothing you type leaves your machine.
 ## Install
 
 ```bash
-python -m pip install pemba==0.1.0                  # Python 3.11 or newer; includes Postgres
-cargo add pemba@0.1.0                              # Rust library
-cargo add pemba-store-postgres@0.1.0                 # Rust: the Postgres store
-cargo install pemba-cli@0.1.0 --locked              # `pemba` command-line tool
+python -m pip install pemba==0.2.0                  # Python 3.11 or newer; includes Postgres
+cargo add pemba@0.2.0                              # Rust library
+cargo add pemba-store-postgres@0.2.0                 # Rust: the Postgres store
+cargo install pemba-cli@0.2.0 --locked              # `pemba` command-line tool
 ```
 
-These commands install published stable 0.1.0, verified in
-[T7.16](https://github.com/Joshua-Fields/pemba/pull/93). The Rust example uses the 0.1.0 API; follow the
+These commands target 0.2.0 after publication; the candidate is not yet available
+from registries. Published stable 0.1.0 remains available. Until publication use the
+source-build recipe below. The Rust example uses the compatible 0.2.0 API; follow the
 [installation and quick-start guide](https://github.com/Joshua-Fields/pemba/blob/main/docs/guides/installation.md)
 for its clean source-build recipe, supported platforms and prerequisites.
 
@@ -152,7 +155,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-This is a complete `src/main.rs` for `pemba = "0.1.0"` (or the current-checkout dependency
+This is a complete `src/main.rs` for `pemba = "0.2.0"` (or the current-checkout dependency
 in the install guide), and the same example is a doctest on the `pemba` crate. For persistence, use
 `SqliteStore::open("app.db", SqliteConfig::default())` in place of `MemoryStore::new()`.
 
