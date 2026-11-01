@@ -1,9 +1,10 @@
 # Installation and quick starts
 
-These guides describe the published stable 0.1.0 API. Registry installation and
-transaction examples passed [T7.16 public verification](../RELEASE-0.1.0.md#t716-public-artifacts-and-live-deployment-verification--2026-10-30).
-For development builds, use the checkout recipes below.
-The [Rust quick start](../../README.md#rust-quick-start) uses the 0.1.0 constructors
+These guides describe 0.2.0, including async Postgres foreign writes and `pemba.aio`.
+Check [release evidence](../RELEASE-0.2.0.md) for publication and public verification;
+checkout recipes are available below. Version 0.1.0 retains its own documentation and
+[public verification record](../RELEASE-0.1.0.md#t716-public-artifacts-and-live-deployment-verification--2026-10-30).
+The [Rust quick start](../../README.md#rust-quick-start) uses the compatible constructors
 and `Engine::check_str`; older alphas need their own versioned examples.
 See [CHANGELOG](../../CHANGELOG.md) for migrations and [API documentation](../06-api.md).
 
@@ -32,10 +33,10 @@ application drivers have their own installation requirements.
 python -m venv .venv
 # POSIX: . .venv/bin/activate
 # PowerShell: .venv\Scripts\Activate.ps1
-python -m pip install pemba==0.1.0
-cargo add pemba@0.1.0
-cargo add pemba-store-postgres@0.1.0
-cargo install pemba-cli@0.1.0 --locked
+python -m pip install pemba==0.2.0
+cargo add pemba@0.2.0
+cargo add pemba-store-postgres@0.2.0
+cargo install pemba-cli@0.2.0 --locked
 pemba --help
 ```
 

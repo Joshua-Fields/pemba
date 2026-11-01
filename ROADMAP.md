@@ -57,8 +57,9 @@ read helpers. See [implementation and verification evidence](docs/T5.13-ASYNC.md
 The maintainer approved the resolve helper and cancellation handoff in OQ-064.
 
 These additions are **unreleased**: published stable 0.1.0 retains synchronous
-Postgres foreign writes. A future release needs its own version decision, preparation
-and verification. The bridge benchmark establishes no performance threshold requiring
+Postgres foreign writes. The maintainer selected **0.2.0** for the next release;
+[candidate preparation and verification](docs/RELEASE-0.2.0.md) are in progress.
+This is not release approval or publication. The bridge benchmark establishes no performance threshold requiring
 a sans-IO redesign; that remains a separately scoped candidate. M8 and the later
 candidates below have not started.
 

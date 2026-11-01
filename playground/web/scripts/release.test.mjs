@@ -91,6 +91,16 @@ describe('changelogSection', () => {
     expect(changelogSection(text, '0.1.0-alpha.4')).toMatch(/\S/);
   });
 
+  it('extracts the async release notes without including historical stable notes', () => {
+    const text = fs.readFileSync(new URL('../../../CHANGELOG.md', import.meta.url), 'utf8');
+    const notes = changelogSection(text, '0.2.0');
+    expect(notes).toContain('write_async');
+    expect(notes).toContain('pemba.aio');
+    expect(notes).not.toContain('The first stable API release');
+    expect(isPrerelease('0.2.0')).toBe(false);
+    expect(isPrerelease('0.2.0-rc.1')).toBe(true);
+  });
+
   it('extracts the prepared stable migration notes and classifies the release correctly', () => {
     const text = fs.readFileSync(new URL('../../../CHANGELOG.md', import.meta.url), 'utf8');
     const notes = changelogSection(text, '0.1.0');

@@ -477,6 +477,10 @@ The maintainer approved OQ-064's resolve helper and cancellation handoff.
 remote workflows and benchmark results. This does not change published stable 0.1.0
 or complete M7/T7.17; any future release remains a separate decision and verification.
 
+The maintainer selected 0.2.0 for the additive async release on 2026-11-01.
+[Release preparation](RELEASE-0.2.0.md) follows `09` §4.1; no additional feature,
+tagging, publication or human sign-off is authorized by that version decision.
+
 ---
 
 ## M6 — Playground

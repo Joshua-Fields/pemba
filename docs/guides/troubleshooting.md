@@ -13,7 +13,7 @@ or unrepresentable unsigned limits can raise `OverflowError` before engine valid
 | Current Rust example fails with an alpha dependency | Current docs use 0.1.0 constructors and `check_str`; use matching 0.1.0 dependencies or the alpha tag's own docs |
 | SQLite `StorageError` on opening | Interpreter SQLite >=3.26.0 and `sqlite3.threadsafety > 0`; do not install a second SQLite build to bypass this |
 | `ForeignConnectionMismatch` | Same file (not an in-memory SQLite connection), or same Postgres cluster/database; configured Postgres schema is fixed by the engine |
-| Foreign-write `ValueError` / `TypeError` | Transaction already open and correct connection type; sync `write` needs a synchronous driver. T5.13 development checkouts use `write_async` for supported async Postgres drivers |
+| Foreign-write `ValueError` / `TypeError` | Transaction already open and correct connection type; sync `write` needs a synchronous driver. Version 0.2.0 uses `write_async` for supported async Postgres drivers |
 | `RevisionPending` / future revision | Commit first; engine reads cannot see uncommitted data; AtLeast does not wait indefinitely |
 | `WriteRolledBack` | Discard the Postgres pending token; SQLite rollback cannot be detected from its known number |
 | `REVISION_EXPIRED` | GC passed your revision; restart pagination from a fresh snapshot if appropriate |
@@ -62,7 +62,7 @@ or another Zanzibar service when many languages/services need centralised permis
 horizontal or multi-region scale, caveats/expiration/Watch, or a mature supported
 product with service-level support commitments. pemba's 0.1.0 API contract carries
 best-effort maintenance, without an SLA, guaranteed patch or long-term support.
-Stable 0.1.0 has no native async API; T5.13 development adds the specified thread bridge.
+Stable 0.1.0 has no native async API; 0.2.0 adds the specified thread bridge.
 No supported WASM package,
 SpiceDB wire compatibility, distributed dispatch or server mode is promised here.
 WASM is the browser playground build only. Review semantic differences before

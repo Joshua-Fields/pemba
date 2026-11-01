@@ -6,11 +6,16 @@ All notable changes to pemba are recorded here. The format is based on
 0.1.0 is frozen as specified in `docs/06-api.md`; documented non-exhaustive extension
 points remain. Earlier alpha releases could break the API.
 
-The Rust crates and the Python package share version `0.1.0`. This section is prepared
-release content; publication and exact-candidate human approval are tracked in
-`docs/RELEASE-0.1.0.md`, not implied by a changelog heading.
+The Rust crates and the Python package share version `0.2.0`.
+This is prepared release content, not publication evidence. Exact-candidate
+verification and human approval are tracked in `docs/RELEASE-0.2.0.md`.
+Published stable 0.1.0 remains available with its original release evidence.
 
 ## [Unreleased]
+
+## [0.2.0] - 2026-11-01
+
+An additive async Python release; synchronous APIs and storage formats are unchanged.
 
 ### Added
 
@@ -283,7 +288,8 @@ First public pre-release.
 - The `pemba` CLI (`pemba-cli`): `schema validate`, `schema fmt` (experimental; keeps
   comments) and `test`, which runs YAML fixture files.
 
-[Unreleased]: https://github.com/Joshua-Fields/pemba/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/Joshua-Fields/pemba/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/Joshua-Fields/pemba/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/Joshua-Fields/pemba/compare/v0.1.0-alpha.4...v0.1.0
 [0.1.0-alpha.4]: https://github.com/Joshua-Fields/pemba/compare/v0.1.0-alpha.3...v0.1.0-alpha.4
 [0.1.0-alpha.3]: https://github.com/Joshua-Fields/pemba/compare/v0.1.0-alpha.2...v0.1.0-alpha.3
