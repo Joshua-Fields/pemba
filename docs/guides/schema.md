@@ -12,7 +12,8 @@ wildcards (`user:*`), union `+`, intersection `&`, exclusion `-`, and arrows
 `parent->view`, `parent.any(view)` and `parent.all(view)`. Type prefixes such as
 `tenant/document` and line/block/doc comments are supported. Parenthesise mixed
 operators: `a + b & c` is rejected with `E_AMBIGUOUS_OPERATORS`, rather than applying
-SpiceDB's union precedence. Arrows cannot chain or walk a wildcard-allowing relation.
+SpiceDB's union precedence. Arrows cannot chain (`E_ARROW_CHAIN`) or walk a
+wildcard-allowing relation (`E_ARROW_OVER_WILDCARD`).
 
 Caveats/CEL, expiration, `use` directives, `self`, `nil`, permission type annotations
 and functions other than `.any` / `.all` are rejected as unsupported features.

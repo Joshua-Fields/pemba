@@ -113,8 +113,43 @@ for psycopg use `SerializationFailure`/`DeadlockDetected`, for SQLAlchemy inspec
 underlying `OperationalError.orig.sqlstate`. A retry is a new transaction, with a new
 pending token, and must not repeat external side effects unintentionally. A `23505`
 unique violation is not a blanket serialization retry; an already-aborted transaction
-(`25P02`) needs rollback. The [README retry example](../../README.md#postgres) shows the
-psycopg pattern.
+(`25P02`) needs rollback. If an app deferred constraint waits on a lock held by a
+transaction that is itself waiting to commit relationships, Postgres reports a deadlock,
+which pemba maps to the same retryable `TransactionConflictError`.
+
+The psycopg pattern:
+
+```python
+import random, time
+import psycopg
+from pemba import TransactionConflictError
+
+RETRYABLE = (TransactionConflictError, psycopg.errors.SerializationFailure,
+             psycopg.errors.DeadlockDetected)
+
+def with_retries(attempt, tries=10):
+    for n in range(tries):
+        try:
+            return attempt()
+        except RETRYABLE:
+            if n == tries - 1:
+                raise
+            time.sleep(random.uniform(0, min(1.0, 0.01 * 2**n)))
+
+conn = psycopg.connect(dsn, autocommit=True)
+conn.isolation_level = psycopg.IsolationLevel.SERIALIZABLE
+
+def share():
+    with conn.transaction():                 # BEGIN … COMMIT, rolled back on error
+        conn.execute("INSERT INTO documents (id) VALUES ('readme')")
+        return engine.write(touch=["document:readme#viewer@user:anne"], conn=conn)
+
+pending = with_retries(share)
+```
+
+With SQLAlchemy, retry on `TransactionConflictError` and on `sqlalchemy.exc.OperationalError`
+whose `orig.sqlstate` is `40001` or `40P01`, running `with Session(db) as s, s.begin(): ...`
+afresh each attempt.
 
 ## Sync and async integration
 
@@ -129,9 +164,9 @@ the driver version aligned.
 For an async application, a worker thread may own a sync connection and the complete
 app transaction. SQLAlchemy `AsyncSession.run_sync` is also supported: inside
 `session.begin()`, await `session.run_sync(lambda s: engine.write(..., conn=s))` and
-resolve after the enclosing commit. These routes remain available in stable 0.1.0.
+resolve after the enclosing commit.
 
-Version 0.2.0 additionally accepts `await engine.write_async(...,
+Since 0.2.0, pemba also accepts `await engine.write_async(...,
 conn=conn)` for psycopg `AsyncConnection`, asyncpg `Connection`, and SQLAlchemy
 `AsyncSession`/`AsyncConnection` over either driver. Open the app transaction first:
 
@@ -155,5 +190,4 @@ Never release/reuse the connection while a write is running. Driver/server timeo
 can bound an individual database statement; cancellation does not prove it did not run.
 
 Next: [troubleshooting](troubleshooting.md), [schema](schema.md),
-[installation](installation.md). The separate T7.5 task adds runnable commit/rollback
-tutorials; this guide does not claim those examples have already shipped.
+[installation](installation.md).

@@ -1,7 +1,60 @@
-# 0.2.0 release candidate and verification
+# 0.2.0 release record
 
-**Unpublished candidate. No release approval, tag, upload or deployment is supplied
-by this document.** Published stable 0.1.0 and its historical evidence remain unchanged.
+**0.2.0 is tagged and published.** Publication is recorded below. The sections after it
+are the preparation text as written before publication, kept as evidence. This document
+supplies no approval. Published stable 0.1.0 and its historical evidence remain unchanged.
+
+## Publication record
+
+Read from public sources on 2026-11-01. This is an observation of what is public, not a
+record of who approved it.
+
+**Git and GitHub.** Tag `v0.2.0` is a lightweight tag on
+`7d890758c391c1ace82ae34b766bcde7a200c787`, the merge of release PR #97. The
+[GitHub Release](https://github.com/Joshua-Fields/pemba/releases/tag/v0.2.0) was published
+at 2026-11-01T12:42:11Z and is neither a draft nor a pre-release.
+
+**crates.io** (`crates.io/api/v1/crates/<name>`). All nine shipping crates report 0.2.0 as
+their newest version, none yanked. Upload order matches the order required below.
+
+| Crate | Version | Uploaded (UTC) |
+|---|---|---|
+| `pemba-schema` | 0.2.0 | 2026-11-01T12:40:32Z |
+| `pemba-core` | 0.2.0 | 2026-11-01T12:40:42Z |
+| `pemba-sqlite-common` | 0.2.0 | 2026-11-01T12:40:50Z |
+| `pemba-store-memory` | 0.2.0 | 2026-11-01T12:40:56Z |
+| `pemba-store-sqlite` | 0.2.0 | 2026-11-01T12:41:03Z |
+| `pemba-store-postgres` | 0.2.0 | 2026-11-01T12:41:12Z |
+| `pemba-fixtures` | 0.2.0 | 2026-11-01T12:41:20Z |
+| `pemba` | 0.2.0 | 2026-11-01T12:41:33Z |
+| `pemba-cli` | 0.2.0 | 2026-11-01T12:41:44Z |
+
+**PyPI** (`pypi.org/pypi/pemba/json`). `pemba` reports 0.2.0 as its latest version, with
+none of these files yanked. They were uploaded from 2026-11-01T12:45:36Z to 12:45:44Z:
+
+- `pemba-0.2.0-cp311-abi3-macosx_10_12_x86_64.whl`
+- `pemba-0.2.0-cp311-abi3-macosx_11_0_arm64.whl`
+- `pemba-0.2.0-cp311-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl`
+- `pemba-0.2.0-cp311-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl`
+- `pemba-0.2.0-cp311-abi3-win_amd64.whl`
+- `pemba-0.2.0.tar.gz`
+
+### Human items, not confirmed by this record
+
+Public metadata cannot establish any of these. They remain for the maintainer to confirm:
+
+- [ ] Explicit approval of the exact candidate SHA before merge, tag and publication.
+- [ ] Protected `pypi` environment review of the tag artifacts.
+- [ ] Authenticated registry ownership, publisher, access and 2FA settings.
+- [ ] Private security report form and its notifications.
+- [ ] Announcement decision, and M7/T7.17 community activation.
+
+### Not checked by this record
+
+The post-publication checks named at the end of this document were not run here: registry
+installs, docs.rs, release assets, and the live documentation and playground routes.
+
+## Preparation record
 
 The maintainer explicitly selected 0.2.0 in this chat on 2026-11-01, authorizing
 release preparation and verification only. Base main is

@@ -4,84 +4,18 @@
 
 # pemba
 
-> pemba was formerly developed under the codename warden.
+pemba is an **embedded, Zanzibar-style authorisation engine** for Rust and Python: it runs
+inside your process and keeps relationships in your own SQLite or Postgres database, so a
+permission write can **join your application's database transaction**. The row you insert
+and the relationship that grants access to it commit or roll back together, which removes
+the dual-write problem: no second service to keep in sync, no outbox and no reconciliation
+job. When an answer surprises you, **explain traces** show which relationship granted or
+denied it. **[Try it in the browser](https://joshua-fields.github.io/pemba/)**: the
+playground runs the real engine locally, and nothing you type leaves your machine.
 
-pemba is an **embedded, Zanzibar-style authorisation engine** written in Rust, with Python
-bindings: relationship-based access control (ReBAC) that runs inside your process and keeps
-its data in your database. Think "SQLite for authorisation".
-
-You describe your permission model in a schema (a strict subset of
-[SpiceDB](https://github.com/authzed/spicedb)'s schema language), write relationships such
-as `document:readme#viewer@user:anne`, and ask questions: *can Anne view the readme?*,
-*which documents can Anne view?*, *who can view the readme?* Answers follow groups, folders,
-nested teams and exclusions, and every answer names the revision it was computed at.
-
-Because the engine is in-process, a relationship write can **join your application's own
-database transaction**: the row you insert and the relationship that grants access to it
-commit or roll back together. There is no second system to keep in sync, so no outbox, no
-reconciliation job, and no window where a document exists that nobody can open.
-
-<p align="center">
-  <img src="https://raw.githubusercontent.com/Joshua-Fields/pemba/main/assets/transactional-writes.svg" alt="Diagram. Left, service-based authorisation: the application writes the row to its own database and the relationship to a separate authorisation service with its own database, a dual write that lets the two drift apart if either fails. Right, pemba: the application writes the row and the relationship to its own database in one transaction." width="900">
-</p>
-
-**Version: 0.2.0.** Adds async Postgres foreign writes and
-`pemba.aio` read helpers; synchronous APIs and storage formats are unchanged.
-The API contract is documented in
-[the API contract](https://github.com/Joshua-Fields/pemba/blob/main/docs/06-api.md).
-`check`, `lookup_resources`,
-`lookup_subjects`, the memory, SQLite and Postgres stores, transactional writes and the
-Python bindings are implemented and tested, including against SpiceDB. A versioned
-checkout is not publication evidence: consult [releases](https://github.com/Joshua-Fields/pemba/releases)
-and the [release gates](https://github.com/Joshua-Fields/pemba/blob/main/docs/RELEASE-0.2.0.md).
-
-**[Try it in the browser](https://joshua-fields.github.io/pemba/)**: the playground runs
-the real engine, compiled to WebAssembly, in your browser. Write a schema and
-relationships, run checks and lookups, see why an answer was reached, and share a link.
-Nothing you type leaves your machine.
-
-## Install
-
-```bash
-python -m pip install pemba==0.2.0                  # Python 3.11 or newer; includes Postgres
-cargo add pemba@0.2.0                              # Rust library
-cargo add pemba-store-postgres@0.2.0                 # Rust: the Postgres store
-cargo install pemba-cli@0.2.0 --locked              # `pemba` command-line tool
-```
-
-These commands target 0.2.0. Consult the release evidence and published releases above
-for registry availability; a versioned checkout alone does not establish publication.
-The source-build recipe below is also available. The Rust example uses the compatible
-0.2.0 API; follow the
-[installation and quick-start guide](https://github.com/Joshua-Fields/pemba/blob/main/docs/guides/installation.md)
-for its clean source-build recipe, supported platforms and prerequisites.
-
-User guides: [schema](https://github.com/Joshua-Fields/pemba/blob/main/docs/guides/schema.md),
-[consistency and history](https://github.com/Joshua-Fields/pemba/blob/main/docs/guides/consistency.md),
-[transactions and Postgres operations](https://github.com/Joshua-Fields/pemba/blob/main/docs/guides/transactions.md),
-[troubleshooting and limits](https://github.com/Joshua-Fields/pemba/blob/main/docs/guides/troubleshooting.md).
-
-### From source
-
-**Python** (Rust 1.99, pinned in `rust-toolchain.toml`):
-
-```bash
-git clone https://github.com/Joshua-Fields/pemba
-cd pemba/crates/pemba-py
-python -m venv .venv && . .venv/bin/activate   # Windows: .venv\Scripts\activate
-pip install maturin
-maturin develop --release
-```
-
-**Rust:**
-
-```toml
-[dependencies]
-pemba = { git = "https://github.com/Joshua-Fields/pemba" }
-```
-
-The `pemba` crate re-exports the engine and both stores (features `sqlite` and `memory`,
-both on by default).
+`pip install pemba` (Python 3.11 or newer) or `cargo add pemba`. The latest release is
+0.2.0; see the [roadmap](https://github.com/Joshua-Fields/pemba/blob/main/ROADMAP.md) for
+what's next.
 
 ## Python quick start
 
@@ -156,13 +90,60 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-This is a complete `src/main.rs` for `pemba = "0.2.0"` (or the current-checkout dependency
-in the install guide), and the same example is a doctest on the `pemba` crate. For persistence, use
-`SqliteStore::open("app.db", SqliteConfig::default())` in place of `MemoryStore::new()`.
+This is a complete `src/main.rs` for `pemba = "0.2.0"`, and the same example is a doctest on
+the `pemba` crate. For persistence, use `SqliteStore::open("app.db", SqliteConfig::default())`
+in place of `MemoryStore::new()`.
+
+## pemba vs SpiceDB: when to use which
+
+| | pemba | [SpiceDB](https://github.com/authzed/spicedb) |
+|---|---|---|
+| **Runs as** | A library in your process, with no server mode | A service you deploy, reached over its API |
+| **Data lives in** | Your own SQLite or Postgres database | Its own datastore |
+| **Writing a row and its permission** | One transaction in your database | Two writes to two systems, which you keep in sync |
+| **Languages** | Rust and Python only | Any language, through its API and client libraries |
+| **Caveats, expiring relationships, Watch** | Not supported | Supported |
+| **Scale and support** | One database, no distributed engine; best-effort maintenance with no SLA | Horizontal and multi-region; a mature product with commercial support available |
+
+Choose pemba for one application, or a few services sharing one database, that wants
+fine-grained sharing without running another service. Choose SpiceDB when many services in
+many languages need the same permissions, or when you need anything in its column that
+pemba lacks.
+
+pemba's schema language is a strict subset of SpiceDB's, so if you outgrow pemba your
+schema and relationships move over as they are. The exceptions are listed in
+[`KNOWN_DIFFERENCES.md`](https://github.com/Joshua-Fields/pemba/blob/main/crates/pemba-difftest/KNOWN_DIFFERENCES.md):
+SpiceDB refuses some schemas where a wildcard relation is reached through a subject set,
+and answers differ for cyclic data and for wildcards against subject sets.
+
+## Install
+
+```bash
+python -m pip install pemba==0.2.0                  # Python 3.11 or newer; includes Postgres
+cargo add pemba@0.2.0                              # Rust library
+cargo add pemba-store-postgres@0.2.0                 # Rust: the Postgres store
+cargo install pemba-cli@0.2.0 --locked              # `pemba` command-line tool
+```
+
+The `pemba` crate re-exports the engine and both stores (features `sqlite` and `memory`,
+both on by default). Supported platforms and building from source are in the
+[installation guide](https://github.com/Joshua-Fields/pemba/blob/main/docs/guides/installation.md).
+
+User guides: [schema](https://github.com/Joshua-Fields/pemba/blob/main/docs/guides/schema.md),
+[consistency and history](https://github.com/Joshua-Fields/pemba/blob/main/docs/guides/consistency.md),
+[transactions and Postgres operations](https://github.com/Joshua-Fields/pemba/blob/main/docs/guides/transactions.md),
+[transactional-write tutorial](https://github.com/Joshua-Fields/pemba/blob/main/docs/guides/transactional-tutorial.md),
+[troubleshooting and limits](https://github.com/Joshua-Fields/pemba/blob/main/docs/guides/troubleshooting.md).
+The [API contract](https://github.com/Joshua-Fields/pemba/blob/main/docs/06-api.md) is the
+full reference.
 
 ## Transactional writes
 
 This is the headline feature. pemba's tables live in your database, prefixed `pemba_`, and a write can run inside a transaction you opened:
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/Joshua-Fields/pemba/main/assets/transactional-writes.svg" alt="Diagram. Left, service-based authorisation: the application writes the row to its own database and the relationship to a separate authorisation service with its own database, a dual write that lets the two drift apart if either fails. Right, pemba: the application writes the row and the relationship to its own database in one transaction." width="900">
+</p>
 
 - **Python:** pass `conn=` (a `sqlite3.Connection` on the same file, with a transaction
   open) to `engine.write`, as in the quick start. pemba neither commits nor rolls back.
@@ -214,74 +195,14 @@ let store = PostgresStore::open("postgres://app@db/app", PostgresConfig::default
 let engine = Engine::builder().store(store).build()?;
 ```
 
-From async Rust, call the engine through `tokio::task::spawn_blocking`: the client is
-blocking. From async Python, read through `asyncio.to_thread(engine.check, ...)`, and join
-a transaction through `AsyncSession.run_sync(lambda s: engine.write(..., conn=s))`.
+From async Python, join a psycopg, asyncpg or SQLAlchemy async transaction with
+`await engine.write_async(..., conn=conn)`, and read through `pemba.aio`. From async Rust,
+call the engine through `tokio::task::spawn_blocking`: the client is blocking.
 
 **Migrations are a deploy step.** `auto_migrate` defaults to off on Postgres: run
 `PostgresStore::migrate` (Rust) or open once with `auto_migrate=True` (Python) as the role
 that owns the schema, before the app starts. An app that opens unmigrated tables gets
-`NotMigrated`.
-
-**Privileges.** Migrating needs `CREATE` on the schema. The app's role needs `USAGE` on the
-schema, `SELECT, INSERT, UPDATE` on its tables, `USAGE` on its sequences, and `DELETE` on
-`pemba_relationships`, `pemba_pending` and `pemba_revisions` if it runs `gc`. Nothing more:
-no superuser, no extension.
-
-**Revisions are assigned at commit.** Concurrent writers commit in any order, so a write's
-revision is drawn when its transaction commits, and revision order is commit order. A
-revision drawn by a commit that then fails is skipped: numbers only go up, but can have
-gaps. Reading at a skipped number gives the state of the revision before it.
-
-**Don't run `SET CONSTRAINTS ALL IMMEDIATE` in a long transaction that writes
-relationships; name your own constraints instead.** It makes pemba assign the revision
-right away, which holds a store-wide lock until that transaction ends: every other pemba
-commit waits for it. Django's `check_constraints()` does this (Django's `TestCase` calls it
-after every test). pemba still works, raises the server `WARNING`, and warns once per
-engine (`pemba.PembaWarning` in Python, a `tracing` warning in Rust).
-
-**SERIALIZABLE and REPEATABLE READ: retry with backoff.** In those isolation levels a
-transaction can fail with a serialization failure (`40001`) or a deadlock (`40P01`), at any
-statement or at `COMMIT`. pemba reports both as the retryable `TransactionConflictError`
-(`TRANSACTION_CONFLICT`). Roll back and run the **whole** transaction again, waiting a
-random 0 to min(1 s, 10 ms × 2ⁿ) before attempt n. Retrying at once, or retrying only the
-pemba call, fails again.
-
-```python
-import random, time
-import psycopg
-from pemba import TransactionConflictError
-
-RETRYABLE = (TransactionConflictError, psycopg.errors.SerializationFailure,
-             psycopg.errors.DeadlockDetected)
-
-def with_retries(attempt, tries=10):
-    for n in range(tries):
-        try:
-            return attempt()
-        except RETRYABLE:
-            if n == tries - 1:
-                raise
-            time.sleep(random.uniform(0, min(1.0, 0.01 * 2**n)))
-
-conn = psycopg.connect(dsn, autocommit=True)
-conn.isolation_level = psycopg.IsolationLevel.SERIALIZABLE
-
-def share():
-    with conn.transaction():                 # BEGIN … COMMIT, rolled back on error
-        conn.execute("INSERT INTO documents (id) VALUES ('readme')")
-        return engine.write(touch=["document:readme#viewer@user:anne"], conn=conn)
-
-pending = with_retries(share)
-```
-
-With SQLAlchemy, retry on `TransactionConflictError` and on `sqlalchemy.exc.OperationalError`
-whose `orig.sqlstate` is `40001` or `40P01`, running `with Session(db) as s, s.begin(): ...`
-afresh each attempt.
-
-**PgBouncer.** Session pooling works. Transaction pooling works too: pemba keeps no session
-state, but the engine's connections use prepared statements, which need PgBouncer 1.21 or
-newer with `max_prepared_statements` set.
+`NotMigrated`. No superuser or extension is needed.
 
 **Latency is round trips.** Each statement is a round trip to the server (prepared
 statements are cached per connection), so cost scales with your network, not with the
@@ -290,25 +211,14 @@ adds about 3, so a document 30 folders deep costs 99. A `lookup_resources` over 
 documents costs about 500. A write is 10 round trips whatever its size, up to the batch
 limit of 1,000. On a CI runner where a round trip took about 150 µs, that came to 0.76 ms
 for a direct check, 16 ms for 30 folders and 19 ms for a 1,000-tuple write
-([`benches/RESULTS.md`](benches/RESULTS.md)). Keep the database close to the app, and
-prefer shallow hierarchies on hot paths. Fewer round trips for deep hierarchies is planned
-after the first Postgres release.
+([`benches/RESULTS.md`](https://github.com/Joshua-Fields/pemba/blob/main/benches/RESULTS.md)).
+Keep the database close to the app, and prefer shallow hierarchies on hot paths. Fewer round
+trips for deep hierarchies is planned for 0.3.0.
 
-**Garbage collection and autovacuum.** `engine.gc(keep_from)` raises the horizon, deletes
-history below it, and compacts what is left, each step in its own short transaction off
-your write path; run it from a scheduled job. It leaves dead rows like any bulk delete:
-autovacuum's defaults handle them, and after a first GC of a large backlog a manual
-`VACUUM (ANALYZE)` of `<schema>.pemba_relationships` reclaims space sooner. A long-open
-transaction anywhere in the database holds back vacuum, as always in Postgres.
-
-**Two-phase commit.** pemba assigns the revision at `PREPARE TRANSACTION`, and a prepared
-transaction keeps its locks, so every other pemba commit waits until `COMMIT PREPARED` or
-`ROLLBACK PREPARED`. Keep the window short.
-
-**Your own deferred constraints** run in event order with pemba's, while pemba's lock is
-held. If one waits on a lock held by a transaction that is itself waiting to commit
-relationships, Postgres reports a deadlock, which pemba maps to the retryable
-`TransactionConflictError`.
+Before production, read the
+[Postgres operations guide](https://github.com/Joshua-Fields/pemba/blob/main/docs/guides/transactions.md):
+role privileges, TLS, PgBouncer, why not to run `SET CONSTRAINTS ALL IMMEDIATE` in a long
+transaction, retrying SERIALIZABLE and REPEATABLE READ transactions, and two-phase commit.
 
 ## Schema guide
 
@@ -342,53 +252,29 @@ definition document {
 }
 ```
 
-**Supported:**
-
-- Allowed subject types: objects (`user`), subject sets (`group#member`) and wildcards
-  (`user:*`).
-- Operators: union `+`, intersection `&`, exclusion `-`.
-- Arrows: `parent->view`, also written `parent.any(view)`, and `parent.all(view)` (every
-  related object must grant it).
-- Type prefixes (`tenant/document`), `//` and `/* */` comments, and `/** */` doc comments.
-- Recursive data, such as groups that contain each other, evaluated to a fixed point.
-
-**Differences from SpiceDB:**
+Union `+`, intersection `&`, exclusion `-`, arrows, subject sets, wildcards and recursive
+data are supported. The main differences from SpiceDB:
 
 - **No operator mixing.** Within one level of parentheses all operators must be the same:
   `a + b & c` is an error (`E_AMBIGUOUS_OPERATORS`), with a fix-it showing both readings.
-  SpiceDB parses it as `(a + b) & c`, which is easy to misread.
 - **Not supported, rejected with `E_UNSUPPORTED_FEATURE`:** caveats and `with`,
-  `with expiration`, `use` directives (`use typechecking`, `use self`), the `self` keyword,
-  `nil`, permission type annotations, and functions other than `.any` / `.all`.
-- **Arrows** may only walk relations that allow no wildcard (`E_ARROW_OVER_WILDCARD`), and
-  cannot be chained (`a->b->c`, `E_ARROW_CHAIN`).
+  `with expiration`, `use` directives, the `self` keyword, `nil`, permission type
+  annotations, and functions other than `.any` / `.all`.
 - **Cycles in data** (a group containing itself) get an answer in pemba; SpiceDB reports
   `max depth exceeded`.
-- **Wildcards never match subject sets.** A stored `t:*` grants every *object* of type
-  `t`, never a subject set `t:x#r`. Where SpiceDB would apply it to a subject set on the
-  subtracted side of an exclusion, pemba fails with `AMBIGUOUS_WILDCARD_EXCLUSION` rather
-  than guess.
-- Every known difference, with repros and how often it appeared in differential testing
-  against SpiceDB 1.56.2, is in
-  [`KNOWN_DIFFERENCES.md`](https://github.com/Joshua-Fields/pemba/blob/main/crates/pemba-difftest/KNOWN_DIFFERENCES.md).
+- **Wildcards never match subject sets.**
 
-**Changing a schema** that has data is checked: `write_schema` refuses a change that would
-orphan live relationships, such as removing a relation or an allowed type that is still in
-use (`SchemaChangeOrphansError` in Python, listing each group and its count). Delete those
-relationships first.
-
-**Tooling:** the `pemba` CLI validates and formats schemas (`pemba schema validate`,
-`pemba schema fmt`, which keeps comments), runs YAML fixture tests (`pemba test`) and
-explains single checks (`pemba check`, below).
-`Engine.validate_schema` returns the same diagnostics from Python.
+The [schema guide](https://github.com/Joshua-Fields/pemba/blob/main/docs/guides/schema.md)
+covers the full syntax, schema changes and tooling (`pemba schema validate`,
+`pemba schema fmt`, `pemba test`). Every known difference, with repros and how often it
+appeared in differential testing against SpiceDB 1.56.2, is in
+[`KNOWN_DIFFERENCES.md`](https://github.com/Joshua-Fields/pemba/blob/main/crates/pemba-difftest/KNOWN_DIFFERENCES.md).
 
 ## Consistency guide
 
 Every write commits at a new **revision**: one counter per store that only goes up,
-starting at 1. On Postgres it can skip numbers (a revision is drawn at commit and lost if
-the commit then fails). Reading at a skipped number gives the state of the revision before
-it. Every read resolves its consistency to exactly one revision when it starts, and reads
-only that snapshot, so one answer never mixes two points in time.
+starting at 1. Every read resolves its consistency to exactly one revision when it starts,
+and reads only that snapshot, so one answer never mixes two points in time.
 
 | Python | Rust | Evaluates at |
 |---|---|---|
@@ -399,15 +285,13 @@ only that snapshot, so one answer never mixes two points in time.
 - **Read your writes:** pass the revision a write returned as `at_least=`. In one process
   `Latest` already sees it. `at_least` matters when another process or connection did the
   write.
-- **Paging:** read later pages of `lookup_resources` with `at_exactly=` the first page's
-  revision. `iter_resources` (Python) does this for you.
-- **`at_exactly` is not an audit log.** It applies the *current* schema to the data as of
-  that revision, not what was allowed then.
 - **One write call, one revision.** Two `write` calls in one transaction commit at two
   consecutive revisions, and `at_exactly` the first shows the transaction half-applied.
   Pass all of a transaction's updates to one `write` call when that matters.
-- **History** is kept until you call `gc(keep_from)`. Reads before `keep_from` then raise
-  `ConsistencyError` (`REVISION_EXPIRED`).
+
+Paging, revision gaps on Postgres, garbage collection and why `at_exactly` is not an audit
+log are in the
+[consistency guide](https://github.com/Joshua-Fields/pemba/blob/main/docs/guides/consistency.md).
 
 **Errors fail closed.** Evaluation never turns a problem (store error, depth limit, an
 undefined cycle) into `False` or `True`. It raises a `PembaError` subclass in Python and
@@ -451,24 +335,17 @@ answer, and costs nothing when you call plain `check`.
 
 To try a model without writing any code, paste the schema and relationships into the
 [playground](https://joshua-fields.github.io/pemba/): its explain tree shows the same
-steps for any check, and a shared link reproduces it exactly.
+steps for any check, and a shared link reproduces it exactly. Its in-memory store cannot
+show a real commit or rollback; the
+[tutorial](https://github.com/Joshua-Fields/pemba/blob/main/docs/guides/transactional-tutorial.md)
+does.
 
 ## Limits
 
-Defaults, configurable per engine (`EngineConfig` in Rust; `max_depth` in Python):
-
-| Limit | Default |
-|---|---|
-| Evaluation depth (`max_depth`) | 50 |
-| Operations per write | 1 000 |
-| Rows per `delete_relationships` call | 10 000 |
-| Results per lookup page | 1 000 |
-| Nodes visited by one `lookup_resources` | 200 000 |
-| Relationships read per node in `check` | 100 000 |
-| Store reads per `check` | 200 000 |
-| Nodes recorded by one `check_with_trace` | 10 000 (past that the trace is marked truncated; the answer is unaffected) |
-
-Hitting a limit raises an error (`EvaluationLimitError` in Python); it never answers.
+Evaluation is bounded, and hitting a bound raises an error (`EvaluationLimitError` in
+Python); it never answers. Defaults include a depth of 50, 1,000 operations per write and
+1,000 results per lookup page. The full table is in
+[bounds](https://github.com/Joshua-Fields/pemba/blob/main/docs/guides/troubleshooting.md#bounds).
 
 Also:
 
@@ -484,29 +361,9 @@ Also:
   HTTP round trip) are in
   [`benches/RESULTS.md`](https://github.com/Joshua-Fields/pemba/blob/main/benches/RESULTS.md).
   On Postgres each request costs a few network round trips, so latency follows your
-  network more than pemba: RESULTS.md has the figures and their caveats. No performance
-  targets are set yet.
+  network more than pemba: RESULTS.md has the figures and their caveats.
 - **Out of scope for now:** caveats/CEL conditions, expiring relationships, Watch /
   change feeds, a server mode, and bindings other than Python.
-
-## When to use SpiceDB instead
-
-pemba is for a single application, or a few services sharing one database, that wants
-fine-grained sharing without running another service. Use
-[SpiceDB](https://github.com/authzed/spicedb) (or another Zanzibar service) when:
-
-- many services, in many languages, need the same permissions;
-- you need horizontal scale, multi-region deployment, or more relationships than one
-  database comfortably holds;
-- you need caveats (conditional relationships), expiring relationships, or a Watch API;
-- you require service-level support commitments. pemba's 0.1.0 API contract comes
-  with best-effort maintenance, not a response SLA, guaranteed patch or long-term support.
-
-pemba's schema language is a strict subset of SpiceDB's, so if you outgrow pemba your
-schema and relationships move over as they are. The exceptions are listed in
-`KNOWN_DIFFERENCES.md`: SpiceDB refuses some schemas where a wildcard relation is reached
-through a subject set, and answers differ for cyclic data and for wildcards against subject
-sets.
 
 ## Testing
 
@@ -535,14 +392,14 @@ sets.
 The full specification is in [`docs/`](https://github.com/Joshua-Fields/pemba/tree/main/docs/):
 the data model, the schema language, how checks and lookups are evaluated, storage and
 transactions, the Rust and Python API (including the `--explain` and JSON trace formats),
-testing, and the roadmap. Start with
+and testing. Start with
 [the overview](https://github.com/Joshua-Fields/pemba/blob/main/docs/00-overview.md). Design
 decisions and the open questions, each with the choice currently in force, are recorded
 alongside it.
 
 ## Credits
 
-pemba's design draws on:
+pemba was formerly developed under the codename warden. Its design draws on:
 
 - [Zanzibar: Google's Consistent, Global Authorization System](https://research.google/pubs/zanzibar-googles-consistent-global-authorization-system/)
   (Pang et al., USENIX ATC 2019), for the relationship-based authorisation model.

@@ -21,11 +21,9 @@ transaction/isolation failures and dependency vulnerabilities through this route
 
 ## Supported versions
 
-The latest stable **0.1.x** release receives security and correctness maintenance on
-a **best-effort** basis. Older versions receive case-by-case consideration. Before
-the first stable release, available alpha releases and development builds receive
-case-by-case consideration; this policy does not claim that stable 0.1.0 has shipped.
-There is no response-time SLA, guaranteed patch or long-term support commitment.
+The latest stable release (currently **0.2.x**) receives security and correctness
+maintenance on a **best-effort** basis. Older versions, alpha releases and development
+builds receive case-by-case consideration. There is no response-time SLA, guaranteed patch or long-term support commitment.
 
 The supported products are the Rust crates/CLI and Python package within their
 documented scope. The browser playground uses WASM only for its own build; it does
@@ -45,15 +43,7 @@ this process does not promise a response or disclosure deadline.
 Normal bugs and feature requests without sensitive security details belong in
 [GitHub Issues](https://github.com/Joshua-Fields/pemba/issues).
 
-## Release safeguards and human gates
+## Release safeguards
 
-Security reporting activation and verification are human responsibilities. A policy
-file alone does not prove that the route is enabled or usable. The release review in
-[the 0.1.0 evidence index](docs/RELEASE-0.1.0.md#t78-security-reporting-and-release-safeguards)
-records observed settings, checks, findings and outstanding human verification.
-
-Publishing remains a human action after exact-candidate verification and approval.
-Normal PR runs must not publish packages or receive publishing credentials. The
-protected `pypi` environment requires human review before trusted publishing on a
-release tag. Crates.io publication, tags, release approval and launch activation remain
-the separate M7 human gates; this policy grants none of those approvals.
+Normal PR runs must not publish packages or receive publishing credentials, and
+publishing is a maintainer action. See [maintainer status](docs/MAINTAINER-STATUS.md#release-safeguards).
