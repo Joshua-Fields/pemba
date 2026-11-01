@@ -116,6 +116,7 @@ pub(crate) fn head_and_horizon(d: &PostgresDialect) -> String {
 pub(crate) fn open_snapshot(d: &PostgresDialect) -> String {
     format!(
         "BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY; \
+         SET LOCAL plan_cache_mode = force_generic_plan; \
          SELECT (SELECT max(rev) FROM {}), \
                 (SELECT value FROM {} WHERE key = 'gc_horizon'), \
                 (SELECT COALESCE(max(version), 0) FROM {})",
