@@ -1,3 +1,3 @@
 # The commits benches/pg-linux.sh benches, in order, as `<label> <commit>`.
 baseline ad0b5e9
-generic-plan e25709f
+generic-plan c7c36a9
