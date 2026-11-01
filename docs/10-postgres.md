@@ -897,6 +897,12 @@ Consequences:
   go in one simple-query message, one round trip instead of three. Every later read is pinned
   by that `SELECT`, as before, and the snapshot then holds the schema version. A failure
   there rolls back or closes the connection, as any snapshot's end does.
+- **Plans inside a snapshot (OQ-066):** the same message runs `SET LOCAL plan_cache_mode =
+  force_generic_plan`, because replanning a batch costs more than running it. It ends with the
+  transaction, so a pooled connection never keeps it. The first `read_reverse`,
+  `read_relationships` or `count_by_relation` below head sets it back to `auto`, for one more
+  round trip, once per snapshot: a generic plan there can hash the whole revision map. Reads
+  at the snapshot's head, point reads and batches stay on generic plans.
 - **TLS:** `tokio-postgres-rustls` 0.14.0, behind a default-on `tls` feature. T5.3 uses
   rustls 0.23 with the `ring` provider (its own `ClientConfig`, not the process default)
   and `rustls-native-certs` roots; `webpki-roots` is not used because its licence

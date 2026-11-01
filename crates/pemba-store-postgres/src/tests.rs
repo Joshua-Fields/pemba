@@ -24,7 +24,7 @@ use pemba_core::model::{
 };
 use pemba_core::store::{
     DeleteResult, GcStats, ReadStore, RelationCount, ReverseFilter, SchemaCheck, StoreError,
-    StoredSchema, WritableStore,
+    StoredSchema, SubjectRelMatch, WritableStore,
 };
 use pemba_core::write::Applied;
 use pemba_testkit::store_conformance;
@@ -350,6 +350,46 @@ fn snapshots_return_their_connection() {
         assert_eq!(snap.head_revision().unwrap(), Revision(0));
     }
     s.write(&touch(&["doc:1#viewer@user:anne"]), None).unwrap();
+}
+
+/// Generic plans last only as long as the snapshot, and leave it on the first open-ended read
+/// below head (OQ-066). Point reads and head reads keep them.
+#[test]
+fn a_snapshot_leaves_generic_plans_only_for_open_ended_reads_below_head() {
+    const GENERIC: &str = "force_generic_plan";
+    let Some(url) = pg_url() else { return };
+    let s = TestStore::new(&url, false);
+    let r1 = s.write(&touch(&["doc:1#viewer@user:anne"]), None).unwrap();
+    let r2 = s.write(&touch(&["doc:2#viewer@user:anne"]), None).unwrap();
+    let anne = ReverseFilter::new(
+        "user".parse().unwrap(),
+        "anne".to_owned(),
+        SubjectRelMatch::None,
+    );
+
+    let snap = s.store.begin_snapshot().unwrap();
+    assert_eq!(snap.plan_mode().unwrap(), GENERIC);
+    assert_eq!(snap.read_reverse(r2, &anne).unwrap().len(), 2);
+    assert_eq!(snap.plan_mode().unwrap(), GENERIC, "a head read has no map");
+    assert!(snap.exists(r1, &rel("doc:1#viewer@user:anne")).unwrap());
+    assert_eq!(
+        snap.plan_mode().unwrap(),
+        GENERIC,
+        "a point read probes by key"
+    );
+    assert_eq!(snap.read_reverse(r1, &anne).unwrap().len(), 1);
+    assert_eq!(snap.plan_mode().unwrap(), "auto");
+    assert_eq!(snap.read_reverse(r1, &anne).unwrap().len(), 1);
+    drop(snap);
+
+    // The mode ends with the transaction: a pooled connection never keeps it.
+    let mut lease = s.store.pool.lease().unwrap();
+    let row = lease
+        .client()
+        .unwrap()
+        .query_one("SELECT current_setting('plan_cache_mode')", &[])
+        .unwrap();
+    assert_eq!(row.get::<_, &str>(0), "auto");
 }
 
 // ---- native writes (docs/10-postgres.md §1.6.1) ----

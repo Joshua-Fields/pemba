@@ -10,6 +10,7 @@
 //! cheaper `deleted_batch IS NULL` form. The engine reads only through snapshots.
 
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use pemba_core::model::{
     ObjectRef, RelName, Relationship, RelationshipFilter, Revision, SubjectRef,
@@ -123,6 +124,11 @@ trait Source {
 
     fn with<T>(&self, f: impl FnOnce(&mut Conn) -> Result<T, StoreError>) -> Result<T, StoreError>;
 
+    /// Called before an open-ended read in `form`, whose cost depends on its values.
+    fn plan_for_values(&self, _form: Form) -> Result<(), StoreError> {
+        Ok(())
+    }
+
     fn check_readable(&self, rev: Revision) -> Result<Form, StoreError> {
         let (head, horizon) = self.bounds();
         if rev < horizon || rev > head {
@@ -181,6 +187,8 @@ pub(crate) struct Snapshot<'a> {
     head: Revision,
     horizon: Revision,
     schema_version: u64,
+    /// Whether the snapshot has left the generic plans it opens on.
+    custom_plans: AtomicBool,
 }
 
 impl Drop for Snapshot<'_> {
@@ -222,6 +230,21 @@ impl Source for Snapshot<'_> {
         let lease = guard.as_mut().ok_or(StoreError::Poisoned)?;
         f(lease.conn()?)
     }
+
+    /// Below head a generic plan can hash the whole revision map for a subject with few rows,
+    /// which grows with the map (OQ-066). One round trip, once, on the paths that can hit it.
+    /// Head reads have no map, and point reads and batches probe by key either way.
+    fn plan_for_values(&self, form: Form) -> Result<(), StoreError> {
+        if matches!(form, Form::Head) || self.custom_plans.swap(true, Ordering::Relaxed) {
+            return Ok(());
+        }
+        let mut guard = self.lease.lock().map_err(|_| StoreError::Poisoned)?;
+        let lease = guard.as_mut().ok_or(StoreError::Poisoned)?;
+        lease
+            .client()?
+            .batch_execute(sql::custom_plans())
+            .map_err(|e| db(&e))
+    }
 }
 
 impl PostgresStore {
@@ -233,9 +256,9 @@ impl PostgresStore {
     }
 
     /// Starts the snapshot's transaction and reads head, horizon and schema version as its
-    /// first statement, which fixes the snapshot every later read sees. One message, so one
-    /// round trip for all of it (OQ-065).
-    fn begin_snapshot(&self) -> Result<Snapshot<'_>, StoreError> {
+    /// first read, which fixes the snapshot every later read sees. One message, so one round
+    /// trip for all of it (OQ-065).
+    pub(crate) fn begin_snapshot(&self) -> Result<Snapshot<'_>, StoreError> {
         let mut lease = self.pool.lease()?;
         let opened = lease
             .client()?
@@ -247,6 +270,7 @@ impl PostgresStore {
             head: Revision(0),
             horizon: Revision(0),
             schema_version: 0,
+            custom_plans: AtomicBool::new(false),
         };
         let messages = opened.map_err(|e| db(&e))?;
         let row = messages
@@ -472,6 +496,7 @@ fn read_reverse(
     f: &ReverseFilter,
 ) -> Result<Vec<(ObjectRef, RelName)>, StoreError> {
     let form = src.check_readable(rev)?;
+    src.plan_for_values(form)?;
     let q = sql::read_reverse(src.dialect(), form, f);
     src.with(|c| run(c, &q))?
         .iter()
@@ -492,6 +517,7 @@ fn read_relationships(
     after: Option<&Relationship>,
 ) -> Result<Vec<Relationship>, StoreError> {
     let form = src.check_readable(rev)?;
+    src.plan_for_values(form)?;
     let q = sql::read_relationships(
         src.dialect(),
         form,
@@ -513,6 +539,7 @@ fn read_relationships(
 
 fn count_by_relation(src: &impl Source, rev: Revision) -> Result<Vec<RelationCount>, StoreError> {
     let form = src.check_readable(rev)?;
+    src.plan_for_values(form)?;
     let q = sql::count_by_relation(src.dialect(), form);
     src.with(|c| run(c, &q))?
         .iter()
@@ -564,6 +591,19 @@ fn schema_version(src: &impl Source) -> Result<u64, StoreError> {
             .map_err(|e| db(&e))
     })?;
     u64::try_from(version).map_err(|_| corrupt(format!("negative schema version {version}")))
+}
+
+#[cfg(test)]
+impl Snapshot<'_> {
+    /// The plan mode this snapshot's connection is on now.
+    pub(crate) fn plan_mode(&self) -> Result<String, StoreError> {
+        self.with(|c| {
+            let row = c
+                .query_one("SELECT current_setting('plan_cache_mode')", &[])
+                .map_err(|e| db(&e))?;
+            row.try_get(0).map_err(|e| db(&e))
+        })
+    }
 }
 
 /// The reads shared by the store and its snapshots; only head, horizon and `snapshot`

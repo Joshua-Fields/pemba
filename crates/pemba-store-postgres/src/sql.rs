@@ -111,11 +111,15 @@ pub(crate) fn head_and_horizon(d: &PostgresDialect) -> String {
     )
 }
 
-/// Starts a snapshot in one simple-query message: its transaction, then head, horizon and
-/// schema version as the first statement, which fixes what every later read sees (OQ-065).
+/// Starts a snapshot in one simple-query message: its transaction, the plan mode, then head,
+/// horizon and schema version as the first read, which fixes what every later read sees
+/// (OQ-065). Replanning a batch costs more than running it, and a small batch never earns a
+/// generic plan by itself, so a snapshot starts on generic plans (OQ-066). `SET LOCAL` ends
+/// with the transaction. For reads that need a plan for their values, see [`custom_plans`].
 pub(crate) fn open_snapshot(d: &PostgresDialect) -> String {
     format!(
         "BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY; \
+         SET LOCAL plan_cache_mode = force_generic_plan; \
          SELECT (SELECT max(rev) FROM {}), \
                 (SELECT value FROM {} WHERE key = 'gc_horizon'), \
                 (SELECT COALESCE(max(version), 0) FROM {})",
@@ -123,6 +127,11 @@ pub(crate) fn open_snapshot(d: &PostgresDialect) -> String {
         d.table("pemba_meta"),
         d.table("pemba_schema")
     )
+}
+
+/// Returns a snapshot to the server's default plan choice, for its remaining statements.
+pub(crate) const fn custom_plans() -> &'static str {
+    "SET LOCAL plan_cache_mode = auto"
 }
 
 /// The latest schema version number, `0` if none.
@@ -208,6 +217,10 @@ pub(crate) fn forward<'a>(
 /// Parameters: `$1` index and `$2..=$7` the six columns of each exact read; `$8` index, `$9`
 /// row limit (`NULL` for none) and `$10..=$12` the resource of each subject-set read;
 /// `$13..=$17` the same for related-object reads; `$18` the revision, in [`Form::At`] only.
+///
+/// Every arm is a `LATERAL` with a `LIMIT`, which the planner cannot flatten, so each key is
+/// always its own index probe. A generic plan must not depend on how many keys there are: as
+/// an `EXISTS`, the exact arm became a hash join over the whole relation (OQ-066).
 pub(crate) fn read_batch(d: &PostgresDialect, form: Form) -> String {
     let rels = d.table("pemba_relationships");
     let (joins, visible) = match form {
@@ -229,9 +242,9 @@ pub(crate) fn read_batch(d: &PostgresDialect, form: Form) -> String {
         "SELECT k.i, ''::text COLLATE \"C\", ''::text COLLATE \"C\", ''::text COLLATE \"C\" \
          FROM unnest($1::int4[], $2::text[], $3::text[], $4::text[], $5::text[], $6::text[], \
                      $7::text[]) AS k(i, rt, rid, rel, st, sid, srel) \
-         WHERE EXISTS (SELECT 1 FROM {rels} r{joins} WHERE {resource} \
+         CROSS JOIN LATERAL (SELECT 1 FROM {rels} r{joins} WHERE {resource} \
              AND r.subject_type = k.st AND r.subject_id = k.sid \
-             AND r.subject_relation = k.srel{visible}) \
+             AND r.subject_relation = k.srel{visible} LIMIT 1) e \
          UNION ALL \
          SELECT k.i, l.subject_type, l.subject_id, l.subject_relation \
          FROM unnest($8::int4[], $9::int8[], $10::text[], $11::text[], $12::text[]) \

@@ -1466,6 +1466,9 @@ it is resolved.
     `benches/RESULTS.md`.
   - What is left is reads: a check costs about 5 round trips plus about 3.3 per level of
     hierarchy (99 at 30 folder levels). That is the M10 candidate in `08`.
+  - T10.1 (OQ-065, OQ-066): a check is now about 3 round trips plus 1 per level (33 at 30
+    folder levels), and `lookup_resources_10k` is 8. Latency is still bound by round trips,
+    but planning showed it is not only that: fewer round trips alone made checks slower.
 
 ## OQ-057 — Pages deploy: the root before the first release, and stable releases
 - Raised in: T6.9
@@ -1629,4 +1632,38 @@ it is resolved.
   evaluator it is a second implementation of `04`, and as a prefetch it is a later
   refinement that needs no evaluator change. Reasoning and derived counts:
   `docs/T10.1-READ-AHEAD.md`.
-- Resolve by: maintainer, on review of the T10.1 PR.
+- Resolve by: maintainer, on review of the T10.1 PR. PR #99 merged this choice, and the
+  round-trip counts held, but its latency did not: see OQ-066.
+
+## OQ-066 — Read-ahead made checks slower by replanning every batch (M10, T10.1)
+- Raised in: T10.1, by the benchmark after PR #99 merged. Nothing had been released.
+- Blocking: yes, for 0.3.0, until the maintainer accepts the numbers below.
+- Finding: round trips fell as derived, but check latency rose in every scenario, up to 3×.
+  On a local Postgres 18 under the real bench (`pg_stat_statements`), the batch took 233 µs to
+  plan and 43 µs to run at head, and 474 and 55 µs below head, replanned on every call. Under
+  `auto`, a small batch never earns a generic plan.
+- Forcing generic plans alone was not enough (`bench/t10.1-generic-plan`): `wide_groups_10k`
+  went to 6.9× baseline. As an `EXISTS`, the exact arm's generic plan was a hash join over a
+  heap scan of the relation (1,484 µs, against 49 µs for one index probe per key).
+- Options: (a) `SET LOCAL` for the whole snapshot and a `LATERAL` exact arm; (b) the same, with
+  open-ended reads below head back on `auto`; (c) batches for lookups only, single reads for
+  checks.
+- Choice: (b), the most conservative option that keeps the round-trip win. Generic plans were
+  level or better on all but one of the open-ended shapes measured over 100,000 tuples,
+  including OQ-054's paged `read_relationships`. The exception is `read_reverse` below head for
+  a subject with few rows: 0.08 ms to 0.56 ms, hashing the whole revision map, so it grows with
+  the map. Going back to `auto` costs one round trip, once per snapshot, on those paths only.
+  `LATERAL` with `LIMIT 1` returns the same row for a key as `EXISTS` did: at most one per key.
+- Known and unchanged: below head, an exact read of a subject with very many rows can still use
+  `pemba_rel_rev` and filter (about 600 µs at `wide_groups_10k`). The baseline's single read
+  shows a similar gap between head and below head.
+- Measured, one `bench-postgres` run on one runner against `ad0b5e9` (`SELECT 1` 119 µs; full
+  table in `benches/RESULTS.md`). `folders_depth_30` p50 13,274 → 6,737 µs, p99 18,155 → 9,097;
+  `wide_groups_10k` p50 892 → 821, p99 1,073 → 1,138; `lookup_resources_10k` p50 71,685 →
+  15,853, p99 91,982 → 21,878. Slower than baseline at p99: `direct_hit_below_head` 858 → 1,230
+  (p50 646 → 650), `direct_hit` 778 → 850 (p50 693 → 608), `wide_groups_10k` as above and
+  `groups_depth_1_below_head` 1,187 → 1,208 (p50 969 → 859). `write_batch_1000` is also slower,
+  p50 16,987 → 18,656 and p99 28,758 → 33,328, and `write_batch_100` p50 3,251 → 3,294 (p99
+  5,664 → 5,192), although no write statement changed. One run does not give a noise floor, so
+  these are reported rather than explained.
+- Resolve by: maintainer, on review of this PR: accept the p99 rows above, or ask for more.

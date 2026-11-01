@@ -985,6 +985,13 @@ starts, against the spec as it stands then.
   - No on-disk format change. SQLite and memory keep their per-read paths. Public trait
     additions are in `05` §2 in the same change.
   - `README.md`, `ROADMAP.md` and this milestone state the achieved numbers.
+  - Achieved, one `bench-postgres` run against `ad0b5e9` (p50, then p99; `benches/RESULTS.md`):
+    `folders_depth_30` 99 → 33 round trips, 13.3 → 6.7 ms, 18.2 → 9.1 ms;
+    `lookup_resources_10k` 506 → 8, 71.7 → 15.9 ms, 92.0 → 21.9 ms. Slower than baseline:
+    at p99, `direct_hit_below_head` +43%, `direct_hit` +9%, `wide_groups_10k` +6% and
+    `groups_depth_1_below_head` +2%; at p50, `direct_hit_below_head` +1%. Also
+    `write_batch_100` +1% at p50 and `write_batch_1000` +10% at p50 and +16% at p99, though no
+    write statement changed. Accepting these is the maintainer's call (OQ-066).
 - Candidates carried over from the old stretch list: FastAPI helper (`06` §2.4), Node
   bindings (napi-rs) and a WASM build; anything on the
   `CLAUDE.md` §6 out-of-scope list still needs an explicit decision first.

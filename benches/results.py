@@ -15,7 +15,10 @@ hardware, OS, toolchain and commit it was measured on, and the commands that pro
 ``RESULTS.json`` holds the summary statistics; the raw per-call durations stay in
 ``target/``. Standard library only.
 
-Usage: ``python benches/results.py [--target DIR] [--out benches/RESULTS.md]``
+Usage: ``python benches/results.py [--target DIR] [--out benches/RESULTS.md] [--postgres-only]``
+
+``--postgres-only`` replaces the Postgres section and its JSON key from ``--target`` and keeps
+everything else in the existing files, for a CI artifact that holds nothing but that section.
 """
 
 from __future__ import annotations
@@ -211,7 +214,8 @@ def pg_tables(labels: list[str], runs: dict[str, dict], order: list[str]) -> lis
         lines.append(f"| `{n}` | {fmt(st['p50_us'])} | {fmt(st['p99_us'])} | "
                      f"{rt(trips.get(f'postgres__{n}'))} |")
     if len(labels) > 1:
-        lines += ["", "### Before and after (same runner; p50 µs / round trips per operation)",
+        lines += ["", "### Before and after (same runner; p50 µs / p99 µs / round trips per "
+                  "operation)",
                   "", "| scenario | " + " | ".join(labels) + " |",
                   "|---|" + "---:|" * len(labels)]
         for n in rows:
@@ -219,7 +223,8 @@ def pg_tables(labels: list[str], runs: dict[str, dict], order: list[str]) -> lis
             for label in labels:
                 xs = runs[label]["latency"].get(f"postgres__{n}")
                 t = runs[label]["round_trips"].get(f"postgres__{n}")
-                cells.append(f"{fmt(stats(xs)['p50_us'])} / {rt(t)}" if xs else "–")
+                st = stats(xs) if xs else None
+                cells.append(f"{fmt(st['p50_us'])} / {fmt(st['p99_us'])} / {rt(t)}" if st else "–")
             lines.append(f"| `{n}` | " + " | ".join(cells) + " |")
         lines += ["", "Commits: " + ", ".join(
             f"{label} `{runs[label]['commit'][:7]}`" for label in labels) + "."]
@@ -255,13 +260,69 @@ def table(raw: dict[str, list[float]], stores: list[str], order: list[str]) -> l
     return lines
 
 
+POSTGRES_NOTE = ("> **Postgres figures are round-trip-bound (OQ-056).** They have their own "
+                 "section, measured on a Linux CI runner with the server in a service container, "
+                 "where a `SELECT 1` round trip took about 119 µs: the round-trip column explains "
+                 "most of each figure. A check costs about 3 round trips plus 1 per level of "
+                 "hierarchy walked; a write is 10 whatever its size. `*_below_head` rows read at "
+                 "`Exact(head - 1)` through the batch map (F12).")
+
+
+def postgres_section(labels: list[str], runs: dict[str, dict], machine: dict[str, str],
+                     order: list[str]) -> list[str]:
+    md = ["## Postgres (Rust, Linux)", "", f"Command: `{COMMANDS['postgres']}`", ""]
+    if not labels:
+        return md + ["Not run."]
+    final = runs[labels[-1]]
+    md += [f"Measured: {final['measured']}, at commit `{final['commit']}`", "",
+           "| | |", "|---|---|"]
+    md += [f"| {k} | {v} |" for k, v in machine.items()]
+    md += [f"| Postgres | {final['server']} |", ""]
+    return md + pg_tables(labels, runs, order)
+
+
+def postgres_summary(machine: dict[str, str], runs: dict[str, dict]) -> dict:
+    return {
+        "machine": machine,
+        "runs": {label: {"commit": run["commit"], "server": run["server"],
+                         "latency": {k: stats(v) for k, v in run["latency"].items()},
+                         "round_trips": run["round_trips"]}
+                 for label, run in runs.items()},
+    }
+
+
+def replace_postgres(out: Path, target: Path, order: list[str]) -> None:
+    labels, runs, machine = pg_linux(target)
+    if not labels:
+        sys.exit(f"no Postgres results under {target}")
+    text = out.read_text(encoding="utf-8")
+    text, notes = re.subn(r"^> \*\*Postgres figures are round-trip-bound.*$",
+                          lambda _: POSTGRES_NOTE, text, flags=re.M)
+    section = "\n".join(postgres_section(labels, runs, machine, order)) + "\n"
+    # Up to the next section, which this script may not generate.
+    text, sections = re.subn(r"^## Postgres \(Rust, Linux\)\n.*?(?=^## |\Z)",
+                             lambda _: section + "\n", text, flags=re.M | re.S)
+    if notes != 1 or sections != 1:
+        sys.exit(f"{out}: expected one Postgres note and section, found {notes} and {sections}")
+    out.write_text(text.rstrip("\n") + "\n", encoding="utf-8")
+    js = out.with_suffix(".json")
+    summary = json.loads(js.read_text())
+    summary["postgres_linux"] = postgres_summary(machine, runs)
+    js.write_text(json.dumps(summary, indent=1) + "\n")
+    print(f"replaced the Postgres results in {out} and {js}")
+
+
 def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--target", type=Path, default=REPO / "target")
     p.add_argument("--out", type=Path, default=REPO / "benches" / "RESULTS.md")
+    p.add_argument("--postgres-only", action="store_true")
     a = p.parse_args()
 
     order = scenario_order(a.target)
+    if a.postgres_only:
+        replace_postgres(a.out, a.target, order)
+        return
     r, py = rust(a.target), python(a.target)
     sp, sp_meta = spicedb(a.target)
     pg_labels, pg_runs, pg_machine = pg_linux(a.target)
@@ -278,12 +339,7 @@ def main() -> None:
            "`write_batch_100` (about 44 ms, slower than its `write_batch_1000`) looks like a "
            "delayed-ACK stall in the bench's HTTP transport rather than SpiceDB: do not "
            "quote it.", "",
-           "> **Postgres figures are round-trip-bound (OQ-056).** They have their own section, "
-           "measured on a Linux CI runner with the server in a service container, where a "
-           "`SELECT 1` round trip took about 146 µs: the round-trip column explains most of "
-           "each figure. A check costs about 5 round trips plus 2–3 per level of hierarchy "
-           "walked; a write is 10 whatever its size. `*_below_head` rows read at "
-           "`Exact(head - 1)` through the batch map (F12).", "",
+           POSTGRES_NOTE, "",
            f"Generated by `{COMMANDS['results']}`; do not edit by hand. Scenarios and datasets: "
           "`docs/07-testing.md` §7 and `benches/src/lib.rs`. All figures are µs per "
           "operation (wall clock, one call at a time, warm caches). `lookup_*` figures "
@@ -306,16 +362,7 @@ def main() -> None:
         if key == "spicedb" and sp_meta:
             md += [f"- {k}: {v}" for k, v in sp_meta.items()] + [""]
         md += table(raw, stores, order) if raw else ["Not run."]
-    md += ["", "## Postgres (Rust, Linux)", "", f"Command: `{COMMANDS['postgres']}`", ""]
-    if pg_labels:
-        final = pg_runs[pg_labels[-1]]
-        md += [f"Measured: {final['measured']}, at commit `{final['commit']}`", "",
-               "| | |", "|---|---|"]
-        md += [f"| {k} | {v} |" for k, v in pg_machine.items()]
-        md += [f"| Postgres | {final['server']} |", ""]
-        md += pg_tables(pg_labels, pg_runs, order)
-    else:
-        md += ["Not run."]
+    md += [""] + postgres_section(pg_labels, pg_runs, pg_machine, order)
     a.out.write_text("\n".join(md) + "\n", encoding="utf-8")
 
     summary = {
@@ -323,13 +370,7 @@ def main() -> None:
         "rust": {k: stats(v) for k, v in r.items()},
         "python": {k: stats(v) for k, v in py.items()},
         "spicedb": {"meta": sp_meta, "results": {k: stats(v) for k, v in sp.items()}},
-        "postgres_linux": {
-            "machine": pg_machine,
-            "runs": {label: {"commit": run["commit"], "server": run["server"],
-                             "latency": {k: stats(v) for k, v in run["latency"].items()},
-                             "round_trips": run["round_trips"]}
-                     for label, run in pg_runs.items()},
-        },
+        "postgres_linux": postgres_summary(pg_machine, pg_runs),
     }
     a.out.with_suffix(".json").write_text(json.dumps(summary, indent=1) + "\n")
     print(f"wrote {a.out} and {a.out.with_suffix('.json')}")
