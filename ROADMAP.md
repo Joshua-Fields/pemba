@@ -1,94 +1,76 @@
-# Public roadmap
+# Roadmap
 
-This is direction, not a delivery schedule. There are no promised dates. Candidate
-work needs its own specification, acceptance criteria and maintainer scope decision.
-See [the milestones](docs/08-milestones.md) for the implementation plan,
-[triage](docs/TRIAGE.md) for reports and [release evidence](docs/RELEASE-0.1.0.md)
-for verification and human gates. Nothing here expands the supported scope.
+pemba is an embedded, Zanzibar-style authorisation engine for Rust and Python. SpiceDB and
+OpenFGA run as services with their own data, so every permission change is a second write
+to a second system. pemba is a library that keeps relationships in your own SQLite or
+Postgres database, so the row you insert and the permission that grants access to it commit
+together. If you have one application and one database, that is the reason to pick it.
+[Compare it with SpiceDB](README.md#pemba-vs-spicedb-when-to-use-which) or
+[try it in the browser](https://joshua-fields.github.io/pemba/).
 
-## Published releases
+## Current release: 0.2.0
 
-The latest shipped release is **stable 0.1.0**, published from commit
-`41075c399f942b62280edeca81c0f68eaf314dab`. Public packages, documentation and the
-playground passed T7.16 verification in [PR #93](https://github.com/Joshua-Fields/pemba/pull/93).
-See [release history](CHANGELOG.md) and
-[published releases](https://github.com/Joshua-Fields/pemba/releases).
-
-| Release | Delivered capabilities |
+| Release | What it added |
 |---|---|
-| alpha.1 | Embedded Rust authorization engine and Python bindings; schema DSL, checks/lookups, memory/SQLite stores and caller-owned SQLite transactions |
-| alpha.2 | Explain traces and EngineConfig setters |
-| alpha.3 | Synchronous Postgres store and foreign writes, PendingRevision |
-| alpha.4 | Browser playground and removal of deprecated Python integer conversions for pending revisions |
-| Stable 0.1.0 | Rust/CLI/Python scope, sync SQLite/Postgres transactions, audited extensible APIs and constructors, Rust check_str, guides and public release verification |
+| 0.2.0 | Async Python: `write_async` for psycopg, asyncpg and SQLAlchemy async transactions, and `pemba.aio` read helpers |
+| 0.1.0 | First stable API: audited Rust constructors, `check_str`, user guides and the documentation site |
+| 0.1.0-alpha.4 | Browser playground running the real engine |
+| 0.1.0-alpha.3 | Postgres store, including writes inside your own Postgres transaction |
+| 0.1.0-alpha.2 | Explain traces (`pemba check --explain`) and engine configuration |
+| 0.1.0-alpha.1 | The engine, schema language, `check` and lookups, memory and SQLite stores, Python bindings and writes inside your own SQLite transaction |
 
-The [development guides](https://joshua-fields.github.io/pemba/docs/next/) may describe
-changes beyond stable 0.1.0. Use a release's own documentation when running that version.
-The playground uses an in-memory store; it cannot demonstrate a real database commit
-or rollback and is not a supported WASM package.
+Migration notes are in the [changelog](CHANGELOG.md), and packages and release notes are on
+the [releases page](https://github.com/Joshua-Fields/pemba/releases).
 
-## M7 remaining gates
+## What's next
 
-T7.0–T7.11 are merged: scope decisions, API audit/documentation, user and transaction
-guides, documentation site, contributor onboarding, security review, issue/roadmap
-materials, launch drafts and the release rehearsal. Launch text remains unapproved.
+This is the intended order, with no promised dates.
 
-- T7.12–T7.13: stable metadata, migrations and exact-candidate verification completed in
-  [PR #92](https://github.com/Joshua-Fields/pemba/pull/92), now merged.
-- T7.14–T7.15: release-PR merge, tag and publication are observed. Those observations
-  do not establish explicit human sign-off or authenticated registry/account and
-  reporting confirmations; retain/confirm the human records identified in the evidence index.
-- T7.16: completed public verification of all nine Rust crates, Python wheels/sdist,
-  GitHub Release, documentation and playground; evidence is in merged PR #93.
-- T7.17: remains human work. The maintainer chooses announcement text, destinations
-  and timing, posts approved materials and verifies/activates private reporting,
-  labels, triage ownership and roadmap links. No announcement or community activation
-  completion is inferred. **M7 remains open** until its human acceptance criteria are met.
+**0.3.0: faster deep hierarchies on Postgres, and a FastAPI helper**
 
-Green CI alone is not release approval. This roadmap authorizes no merge, tag,
-publication, deployment or announcement.
+- **Fewer Postgres round trips.** Each level of hierarchy a check walks costs about three
+  round trips today, so a document 30 folders deep costs 99
+  ([measurements](benches/RESULTS.md#postgres-rust-linux)). Before and after numbers will
+  be published with the change.
+- **FastAPI helper.** `pip install pemba[fastapi]` adds a permission check for your routes:
+  a configurable 403 on deny, and errors that stay errors rather than turning into a deny.
 
-## After stable: scoped candidates
+**0.4.0: authorised queries**
 
-**T5.13 async foreign mode is complete on main**, merged in
-[PR #95](https://github.com/Joshua-Fields/pemba/pull/95) after passing CI. It adds
-`write_async` for psycopg, asyncpg and SQLAlchemy async transactions, plus `pemba.aio`
-read helpers. See [implementation and verification evidence](docs/T5.13-ASYNC.md).
-The maintainer approved the resolve helper and cancellation handoff in OQ-064.
+Filter your application's queries by permission inside the database, instead of filtering
+rows in application code. SQLite comes first. Results must agree with `lookup_resources`,
+and pagination and ordering must stay correct at a fixed revision.
 
-These additions are **unreleased**: published stable 0.1.0 retains synchronous
-Postgres foreign writes. The maintainer selected **0.2.0** for the next release;
-[candidate preparation and verification](docs/RELEASE-0.2.0.md) are in progress.
-This is not release approval or publication. The bridge benchmark establishes no performance threshold requiring
-a sans-IO redesign; that remains a separately scoped candidate. M8 and the later
-candidates below have not started.
+**After that**
 
-| Milestone | Candidate scope and required constraints |
-|---|---|
-| M8 — Authorised queries | Filter application queries inside the database via permission predicates or a lookup_resources join, SQLite first; agree with the reference evaluator and keep pagination/ordering correct at a fixed revision |
-| M9 — SpiceDB import/export | Schema/relationship conversion and migration guides in both directions; reject unsupported features, round-trip through differential tests and write original code from format documentation |
-| M10 — User-driven features | Select from issues and launch feedback; detailed tasks are not planned in advance |
+Priorities will follow [issues](https://github.com/Joshua-Fields/pemba/issues) and feedback
+from real use.
 
-The existing top post-release performance follow-up is
-[fewer Postgres round trips on deep hierarchies](docs/08-milestones.md#m10--user-driven-features)
-([OQ-056](docs/OPEN_QUESTIONS.md#oq-056--postgres-latency-is-round-trips-two-per-statement),
-[measured context](benches/RESULTS.md#postgres-rust-linux)). Batched reads per level or
-a recursive query are candidates, not a promised implementation. Any optimization
-must preserve one snapshot and agree with the independent evaluator.
+**Not planned**
 
-Other M10 candidates include a FastAPI helper, Node bindings and a supported WASM
-build. Items excluded by [CLAUDE §6](CLAUDE.md#6-things-that-are-explicitly-out-of-scope-until-told-otherwise)
-need an explicit human scope decision first. No caveats/CEL, expiration, Watch,
-server mode, distributed dispatch or SpiceDB wire compatibility is approved here.
+Caveats/CEL, expiring relationships, Watch/change feeds, a server mode, distributed
+dispatch and SpiceDB wire-API compatibility. If you need these,
+[SpiceDB is the better fit](README.md#pemba-vs-spicedb-when-to-use-which). SpiceDB
+import/export tooling is not scheduled.
 
-## Known differences and limits
+## Known limits
 
-Read [known SpiceDB differences](crates/pemba-difftest/KNOWN_DIFFERENCES.md),
-[bounds and troubleshooting](docs/guides/troubleshooting.md) and
-[transaction constraints](docs/guides/transactions.md). Errors fail closed as errors,
-distinct from denial. Historical reads use the current schema and are subject to GC;
-foreign writes need caller commit and do not promise reads of uncommitted data.
-Postgres schema rename recovery remains unimplemented (OQ-062); do not rename an
-active schema. Report safe normal bugs/features through
-[Issues](https://github.com/Joshua-Fields/pemba/issues); suspected vulnerabilities use
-[SECURITY.md](SECURITY.md) privately. Support remains best effort with no response SLA.
+- **SpiceDB compatibility.** The schema language is a strict subset, but some answers
+  differ, for example on cyclic data. See
+  [known differences](crates/pemba-difftest/KNOWN_DIFFERENCES.md).
+- **Bounds.** Evaluation has configurable limits. Hitting one is an error, never a deny or
+  an allow. See [bounds and troubleshooting](docs/guides/troubleshooting.md).
+- **Transactions.** You own commit and rollback, and engine reads never see uncommitted
+  data. See [transactions and Postgres operations](docs/guides/transactions.md).
+- **History.** Reads at an old revision apply today's schema and stop working once GC passes
+  that revision, so they are not an audit log. See
+  [consistency and history](docs/guides/consistency.md).
+- **Postgres schema renames.** Do not rename a schema that holds an active store: there is
+  no repair command yet. See [Postgres setup](docs/guides/transactions.md#postgres-setup-and-migrations).
+- **Playground.** It uses an in-memory store, so it cannot show a real commit or rollback.
+  There is no supported WASM package.
+- **Support.** Maintenance is best effort, with no response SLA.
+
+Report bugs and request features through
+[issues](https://github.com/Joshua-Fields/pemba/issues). Report suspected vulnerabilities
+privately, as described in [SECURITY.md](SECURITY.md).

@@ -618,6 +618,11 @@ Merge/publication observations do not establish explicit human sign-off or outst
 reporting/account confirmations. T7.17 and M7 remain open pending their human actions;
 announcement timing belongs to the maintainer. The baseline below is historical.
 
+0.2.0 has since been tagged and published; see
+[its record](RELEASE-0.2.0.md#publication-record). Current release and process state now
+lives in [`MAINTAINER-STATUS.md`](MAINTAINER-STATUS.md), which also archives the gate text
+that T7.9 originally placed in `ROADMAP.md`; `ROADMAP.md` is now visitor-facing only.
+
 ### Baseline inspected for T7.0 (2026-10-29)
 
 - Planning starts at main `10ad07a`, after release PR #78. Tags alpha.1–alpha.4 exist;
@@ -937,12 +942,15 @@ Outlines only. Detailed tasks and acceptance criteria get written when each mile
 starts, against the spec as it stands then.
 
 ### M8 — Authorised queries
+- Intended headline of 0.4.0 (maintainer decision, 2026-11-01). Nothing is implemented.
 - Filter application queries by permission inside the database (SQL predicates or a
   join against `lookup_resources`) instead of filtering rows in application code.
 - Must agree with `lookup_resources` under the reference evaluator; SQLite first.
 - Pagination and ordering that stay correct at a fixed revision.
 
 ### M9 — SpiceDB import/export
+- Deprioritised (maintainer decision, 2026-11-01): SpiceDB service users are unlikely to
+  migrate to an embedded library.
 - Convert schemas and relationships between pemba and SpiceDB (`zed` backup /
   `.zed` files), rejecting unsupported features with `E_UNSUPPORTED_FEATURE`.
 - A migration guide in both directions; round-trip tests through the difftest harness.

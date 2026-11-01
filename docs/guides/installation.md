@@ -1,9 +1,8 @@
 # Installation and quick starts
 
-These guides describe 0.2.0, including async Postgres foreign writes and `pemba.aio`.
-Check [release evidence](../RELEASE-0.2.0.md) for publication and public verification;
-checkout recipes are available below. Version 0.1.0 retains its own documentation and
-[public verification record](../RELEASE-0.1.0.md#t716-public-artifacts-and-live-deployment-verification--2026-10-30).
+These guides describe 0.2.0, the latest release, including async Postgres foreign writes
+and `pemba.aio`. It is on PyPI and crates.io; checkout recipes are available below.
+Version 0.1.0 retains its own documentation.
 The [Rust quick start](../../README.md#rust-quick-start) uses the compatible constructors
 and `Engine::check_str`; older alphas need their own versioned examples.
 See [CHANGELOG](../../CHANGELOG.md) for migrations and [API documentation](../06-api.md).
@@ -62,8 +61,7 @@ Make a new empty directory outside the checkout, save the entire
 [README Python example](../../README.md#python-quick-start) as `quickstart.py`, and run
 it with that venv's Python. It creates `app.db`, including an application row and
 permission in one transaction. Use a fresh directory on each run: the insert is
-intentionally not an upsert. A source checkout verification is not a registry-install
-or release-wheel verification; those have separate release gates.
+intentionally not an upsert.
 
 ## Current-checkout Rust quick start
 

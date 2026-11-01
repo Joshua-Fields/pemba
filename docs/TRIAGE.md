@@ -12,9 +12,9 @@ the owner handles removal and private follow-up.
 
 The repository owner, [@Joshua-Fields](https://github.com/Joshua-Fields), is the initial
 issue-triage maintainer (OQ-060). Contributors can help reproduce and propose fixtures;
-the owner decides disposition and scope. Maintenance of the latest stable 0.1.x is
-best effort; older releases receive case-by-case consideration. Before stable exists,
-alpha/development reports receive case-by-case consideration. There is no response-time
+the owner decides disposition and scope. Maintenance of the latest stable release is
+best effort; older releases and alpha/development reports receive case-by-case
+consideration. There is no response-time
 SLA, guaranteed patch or long-term support commitment. An issue, priority note or
 roadmap candidate promises neither implementation nor a delivery date.
 

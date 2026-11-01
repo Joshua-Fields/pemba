@@ -10,7 +10,7 @@ or unrepresentable unsigned limits can raise `OverflowError` before engine valid
 | Symptom | What to check |
 |---|---|
 | Python import/build fails | Correct venv/interpreter, CPython >=3.11, matching wheel platform; source build needs Rust 1.99.0, C tools and Python headers |
-| Current Rust example fails with an alpha dependency | Current docs use 0.1.0 constructors and `check_str`; use matching 0.1.0 dependencies or the alpha tag's own docs |
+| Current Rust example fails with an alpha dependency | Current docs use the constructors and `check_str` added in 0.1.0; use a matching dependency, or the alpha tag's own docs |
 | SQLite `StorageError` on opening | Interpreter SQLite >=3.26.0 and `sqlite3.threadsafety > 0`; do not install a second SQLite build to bypass this |
 | `ForeignConnectionMismatch` | Same file (not an in-memory SQLite connection), or same Postgres cluster/database; configured Postgres schema is fixed by the engine |
 | Foreign-write `ValueError` / `TypeError` | Transaction already open and correct connection type; sync `write` needs a synchronous driver. Version 0.2.0 uses `write_async` for supported async Postgres drivers |
@@ -60,9 +60,9 @@ pemba fits one application, or a few services sharing one database, that wants a
 and permissions to commit together. Choose [SpiceDB](https://github.com/authzed/spicedb)
 or another Zanzibar service when many languages/services need centralised permissions,
 horizontal or multi-region scale, caveats/expiration/Watch, or a mature supported
-product with service-level support commitments. pemba's 0.1.0 API contract carries
+product with service-level support commitments. pemba's API contract carries
 best-effort maintenance, without an SLA, guaranteed patch or long-term support.
-Stable 0.1.0 has no native async API; 0.2.0 adds the specified thread bridge.
+The core is synchronous; since 0.2.0, async Python goes through the specified thread bridge.
 No supported WASM package,
 SpiceDB wire compatibility, distributed dispatch or server mode is promised here.
 WASM is the browser playground build only. Review semantic differences before
