@@ -10,6 +10,17 @@ The Rust crates and the Python package share one version; the latest release is 
 
 ## [Unreleased]
 
+### Changed
+
+- Postgres reads make fewer round trips. A request opens its snapshot in one message, and a
+  check fetches what each level of a hierarchy may read in one statement. Answers, errors,
+  limits and traces are unchanged (`docs/T10.1-READ-AHEAD.md`).
+
+### Added
+
+- `ReadStore::batch_read_limit` and `ReadStore::read_batch`, provided methods a store may
+  implement to batch reads, with `BatchRead` and `BatchAnswer`.
+
 ## [0.2.0] - 2026-11-01
 
 An additive async Python release; synchronous APIs and storage formats are unchanged.

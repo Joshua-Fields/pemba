@@ -1612,3 +1612,21 @@ it is resolved.
   `CancelledError`, after which the caller rolls back. The read helper signatures
   and transaction-ownership boundary above are retained. No sans-IO work, new
   performance threshold or human release/launch approval is implied.
+
+## OQ-065 — How to reduce Postgres read round trips (M10, T10.1)
+- Raised in: T10.1
+- Blocking: no
+- Problem: OQ-056 left reads at 4 round trips per request plus one per store read. The
+  milestone text suggested batching each level, or a recursive query. Batching "per
+  frontier per relation" as first framed does little for a chain: its frontier is one
+  object, and that object's reads are on different relations or of different kinds.
+- Options: (a) batch per frontier; (a') read-ahead: one statement per evaluator miss,
+  carrying every read the schema says the current node and its siblings may make; (b) a
+  recursive CTE; (c) open the snapshot in one simple-query message.
+- Choice: (a') with (c), the most conservative option with a large win. The evaluator stays
+  depth-first and lazy, and the batch only fills a per-request tuple cache, so a wrong
+  prediction changes cost and never an answer. The recursive CTE is not used: as an
+  evaluator it is a second implementation of `04`, and as a prefetch it is a later
+  refinement that needs no evaluator change. Reasoning and derived counts:
+  `docs/T10.1-READ-AHEAD.md`.
+- Resolve by: maintainer, on review of the T10.1 PR.

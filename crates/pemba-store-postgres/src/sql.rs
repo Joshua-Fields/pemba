@@ -111,6 +111,20 @@ pub(crate) fn head_and_horizon(d: &PostgresDialect) -> String {
     )
 }
 
+/// Starts a snapshot in one simple-query message: its transaction, then head, horizon and
+/// schema version as the first statement, which fixes what every later read sees (OQ-065).
+pub(crate) fn open_snapshot(d: &PostgresDialect) -> String {
+    format!(
+        "BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY; \
+         SELECT (SELECT max(rev) FROM {}), \
+                (SELECT value FROM {} WHERE key = 'gc_horizon'), \
+                (SELECT COALESCE(max(version), 0) FROM {})",
+        d.table("pemba_revisions"),
+        d.table("pemba_meta"),
+        d.table("pemba_schema")
+    )
+}
+
 /// The latest schema version number, `0` if none.
 pub(crate) fn schema_version(d: &PostgresDialect) -> String {
     format!(
@@ -186,6 +200,53 @@ pub(crate) fn forward<'a>(
     }
     let _ = write!(q.sql, " ORDER BY {cols}");
     q
+}
+
+/// `ReadStore::read_batch`, one fixed text per form so the statement cache holds it. Rows
+/// are `(index, subject_type, subject_id, subject_relation)`: one empty row per visible
+/// exact tuple, and the rows of each forward read under the same conditions as [`forward`].
+/// Parameters: `$1` index and `$2..=$7` the six columns of each exact read; `$8` index, `$9`
+/// row limit (`NULL` for none) and `$10..=$12` the resource of each subject-set read;
+/// `$13..=$17` the same for related-object reads; `$18` the revision, in [`Form::At`] only.
+pub(crate) fn read_batch(d: &PostgresDialect, form: Form) -> String {
+    let rels = d.table("pemba_relationships");
+    let (joins, visible) = match form {
+        Form::Head => (String::new(), " AND r.deleted_batch IS NULL"),
+        Form::At(_) => {
+            let map = d.table("pemba_revisions");
+            (
+                format!(
+                    " JOIN {map} c ON c.batch_id = r.created_batch \
+                     LEFT JOIN {map} x ON x.batch_id = r.deleted_batch"
+                ),
+                " AND c.rev <= $18::int8 \
+                 AND (r.deleted_batch IS NULL OR x.rev IS NULL OR x.rev > $18::int8)",
+            )
+        }
+    };
+    let resource = "r.resource_type = k.rt AND r.resource_id = k.rid AND r.relation = k.rel";
+    format!(
+        "SELECT k.i, ''::text COLLATE \"C\", ''::text COLLATE \"C\", ''::text COLLATE \"C\" \
+         FROM unnest($1::int4[], $2::text[], $3::text[], $4::text[], $5::text[], $6::text[], \
+                     $7::text[]) AS k(i, rt, rid, rel, st, sid, srel) \
+         WHERE EXISTS (SELECT 1 FROM {rels} r{joins} WHERE {resource} \
+             AND r.subject_type = k.st AND r.subject_id = k.sid \
+             AND r.subject_relation = k.srel{visible}) \
+         UNION ALL \
+         SELECT k.i, l.subject_type, l.subject_id, l.subject_relation \
+         FROM unnest($8::int4[], $9::int8[], $10::text[], $11::text[], $12::text[]) \
+             AS k(i, lim, rt, rid, rel) \
+         CROSS JOIN LATERAL (SELECT r.subject_type, r.subject_id, r.subject_relation \
+             FROM {rels} r{joins} WHERE {resource}{visible} AND r.subject_relation <> '' \
+             ORDER BY r.subject_type, r.subject_id, r.subject_relation LIMIT k.lim) l \
+         UNION ALL \
+         SELECT k.i, l.subject_type, l.subject_id, ''::text COLLATE \"C\" \
+         FROM unnest($13::int4[], $14::int8[], $15::text[], $16::text[], $17::text[]) \
+             AS k(i, lim, rt, rid, rel) \
+         CROSS JOIN LATERAL (SELECT DISTINCT r.subject_type, r.subject_id \
+             FROM {rels} r{joins} WHERE {resource}{visible} AND r.subject_id <> '*' \
+             ORDER BY r.subject_type, r.subject_id LIMIT k.lim) l"
+    )
 }
 
 /// §6.3 `read_reverse`.

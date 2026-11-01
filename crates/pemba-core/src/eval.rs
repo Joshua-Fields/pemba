@@ -32,8 +32,9 @@ use crate::error::Error;
 use crate::model::{
     Consistency, ObjectId, ObjectRef, RelName, Relationship, Revision, SubjectRef, TypeName,
 };
+use crate::read_ahead::{self, ReadAhead};
 use crate::scc::{self, Finish, Hit, Scc, min_low};
-use crate::store::{ReadStore, StoreError};
+use crate::store::{BatchRead, ReadStore, StoreError};
 use crate::trace::{NoTrace, TraceRole, Tracer};
 
 /// Asks whether `subject` has `permission` on `resource` (`docs/04-evaluation.md` §3.1).
@@ -116,9 +117,10 @@ impl CheckItem {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub struct EvalStats {
-    /// Store calls made.
+    /// Reads evaluation asked of the store. On a store that batches, several may share one
+    /// statement (`docs/04-evaluation.md` §4), so this does not depend on the store.
     pub store_reads: u64,
-    /// Tuples those calls returned; a point query that finds its tuple counts one.
+    /// Tuples those reads returned; a point query that finds its tuple counts one.
     pub tuples_read: u64,
     /// Nodes answered from the memo instead of being evaluated.
     pub memo_hits: u64,
@@ -349,6 +351,8 @@ pub(crate) struct Evaluator<'a, T: Tracer = NoTrace> {
     check_reads: u64,
     stats: EvalStats,
     trace: T,
+    /// On a store that batches: answers fetched ahead of the reads below.
+    ahead: Option<ReadAhead>,
 }
 
 impl<'a> Evaluator<'a> {
@@ -385,6 +389,7 @@ impl<'a, T: Tracer> Evaluator<'a, T> {
             check_reads: 0,
             stats: EvalStats::default(),
             trace,
+            ahead: ReadAhead::new(store.batch_read_limit()),
         }
     }
 
@@ -449,6 +454,12 @@ impl<'a, T: Tracer> Evaluator<'a, T> {
                 // Unreachable: every key is built from ids of this same schema.
                 invalid(format!("internal: node {key:?} is not in the schema"))
             })?;
+        if self.ahead.is_some() {
+            let reads = self.member_reads(key);
+            if let Some(ahead) = &mut self.ahead {
+                ahead.hint(reads);
+            }
+        }
         let p = self.cycle.begin(key);
         self.trace.open_member(key, member, negated);
         let mut passes = 0;
@@ -574,9 +585,26 @@ impl<'a, T: Tracer> Evaluator<'a, T> {
         // Read even when the relation allows no subject sets: a schema change can leave
         // stale ones behind, and skipping them would silently shrink the relation, which
         // on the subtracted side of an exclusion grants access (OQ-019).
-        let sets = self.read(|s, rev| s.read_subject_sets(rev, &resource, &relation))?;
+        let sets = self
+            .read(|s, rev, ahead| read_ahead::subject_sets(ahead, s, rev, &resource, &relation))?;
         self.count_tuples(sets.len());
         self.check_fanout(key, sets.len())?;
+        if self.ahead.is_some() && sets.len() > 1 {
+            let children: Vec<_> = sets
+                .iter()
+                .filter_map(|(object, rel)| {
+                    let ty = self.schema.type_id(object.object_type.as_str())?;
+                    let rel = self.schema.type_def(ty)?.member_id(rel.as_str())?;
+                    Some(NodeKey {
+                        ty,
+                        id: object.object_id.clone(),
+                        rel,
+                    })
+                })
+                .take(read_ahead::MAX_FRONTIER)
+                .collect();
+            self.hint_nodes(&children);
+        }
         let mut low = None;
         let mut sets = sets.into_iter();
         while let Some((object, rel)) = sets.next() {
@@ -701,12 +729,21 @@ impl<'a, T: Tracer> Evaluator<'a, T> {
                 let resource = self.object_ref(key);
                 let relation = self.rel_name(key.ty, *tupleset);
                 // Distinct objects, subject relation dropped, wildcards excluded (`docs/05` §2).
-                let objects =
-                    self.read(|s, rev| s.read_related_objects(rev, &resource, &relation))?;
+                let objects = self.read(|s, rev, ahead| {
+                    read_ahead::related_objects(ahead, s, rev, &resource, &relation)
+                })?;
                 check_related_objects(self.schema, key, *tupleset, &objects)?;
                 self.count_tuples(objects.len());
                 *fanout = fanout.saturating_add(objects.len());
                 self.check_fanout(key, *fanout)?;
+                if self.ahead.is_some() && objects.len() > 1 {
+                    let children: Vec<_> = objects
+                        .iter()
+                        .filter_map(|x| self.arrow_target(x, targets))
+                        .take(read_ahead::MAX_FRONTIER)
+                        .collect();
+                    self.hint_nodes(&children);
+                }
                 match mode {
                     ArrowMode::Any => self.arrow_any(&objects, computed, targets, depth),
                     ArrowMode::All => self.arrow_all(&objects, computed, targets, depth),
@@ -841,14 +878,17 @@ impl<'a, T: Tracer> Evaluator<'a, T> {
     }
 
     fn exists(&mut self, rel: &Relationship) -> Result<bool, Error> {
-        let found = self.read(|s, rev| s.exists(rev, rel))?;
+        let found = self.read(|s, rev, ahead| read_ahead::exists(ahead, s, rev, rel))?;
         self.count_tuples(usize::from(found));
         Ok(found)
     }
 
+    /// One read the evaluator asks for. Counted here whether or not an earlier batch
+    /// already holds its answer, so `max_check_reads` and `store_reads` do not depend on
+    /// batching (`docs/T10.1-READ-AHEAD.md`).
     fn read<R>(
         &mut self,
-        f: impl FnOnce(&dyn ReadStore, Revision) -> Result<R, StoreError>,
+        f: impl FnOnce(&dyn ReadStore, Revision, Option<&mut ReadAhead>) -> Result<R, StoreError>,
     ) -> Result<R, Error> {
         self.check_reads += 1;
         if self.check_reads > self.limits.max_reads {
@@ -857,7 +897,136 @@ impl<'a, T: Tracer> Evaluator<'a, T> {
             });
         }
         self.stats.store_reads += 1;
-        f(self.store, self.rev).map_err(read_error)
+        f(self.store, self.rev, self.ahead.as_mut()).map_err(read_error)
+    }
+
+    /// Whether the store batches, so hints are worth working out.
+    pub(crate) fn batches(&self) -> bool {
+        self.ahead.is_some()
+    }
+
+    /// Queues the candidates of a `lookup_resources` window (`docs/04-evaluation.md` §5.2).
+    /// Each is about to be evaluated, so these go out at the store's full batch size.
+    pub(crate) fn hint_candidates(&mut self, nodes: &[NodeKey]) {
+        self.hint_nodes(nodes);
+        if let Some(ahead) = &mut self.ahead {
+            ahead.open_ramp();
+        }
+    }
+
+    /// Queues what evaluating `nodes` may read, skipping nodes already settled.
+    fn hint_nodes(&mut self, nodes: &[NodeKey]) {
+        let negated = self.negated();
+        let mut reads = Vec::new();
+        for key in nodes {
+            if self.memo.lookup(key, negated).is_none() {
+                reads.extend(self.member_reads(key));
+            }
+        }
+        if let Some(ahead) = &mut self.ahead {
+            ahead.hint(reads);
+        }
+    }
+
+    /// The reads evaluating `key` may make on its own object, in evaluation order. Only a
+    /// hint: a read missing here is fetched when asked for, and one that is never asked for
+    /// is ignored, so a mistake here costs round trips and cannot change an answer.
+    fn member_reads(&self, key: &NodeKey) -> Vec<BatchRead> {
+        let mut plan = Vec::new();
+        let mut seen = Vec::new();
+        self.plan_member(key, self.negated(), &mut seen, &mut plan);
+        plan
+    }
+
+    fn plan_member(
+        &self,
+        key: &NodeKey,
+        negated: bool,
+        seen: &mut Vec<(RelId, bool)>,
+        plan: &mut Vec<BatchRead>,
+    ) {
+        if seen.contains(&(key.rel, negated)) {
+            return;
+        }
+        seen.push((key.rel, negated));
+        let Some(member) = self.schema.type_def(key.ty).and_then(|t| t.member(key.rel)) else {
+            return;
+        };
+        match member {
+            Member::Relation(r) => self.plan_direct(key, &r.allowed, negated, plan),
+            Member::Permission(p) => self.plan_expr(key, &p.expr, negated, seen, plan),
+        }
+    }
+
+    /// Mirrors the reads of [`eval_direct`](Self::eval_direct).
+    fn plan_direct(
+        &self,
+        key: &NodeKey,
+        allowed: &[AllowedSubject],
+        negated: bool,
+        plan: &mut Vec<BatchRead>,
+    ) {
+        let resource = self.object_ref(key);
+        let relation = self.rel_name(key.ty, key.rel);
+        let tuple = |subject| {
+            BatchRead::Exists(Relationship {
+                resource: resource.clone(),
+                relation: relation.clone(),
+                subject,
+            })
+        };
+        plan.push(tuple(self.subject.reference.clone()));
+        let wildcard = match (&self.subject.reference, &self.subject.set) {
+            (SubjectRef::Object(o), _) => self.subject.object_type.and_then(|t| {
+                (allowed.contains(&AllowedSubject::Wildcard(t)) || self.limits.stale_possible)
+                    .then(|| o.object_type.clone())
+            }),
+            (_, Some(set)) if negated && allowed.contains(&AllowedSubject::Wildcard(set.ty)) => {
+                Some(self.object_ref(set).object_type)
+            }
+            _ => None,
+        };
+        if let Some(object_type) = wildcard {
+            plan.push(tuple(SubjectRef::Wildcard { object_type }));
+        }
+        plan.push(BatchRead::SubjectSets {
+            resource: resource.clone(),
+            relation: relation.clone(),
+        });
+    }
+
+    fn plan_expr(
+        &self,
+        key: &NodeKey,
+        expr: &Expr,
+        negated: bool,
+        seen: &mut Vec<(RelId, bool)>,
+        plan: &mut Vec<BatchRead>,
+    ) {
+        match expr {
+            Expr::Computed(rel) => {
+                let member = NodeKey {
+                    ty: key.ty,
+                    id: key.id.clone(),
+                    rel: *rel,
+                };
+                self.plan_member(&member, negated, seen, plan);
+            }
+            Expr::Union(operands) | Expr::Intersection(operands) => {
+                for e in operands {
+                    self.plan_expr(key, e, negated, seen, plan);
+                }
+            }
+            Expr::Exclusion { base, sub } => {
+                self.plan_expr(key, base, negated, seen, plan);
+                let under = negated || self.subject.set.is_some();
+                self.plan_expr(key, sub, under, seen, plan);
+            }
+            Expr::Arrow { tupleset, .. } => plan.push(BatchRead::RelatedObjects {
+                resource: self.object_ref(key),
+                relation: self.rel_name(key.ty, *tupleset),
+            }),
+        }
     }
 
     fn count_tuples(&mut self, n: usize) {

@@ -31,7 +31,9 @@ if "who could do what, when" matters. Stale tuples on relations that still exist
 closed (`StaleRelationship`, §3.3).
 
 `EvalStats` (returned, also emitted on the tracing span): `store_reads`, `tuples_read`,
-`memo_hits`, `max_depth_reached`, `cycle_passes` (§3.6), `elapsed`.
+`memo_hits`, `max_depth_reached`, `cycle_passes` (§3.6), `elapsed`. `store_reads` counts the
+reads evaluation asks for; on a store that batches (§4) several may share one statement, so
+it is the same on every store.
 
 ---
 
@@ -248,8 +250,9 @@ nested groups that contain each other) is legal. Rules:
   - *State per check.* The SCC stack, pass memo and provisional values are cleared at the
     start and end of every `check` and every `check_bulk` item (after an error too); only
     the request memo, holding settled values, is shared between `check_bulk` items.
-  - *Backstop.* `EngineConfig::max_check_reads` (default **200 000**) caps store reads per
-    `check` (per item for `check_bulk`); exceeding it returns `ReadLimitExceeded{ max }`
+  - *Backstop.* `EngineConfig::max_check_reads` (default **200 000**) caps the store reads
+    evaluation asks for per `check` (per item for `check_bulk`; §4 for stores that batch);
+    exceeding it returns `ReadLimitExceeded{ max }`
     (`06` §1), failing closed. It bounds cost against bugs in this rule and against large
     but legitimate graphs, independently of any proof. 200 000 is twice
     `max_check_fanout`, so one node at full fan-out (each child ≥ 1 read) still fits; at an
@@ -461,8 +464,26 @@ that show no evaluation of their own, skipped nodes and memo hits off the path.
 | subject-set fan-out | `read_subject_sets(rev, resource, relation)` |
 | arrow | `read_related_objects(rev, resource, relation)` → distinct `ObjectRef`s, wildcards excluded |
 
-Batching (post-MVP optimisation): `read_related_objects_many(rev, &[resource], relation)` to
-fetch an arrow level for many objects in one query.
+**Read-ahead (T10.1, OQ-065, `docs/T10.1-READ-AHEAD.md`).** A store whose
+`batch_read_limit()` is 2 or more (`05` §2; only a Postgres snapshot today) gets the same
+calls through a cache held by the evaluator. Hints queue reads without I/O: at a node's entry
+the reads its member may make on its own object; after an arrow or subject-set read, the same
+for up to 256 children; in `lookup_resources` phase 2 (§5.2), for up to 128 candidates, or
+the page's remaining limit if lower. When evaluation asks for a read that has no answer, one
+`read_batch` carries it and the front of the queue.
+
+Evaluation is unchanged, so everything above holds with no further argument: it still walks
+depth-first, left to right, short-circuiting; it counts every read it asks for against
+`max_check_reads` and `store_reads`, answered or not; `max_depth` and `max_check_fanout` are
+checked where they always were, and a cached answer is always complete. The cache holds
+tuples at one snapshot and revision, never a node's value, so §3.6's proofs are untouched.
+A batch's failure is an `Err` (fail closed), and can occur on a check that would have
+answered had the speculative reads not been sent. A hint that is wrong or missing costs a
+statement and cannot change an answer. A speculative read that is too large or does not parse
+is left unanswered, so its error arises only if evaluation asks for it. Statements never
+outnumber reads asked for, and what speculation fetches stays linear in them: at most
+`limit + 16 × reads asked for` reads, starting from 32 per statement and doubling. In a trace
+only `duration` differs: the node whose read missed includes the statement.
 
 ---
 

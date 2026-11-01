@@ -10,6 +10,7 @@ mod error;
 mod eval;
 mod lookup;
 pub mod model;
+mod read_ahead;
 mod scc;
 pub mod store;
 mod subjects;

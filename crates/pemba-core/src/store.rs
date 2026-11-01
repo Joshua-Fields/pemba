@@ -218,6 +218,41 @@ pub struct DeleteResult {
 /// inside a schema write's transaction; an `Err` aborts the write.
 pub type SchemaCheck<'a> = &'a dyn Fn(&[RelationCount]) -> Result<(), Error>;
 
+/// One read a store can answer as part of [`ReadStore::read_batch`].
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum BatchRead {
+    /// [`ReadStore::exists`].
+    Exists(Relationship),
+    /// [`ReadStore::read_subject_sets`].
+    SubjectSets {
+        /// The object read.
+        resource: ObjectRef,
+        /// The relation read.
+        relation: RelName,
+    },
+    /// [`ReadStore::read_related_objects`].
+    RelatedObjects {
+        /// The object read.
+        resource: ObjectRef,
+        /// The relation read.
+        relation: RelName,
+    },
+}
+
+/// The answer to one [`BatchRead`], exactly as the single read would return it, in the
+/// same order.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum BatchAnswer {
+    /// Whether the tuple is visible.
+    Exists(bool),
+    /// The visible subject sets.
+    SubjectSets(Vec<(ObjectRef, RelName)>),
+    /// The distinct related objects.
+    RelatedObjects(Vec<ObjectRef>),
+}
+
 /// Read access at explicit revisions. All the evaluator ever sees of a store.
 pub trait ReadStore: Send + Sync {
     /// Highest committed revision; `Revision(0)` for an empty store.
@@ -357,10 +392,62 @@ pub trait ReadStore: Send + Sync {
     fn snapshot(&self) -> Result<Box<dyn ReadStore + '_>, StoreError> {
         Ok(Box::new(self))
     }
+
+    /// The most reads worth sending to [`read_batch`](Self::read_batch) at once; below 2,
+    /// the evaluator does not batch at all. Default 0: a store whose reads cost no round
+    /// trip gains nothing from batching (`docs/05-storage.md` §2).
+    fn batch_read_limit(&self) -> usize {
+        0
+    }
+
+    /// Answers `reads`, positionally, as one operation. The first read is the one the
+    /// caller needs: it is always answered, or the call fails. Any other may be `None`
+    /// (too many rows, or rows that do not parse), which only means the caller must read
+    /// it singly if it turns out to need it; a `Some` must equal the single read's result
+    /// at this `rev`, in the same order.
+    ///
+    /// # Errors
+    ///
+    /// [`StoreError::RevisionOutOfRange`] if `rev` is outside `gc_horizon..=head`; any
+    /// other [`StoreError`] if the backend fails or the first read's rows do not parse.
+    fn read_batch(
+        &self,
+        rev: Revision,
+        reads: &[BatchRead],
+    ) -> Result<Vec<Option<BatchAnswer>>, StoreError> {
+        reads
+            .iter()
+            .map(|read| {
+                Ok(Some(match read {
+                    BatchRead::Exists(rel) => BatchAnswer::Exists(self.exists(rev, rel)?),
+                    BatchRead::SubjectSets { resource, relation } => {
+                        BatchAnswer::SubjectSets(self.read_subject_sets(rev, resource, relation)?)
+                    }
+                    BatchRead::RelatedObjects { resource, relation } => {
+                        BatchAnswer::RelatedObjects(
+                            self.read_related_objects(rev, resource, relation)?,
+                        )
+                    }
+                }))
+            })
+            .collect()
+    }
 }
 
 /// A shared reference reads like the store itself, so a store can be its own snapshot.
 impl<T: ReadStore + ?Sized> ReadStore for &T {
+    fn batch_read_limit(&self) -> usize {
+        (**self).batch_read_limit()
+    }
+
+    fn read_batch(
+        &self,
+        rev: Revision,
+        reads: &[BatchRead],
+    ) -> Result<Vec<Option<BatchAnswer>>, StoreError> {
+        (**self).read_batch(rev, reads)
+    }
+
     fn head_revision(&self) -> Result<Revision, StoreError> {
         (**self).head_revision()
     }
