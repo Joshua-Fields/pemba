@@ -179,6 +179,16 @@ jobs:
           python ci/check_no_sqlite.py
           pytest -q
           mypy --strict tests
+      # After the step above, which proves the suite without FastAPI. PEMBA_FASTAPI_REQUIRED
+      # turns a missing package into a failure, where importorskip would stay green.
+      - name: FastAPI helper (pytest, mypy --strict)
+        env:
+          PEMBA_FASTAPI_REQUIRED: "1"
+        run: |
+          source .venv/bin/activate 2>/dev/null || source .venv/Scripts/activate
+          pip install fastapi==0.162.0 httpx==0.28.1
+          pytest -q tests/test_contrib_fastapi.py tests/test_fastapi_optional.py
+          mypy --strict tests python/pemba/contrib
       # The shipped artefact, not just the dev build (ADR-006, OQ-032).
       - name: release wheel bundles no SQLite, and rustls but no OpenSSL
         run: |
@@ -187,6 +197,11 @@ jobs:
           python -c "import sys, zipfile; z = zipfile.ZipFile(sys.argv[1]); [open(n.rsplit('/', 1)[-1], 'wb').write(z.read(n)) for n in z.namelist() if '_pemba' in n]" dist/*.whl
           python ci/check_no_sqlite.py _pemba.*
           python ci/check_tls.py _pemba.*
+      - name: wheel and sdist ship the FastAPI helper
+        run: |
+          source .venv/bin/activate 2>/dev/null || source .venv/Scripts/activate
+          maturin sdist --out dist
+          python ci/check_contrib_packaged.py dist/*.whl dist/*.tar.gz
 
   python-oldest:
     # The oldest combination docs/05-storage.md §4.3 claims: CPython 3.11 (the abi3 floor,
@@ -241,6 +256,14 @@ jobs:
           python ci/check_no_sqlite.py
           python -c "import pemba; assert pemba.MIN_SQLITE_VERSION == '3.26.0'"
           pytest -q
+      # The lowest versions pyproject.toml allows, on the oldest Python.
+      - name: FastAPI helper at its lower bounds
+        env:
+          PEMBA_FASTAPI_REQUIRED: "1"
+        run: |
+          source .venv/bin/activate
+          pip install fastapi==0.115.3 httpx==0.27.2
+          pytest -q tests/test_contrib_fastapi.py tests/test_fastapi_optional.py
 
   prop1:
     # Properties 1 to 5 and schema change at >= 1 000 cases each, on every PR (Linux only).
@@ -289,6 +312,7 @@ jobs:
       PEMBA_PG_URL: postgres://postgres@localhost:5432/postgres
       PEMBA_PG_TLS_URL: postgres://postgres@localhost:5433/postgres
       PEMBA_PG_REQUIRED: "1"
+      PEMBA_FASTAPI_REQUIRED: "1"
     steps:
       - uses: actions/checkout@v5
       - uses: Swatinem/rust-cache@v2
@@ -320,10 +344,12 @@ jobs:
           python -m venv .venv
           source .venv/bin/activate
           pip install maturin==1.15.0 pytest==9.1.1 mypy==2.4.0 "psycopg[binary]==3.3.6" \
-            psycopg2-binary==2.9.13 sqlalchemy==2.1.6 django==6.1.2 greenlet==3.5.6 asyncpg==0.32.0
+            psycopg2-binary==2.9.13 sqlalchemy==2.1.6 django==6.1.2 greenlet==3.5.6 asyncpg==0.32.0 \
+            fastapi==0.162.0 httpx==0.28.1
           maturin develop
           python ci/check_tls.py
-          pytest -q tests/test_postgres.py tests/test_async_postgres.py tests/test_aio.py tests/test_errors.py
+          pytest -q tests/test_postgres.py tests/test_async_postgres.py tests/test_aio.py tests/test_errors.py \
+            tests/test_contrib_fastapi.py tests/test_fastapi_optional.py
           mypy --strict tests
       # The plaintext-only build still compiles and passes.
       - run: cargo test -p pemba-store-postgres --no-default-features

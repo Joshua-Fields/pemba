@@ -88,7 +88,7 @@ jobs:
         run: |
           python3 -m venv /tmp/sdist-venv
           /tmp/sdist-venv/bin/pip install crates/pemba-py/dist/*.tar.gz
-          cd /tmp && /tmp/sdist-venv/bin/python -c "import pemba; print(pemba.__file__)"
+          cd /tmp && /tmp/sdist-venv/bin/python -c "import pemba, pemba.contrib; print(pemba.__file__)"
       - uses: actions/upload-artifact@v4
         with:
           name: sdist
