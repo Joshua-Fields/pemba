@@ -206,14 +206,15 @@ that owns the schema, before the app starts. An app that opens unmigrated tables
 
 **Latency is round trips.** Each statement is a round trip to the server (prepared
 statements are cached per connection), so cost scales with your network, not with the
-data. A direct check costs about 5 round trips; each level of hierarchy the check walks
-adds about 3, so a document 30 folders deep costs 99. A `lookup_resources` over 10,000
-documents costs about 500. A write is 10 round trips whatever its size, up to the batch
-limit of 1,000. On a CI runner where a round trip took about 150 µs, that came to 0.76 ms
-for a direct check, 16 ms for 30 folders and 19 ms for a 1,000-tuple write
+data. A direct check costs about 3 round trips; each level of hierarchy the check walks
+adds 1, so a document 30 folders deep costs 33. A `lookup_resources` over 10,000 documents
+costs 8. A write is 10 round trips whatever its size, up to the batch limit of 1,000. On a
+CI runner where a round trip took about 120 µs, that came to 0.61 ms for a direct check,
+6.7 ms for 30 folders, 16 ms for that lookup and 19 ms for a 1,000-tuple write
 ([`benches/RESULTS.md`](https://github.com/Joshua-Fields/pemba/blob/main/benches/RESULTS.md)).
-Keep the database close to the app, and prefer shallow hierarchies on hot paths. Fewer round
-trips for deep hierarchies is planned for 0.3.0.
+Keep the database close to the app, and prefer shallow hierarchies on hot paths. These
+figures are for the unreleased 0.3.0. In 0.2.0 a direct check costs about 5 round trips,
+each level adds about 3 (99 at 30 folders), and that lookup costs about 500.
 
 Before production, read the
 [Postgres operations guide](https://github.com/Joshua-Fields/pemba/blob/main/docs/guides/transactions.md):

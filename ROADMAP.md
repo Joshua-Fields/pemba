@@ -28,10 +28,11 @@ This is the intended order, with no promised dates.
 
 **0.3.0: faster deep hierarchies on Postgres, and a FastAPI helper**
 
-- **Fewer Postgres round trips.** Each level of hierarchy a check walks costs about three
-  round trips today, so a document 30 folders deep costs 99
-  ([measurements](benches/RESULTS.md#postgres-rust-linux)). Before and after numbers will
-  be published with the change.
+- **Fewer Postgres round trips.** Done on `main`, not yet released. A check on a document 30
+  folders deep goes from 99 round trips to 33 and from 13.3 ms to 6.7 ms (p50), and a lookup
+  over 10,000 documents from 506 to 8 and from 72 ms to 16 ms
+  ([measurements](benches/RESULTS.md#postgres-rust-linux)). Shallow checks gain less, and
+  some are slower at p99.
 - **FastAPI helper.** `pip install pemba[fastapi]` adds a permission check for your routes:
   a configurable 403 on deny, and errors that stay errors rather than turning into a deny.
 

@@ -14,7 +14,12 @@ The Rust crates and the Python package share one version; the latest release is 
 
 - Postgres reads make fewer round trips. A request opens its snapshot in one message, and a
   check fetches what each level of a hierarchy may read in one statement. Answers, errors,
-  limits and traces are unchanged (`docs/T10.1-READ-AHEAD.md`).
+  limits and traces are unchanged (`docs/T10.1-READ-AHEAD.md`). A check 30 folders deep goes
+  from 99 round trips to 33 and from 13.3 ms to 6.7 ms (p50), and `lookup_resources` over
+  10,000 documents from 506 to 8 and from 72 ms to 16 ms (`benches/RESULTS.md`).
+- Inside a read snapshot, Postgres statements use generic plans, set with `SET LOCAL`, so they
+  are not replanned on every call. The first open-ended read below head returns to the
+  server's default, for one more round trip.
 
 ### Added
 
