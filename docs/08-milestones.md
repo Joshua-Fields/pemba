@@ -992,6 +992,30 @@ starts, against the spec as it stands then.
     `groups_depth_1_below_head` +2%; at p50, `direct_hit_below_head` +1%. Also
     `write_batch_100` +1% at p50 and `write_batch_1000` +10% at p50 and +16% at p99, though no
     write statement changed. Accepting these is the maintainer's call (OQ-066).
-- Candidates carried over from the old stretch list: FastAPI helper (`06` §2.4), Node
-  bindings (napi-rs) and a WASM build; anything on the
+- **T10.2 FastAPI helper (0.3.0).** Spec: `06` §2.4; decisions: OQ-067. Acceptance criteria:
+  - `pemba.contrib.fastapi.Authz(engine, subject=...).require(type, permission,
+    path_param=...)` is a FastAPI dependency. The route body runs only after `check` returned
+    `True`, on `def` and `async def` routes, without blocking the event loop.
+  - Deny gives 403, or the configured client-error status and detail. Configuration applies
+    to a deny only: it cannot produce a success or a redirect, and cannot reach an error.
+  - Every `PembaError` class gives 503 with a fixed detail: no store message, SQL or
+    connection detail in the response. The cause reaches server-side logs.
+  - An id the engine refuses (empty, `*`, `#`, `@`, `:`, over 1,024 characters, non-ASCII) never
+    reaches `check`, and gets a client error that is neither a deny nor a 503. It cannot
+    change which object or subject is checked.
+  - A failing `subject` callable gives no anonymous fallback: an exception stays an error, and
+    `None`, a malformed subject, a wildcard or a subject set never reach a check. A missing
+    `path_param` is an error and is never read from the query string.
+  - The default consistency is `Latest`. A caller can pass `at_least` per request. No
+    `at_exactly`: a gate must not answer from an older revision.
+  - `import pemba` works without FastAPI. Importing the contrib module without it fails with a
+    message naming the extra. The module is in the wheel and the sdist, and passes
+    `mypy --strict`.
+  - Tests go through FastAPI's request path on memory, SQLite and real Postgres, and CI fails
+    rather than skips where they should run. The suite still passes without FastAPI.
+  - Wheel and sdist are each installed in a clean venv and run a small app, with and without
+    the extra (`ci/check_contrib_packaged.py` keeps the contents checked in CI). `06` §2.4, a user guide, the docs site, `CHANGELOG.md` and `ROADMAP.md` are
+    updated, and the helper is marked unreleased until 0.3.0.
+- Candidates carried over from the old stretch list: Node bindings (napi-rs) and a WASM
+  build; anything on the
   `CLAUDE.md` §6 out-of-scope list still needs an explicit decision first.
