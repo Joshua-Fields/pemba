@@ -129,6 +129,17 @@ pub struct GcStats { pub rows_removed: u64, pub horizon: Revision, pub batches: 
 // `fn bulk_rows(&self, n: usize) -> Option<String>`, default None: a FROM item `v` reading
 // many tuples from the nth parameter, a JSON array of six-string arrays in
 // relationship_columns order; Some selects §5 step 5's bulk form (Postgres only).
+// ReadStore gains (T10.1, OQ-065), both provided, so existing stores are unaffected:
+//   fn batch_read_limit(&self) -> usize;          // default 0: never batch
+//   fn read_batch(&self, rev: Revision, reads: &[BatchRead])
+//       -> Result<Vec<Option<BatchAnswer>>, StoreError>;  // default: the single reads, in turn
+// BatchRead is Exists(Relationship), SubjectSets { resource, relation } or
+// RelatedObjects { resource, relation }; BatchAnswer is the single read's result. Answers are
+// positional. reads[0] is the read the caller needs: it is always answered, in full, or the
+// call fails. Any other may be None (too many rows, or rows that do not parse), meaning "read
+// it singly if you need it"; a Some equals the single read's result at rev, in its order
+// (conformance case read_batch_equals_single_reads). Only a Postgres snapshot batches: an
+// in-process point read has no round trip to save. Use: `04` §4.
 
 /// SQL-backed stores: the shared write logic (§5) runs over their `WriteTxn`.
 pub trait SqlStore: WritableStore {

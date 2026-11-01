@@ -91,6 +91,12 @@ at a non-least fixed point or never stops (OQ-020).
 
 ### 2.3 Properties (each 1 000+ cases, `PROPTEST_CASES` env to raise locally)
 
+Read-ahead (T10.1, `04` §4) has its own property, `crates/pemba-testkit/tests/read_ahead.rs`:
+on a memory store made to batch, at several batch limits and with speculative reads left
+unanswered, every answer, error, counter and trace node equals the per-read evaluator's, and
+statements never outnumber reads. Properties 1-4 and 7 with `PEMBA_PROPTEST_STORE=postgres`
+run the same evaluator on real batches.
+
 Property 1 runs 64 cases (plus saved regression seeds) in plain `cargo test`; its 1 000+
 case variant is `#[ignore]`d and runs, with the other full-count properties, in ci.yml's
 `prop1` job on every push to main and every pull request (Linux only, about a minute

@@ -15,10 +15,11 @@ use pemba_core::model::{
     ObjectRef, RelName, Relationship, RelationshipFilter, Revision, SubjectRef,
 };
 use pemba_core::store::{
-    ReadStore, RelationCount, ReverseFilter, StoreError, StoredSchema, relationship_columns,
+    BatchAnswer, BatchRead, ReadStore, RelationCount, ReverseFilter, StoreError, StoredSchema,
+    relationship_columns,
 };
-use postgres::Row;
 use postgres::types::ToSql;
+use postgres::{Row, SimpleQueryMessage};
 
 use crate::dialect::PostgresDialect;
 use crate::pool::Lease;
@@ -179,6 +180,7 @@ pub(crate) struct Snapshot<'a> {
     dialect: &'a PostgresDialect,
     head: Revision,
     horizon: Revision,
+    schema_version: u64,
 }
 
 impl Drop for Snapshot<'_> {
@@ -230,27 +232,47 @@ impl PostgresStore {
         Ok(bounds)
     }
 
-    /// Starts the snapshot's transaction and reads head and horizon as its first
-    /// statement, which fixes the snapshot every later read sees.
+    /// Starts the snapshot's transaction and reads head, horizon and schema version as its
+    /// first statement, which fixes the snapshot every later read sees. One message, so one
+    /// round trip for all of it (OQ-065).
     fn begin_snapshot(&self) -> Result<Snapshot<'_>, StoreError> {
         let mut lease = self.pool.lease()?;
-        let client = lease.client()?;
-        if let Err(e) = client.batch_execute("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY") {
-            let err = db(&e);
-            lease.discard();
-            return Err(err);
-        }
+        let opened = lease
+            .client()?
+            .simple_query(&sql::open_snapshot(&self.dialect));
         // From here on, dropping the snapshot ends the transaction on every path.
         let mut snapshot = Snapshot {
             lease: Mutex::new(Some(lease)),
             dialect: &self.dialect,
             head: Revision(0),
             horizon: Revision(0),
+            schema_version: 0,
         };
-        let (head, horizon) = snapshot.with(|c| head_and_horizon(c, &self.dialect))?;
-        snapshot.head = head;
-        snapshot.horizon = horizon;
-        self.cache.observe(head, horizon);
+        let messages = opened.map_err(|e| db(&e))?;
+        let row = messages
+            .iter()
+            .find_map(|m| match m {
+                SimpleQueryMessage::Row(row) => Some(row),
+                _ => None,
+            })
+            .ok_or_else(|| corrupt("opening a snapshot returned no row".into()))?;
+        // The map always holds at least batch 0 → revision 0, and GC keeps its newest row.
+        let head = row
+            .try_get(0)
+            .map_err(|e| db(&e))?
+            .ok_or_else(|| corrupt("pemba_revisions is empty".into()))?;
+        let horizon = row
+            .try_get(1)
+            .map_err(|e| db(&e))?
+            .ok_or_else(|| corrupt("pemba_meta has no gc_horizon".into()))?;
+        let version = row
+            .try_get(2)
+            .map_err(|e| db(&e))?
+            .ok_or_else(|| corrupt("the schema version is null".into()))?;
+        snapshot.head = Revision(parse(head, "head revision")?);
+        snapshot.horizon = Revision(parse(horizon, "gc_horizon")?);
+        snapshot.schema_version = parse(version, "schema version")?;
+        self.cache.observe(snapshot.head, snapshot.horizon);
         Ok(snapshot)
     }
 }
@@ -320,6 +342,127 @@ fn read_tuples(
     forward(src, Forward::Tuples, rev, resource, relation)?
         .iter()
         .map(|row| subject(row, 0))
+        .collect()
+}
+
+/// Rows a speculative forward read may return before it is left unanswered, so a hint never
+/// loads a large relation that evaluation may not need.
+const BATCH_KEY_ROWS: i64 = 64;
+
+fn batch_object(ty: &str, id: &str) -> Result<ObjectRef, StoreError> {
+    Ok(ObjectRef {
+        object_type: parse(ty, "subject type")?,
+        object_id: parse(id, "subject id")?,
+    })
+}
+
+/// One forward read's rows, byte-wise (`COLLATE "C"`): the order the single read returns,
+/// without relying on how the server combines the statement's arms. `Ok(None)` only for a
+/// speculative read (`i > 0`) over its cap or with rows that do not parse: if evaluation
+/// needs it, the single read reports that properly.
+fn batch_rows<T>(
+    i: usize,
+    rows: &[&Row],
+    build: impl Fn(&str, &str, &str) -> Result<T, StoreError>,
+) -> Result<Option<Vec<T>>, StoreError> {
+    if i > 0 && rows.len() > usize::try_from(BATCH_KEY_ROWS).unwrap_or(usize::MAX) {
+        return Ok(None);
+    }
+    let mut columns = rows
+        .iter()
+        .map(|row| Ok((text(row, 1)?, text(row, 2)?, text(row, 3)?)))
+        .collect::<Result<Vec<_>, StoreError>>()?;
+    columns.sort_unstable();
+    let parsed: Result<Vec<T>, StoreError> = columns
+        .into_iter()
+        .map(|(ty, id, rel)| build(ty, id, rel))
+        .collect();
+    match parsed {
+        Ok(items) => Ok(Some(items)),
+        Err(_) if i > 0 => Ok(None),
+        Err(e) => Err(e),
+    }
+}
+
+fn read_batch(
+    src: &impl Source,
+    rev: Revision,
+    reads: &[BatchRead],
+) -> Result<Vec<Option<BatchAnswer>>, StoreError> {
+    let form = src.check_readable(rev)?;
+    // Arrays by column, one set per arm of the statement.
+    let (mut ei, mut ec): (Vec<i32>, [Vec<&str>; 6]) = (Vec::new(), Default::default());
+    let (mut si, mut sl, mut sc): (Vec<i32>, Vec<Option<i64>>, [Vec<&str>; 3]) =
+        (Vec::new(), Vec::new(), Default::default());
+    let (mut oi, mut ol, mut oc): (Vec<i32>, Vec<Option<i64>>, [Vec<&str>; 3]) =
+        (Vec::new(), Vec::new(), Default::default());
+    for (i, read) in reads.iter().enumerate() {
+        let index = i32::try_from(i).map_err(|_| corrupt("batch too large".into()))?;
+        // The first read is needed, so it must come back whole.
+        let limit = (i > 0).then_some(BATCH_KEY_ROWS + 1);
+        match read {
+            BatchRead::Exists(rel) => {
+                ei.push(index);
+                for (column, value) in ec.iter_mut().zip(relationship_columns(rel)) {
+                    column.push(value);
+                }
+            }
+            BatchRead::SubjectSets { resource, relation } => {
+                si.push(index);
+                sl.push(limit);
+                sc[0].push(resource.object_type.as_str());
+                sc[1].push(resource.object_id.as_str());
+                sc[2].push(relation.as_str());
+            }
+            BatchRead::RelatedObjects { resource, relation } => {
+                oi.push(index);
+                ol.push(limit);
+                oc[0].push(resource.object_type.as_str());
+                oc[1].push(resource.object_id.as_str());
+                oc[2].push(relation.as_str());
+            }
+            _ => return Err(corrupt("unknown batch read".into())),
+        }
+    }
+    let at = match form {
+        Form::Head => None,
+        Form::At(rev) => Some(rev),
+    };
+    let mut params: Vec<&(dyn ToSql + Sync)> = vec![
+        &ei, &ec[0], &ec[1], &ec[2], &ec[3], &ec[4], &ec[5], &si, &sl, &sc[0], &sc[1], &sc[2], &oi,
+        &ol, &oc[0], &oc[1], &oc[2],
+    ];
+    if let Some(rev) = &at {
+        params.push(rev);
+    }
+    let statement = sql::read_batch(src.dialect(), form);
+    let rows = src.with(|c| c.query(statement.as_str(), &params).map_err(|e| db(&e)))?;
+
+    let mut by_read: Vec<Vec<&Row>> = vec![Vec::new(); reads.len()];
+    for row in &rows {
+        let index: i32 = row.try_get(0).map_err(|e| db(&e))?;
+        let slot = usize::try_from(index)
+            .ok()
+            .and_then(|i| by_read.get_mut(i))
+            .ok_or_else(|| corrupt(format!("batch row for unknown read {index}")))?;
+        slot.push(row);
+    }
+    reads
+        .iter()
+        .zip(&by_read)
+        .enumerate()
+        .map(|(i, (read, rows))| match read {
+            BatchRead::Exists(_) => Ok(Some(BatchAnswer::Exists(!rows.is_empty()))),
+            BatchRead::SubjectSets { .. } => Ok(batch_rows(i, rows, |ty, id, rel| {
+                Ok((batch_object(ty, id)?, parse(rel, "subject relation")?))
+            })?
+            .map(BatchAnswer::SubjectSets)),
+            BatchRead::RelatedObjects { .. } => {
+                Ok(batch_rows(i, rows, |ty, id, _| batch_object(ty, id))?
+                    .map(BatchAnswer::RelatedObjects))
+            }
+            _ => Err(corrupt("unknown batch read".into())),
+        })
         .collect()
 }
 
@@ -449,6 +592,14 @@ macro_rules! shared_reads {
             read_related_objects(self, rev, resource, relation)
         }
 
+        fn read_batch(
+            &self,
+            rev: Revision,
+            reads: &[BatchRead],
+        ) -> Result<Vec<Option<BatchAnswer>>, StoreError> {
+            read_batch(self, rev, reads)
+        }
+
         fn read_reverse(
             &self,
             rev: Revision,
@@ -483,10 +634,6 @@ macro_rules! shared_reads {
         fn current_schema(&self) -> Result<Option<StoredSchema>, StoreError> {
             current_schema(self)
         }
-
-        fn schema_version(&self) -> Result<u64, StoreError> {
-            schema_version(self)
-        }
     };
 }
 
@@ -500,6 +647,10 @@ impl ReadStore for PostgresStore {
     }
 
     shared_reads!();
+
+    fn schema_version(&self) -> Result<u64, StoreError> {
+        schema_version(self)
+    }
 
     fn snapshot(&self) -> Result<Box<dyn ReadStore + '_>, StoreError> {
         Ok(Box::new(self.begin_snapshot()?))
@@ -518,6 +669,18 @@ impl ReadStore for Snapshot<'_> {
     }
 
     shared_reads!();
+
+    /// Read with head and horizon, so as of the snapshot too.
+    fn schema_version(&self) -> Result<u64, StoreError> {
+        Ok(self.schema_version)
+    }
+
+    /// Reads here are round trips, and all of them see one state, so batches are safe and
+    /// worth it. Not on the store itself: each of its reads is its own moment, and the
+    /// engine never reads there.
+    fn batch_read_limit(&self) -> usize {
+        1_024
+    }
 
     /// Already a snapshot; a nested one sees the same state.
     fn snapshot(&self) -> Result<Box<dyn ReadStore + '_>, StoreError> {

@@ -968,6 +968,23 @@ starts, against the spec as it stands then.
   trips. Batching each level's arrow reads into one statement would make a check about
   one round trip per level; a recursive CTE could make it a constant. Either must agree
   with the reference evaluator (golden rule 1) and keep reads at one snapshot.
+- **T10.1 Fewer Postgres round trips (0.3.0).** Design: `docs/T10.1-READ-AHEAD.md`;
+  decision: OQ-065. Acceptance criteria:
+  - `folders_depth_30` and `lookup_resources_10k` round trips fall substantially, measured
+    by `benches/pg-linux.sh` through the `bench-postgres` workflow on the same runner type
+    as the baseline, with the achieved numbers published in `benches/RESULTS.md`. No other
+    scenario regresses beyond noise at p50 or p99; any that moves is reported.
+  - The evaluator's answers, errors, `EvalStats` (except `elapsed`) and trace nodes (except
+    `duration`) are identical with and without batching, on generated cases, against the
+    reference evaluator, and on real Postgres.
+  - Everything one request reads comes from one snapshot at one revision. `max_depth`,
+    `max_check_fanout` and `max_check_reads` trip at exactly the same point as before.
+  - A store error during a batch is `Err`, never a deny. Tests cover cycles spanning a
+    batch, a limit reached mid-frontier, a store error part-way through a batch, and
+    exclusion and intersection over batched results.
+  - No on-disk format change. SQLite and memory keep their per-read paths. Public trait
+    additions are in `05` §2 in the same change.
+  - `README.md`, `ROADMAP.md` and this milestone state the achieved numbers.
 - Candidates carried over from the old stretch list: FastAPI helper (`06` §2.4), Node
   bindings (napi-rs) and a WASM build; anything on the
   `CLAUDE.md` §6 out-of-scope list still needs an explicit decision first.

@@ -34,6 +34,7 @@ use crate::engine::read_error;
 use crate::error::Error;
 use crate::eval::{Evaluator, Limits, Memo, NodeKey, Subject, invalid};
 use crate::model::{Consistency, ObjectId, ObjectRef, RelName, Revision, SubjectRef, TypeName};
+use crate::read_ahead;
 use crate::store::{ReadStore, ReverseFilter, SubjectRelMatch};
 
 /// Which objects of `resource_type` have `permission` for `subject`
@@ -330,10 +331,25 @@ pub(crate) fn filter(
         .filter(|id| cursor.is_none_or(|c| *id > c))
         .peekable();
     let mut allowed = Vec::new();
+    let mut hinted = 0;
     let result = loop {
         if allowed.len() >= limit {
             break Ok(remaining.peek().is_some());
         }
+        if hinted == 0 && evaluator.batches() {
+            let window: Vec<NodeKey> = remaining
+                .clone()
+                .take((limit - allowed.len()).min(read_ahead::CANDIDATE_WINDOW))
+                .map(|id| NodeKey {
+                    ty: target.0,
+                    id: id.clone(),
+                    rel: target.1,
+                })
+                .collect();
+            hinted = window.len();
+            evaluator.hint_candidates(&window);
+        }
+        hinted = hinted.saturating_sub(1);
         let Some(id) = remaining.next() else {
             break Ok(false);
         };

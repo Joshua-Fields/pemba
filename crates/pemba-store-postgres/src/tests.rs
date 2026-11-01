@@ -158,6 +158,14 @@ impl ReadStore for TestStore {
         self.read(|s| s.exists(rev, rel))
     }
 
+    fn read_batch(
+        &self,
+        rev: Revision,
+        reads: &[pemba_core::store::BatchRead],
+    ) -> Result<Vec<Option<pemba_core::store::BatchAnswer>>, StoreError> {
+        self.read(|s| s.read_batch(rev, reads))
+    }
+
     fn read_subject_sets(
         &self,
         rev: Revision,

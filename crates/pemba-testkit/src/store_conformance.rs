@@ -18,7 +18,8 @@ use pemba_core::model::{
     WriteOp, WriteRequest,
 };
 use pemba_core::store::{
-    RelationCount, ReverseFilter, StoreError, SubjectRelMatch, WritableStore, cmp_relationships,
+    BatchAnswer, BatchRead, ReadStore, RelationCount, ReverseFilter, StoreError, SubjectRelMatch,
+    WritableStore, cmp_relationships,
 };
 
 type Case = fn(&dyn WritableStore);
@@ -37,6 +38,10 @@ const CASES: &[(&str, Case)] = &[
     ("read_related_objects", read_related_objects),
     ("read_tuples", read_tuples),
     ("read_order_bytewise", read_order_bytewise),
+    (
+        "read_batch_equals_single_reads",
+        read_batch_equals_single_reads,
+    ),
     ("read_reverse_filters", read_reverse_filters),
     ("read_relationships_filters", read_relationships_filters),
     ("pagination_ordering", pagination_ordering),
@@ -582,6 +587,89 @@ fn read_tuples(s: &dyn WritableStore) {
 /// The forward reads' order is byte-wise column order (`docs/05-storage.md` §2): type before
 /// id before relation, uppercase before lowercase, `"10"` before `"9"`, a prefix first.
 /// `pemba-store-sqlite`'s `forward_reads_are_in_column_order` uses the same data.
+/// `read_batch` answers as the single reads do, in their order, at any revision: reads that
+/// come back at all must be exact, and the first must come back.
+fn read_batch_equals_single_reads(s: &dyn WritableStore) {
+    let before = write(
+        s,
+        &touch(&[
+            "doc:1#viewer@team:a#member",
+            "doc:1#viewer@group:b#member",
+            "doc:1#viewer@group:B#member",
+            "doc:1#viewer@group:a#member",
+            "doc:1#viewer@group:a#admin",
+            "doc:1#viewer@folder:b",
+            "doc:1#viewer@folder:a#owner",
+            "doc:1#viewer@folder:a",
+            "doc:1#viewer@folder:*",
+            "doc:1#viewer@user:anne",
+            "doc:2#viewer@user:anne",
+        ]),
+    );
+    let head = write(
+        s,
+        &batch([
+            WriteOp::Delete(rel("doc:1#viewer@group:a#admin")),
+            WriteOp::Delete(rel("doc:2#viewer@user:anne")),
+            WriteOp::Touch(rel("doc:1#viewer@drive:z")),
+        ]),
+    );
+    let forward = |o: &str| {
+        [
+            BatchRead::SubjectSets {
+                resource: obj(o),
+                relation: name("viewer"),
+            },
+            BatchRead::RelatedObjects {
+                resource: obj(o),
+                relation: name("viewer"),
+            },
+        ]
+    };
+    let mut reads = Vec::new();
+    reads.extend(forward("doc:1"));
+    reads.push(BatchRead::Exists(rel("doc:1#viewer@user:anne")));
+    reads.push(BatchRead::Exists(rel("doc:2#viewer@user:anne")));
+    reads.push(BatchRead::Exists(rel("doc:1#viewer@folder:*")));
+    reads.push(BatchRead::Exists(rel("doc:1#viewer@group:a#admin")));
+    reads.push(BatchRead::Exists(rel("doc:9#viewer@user:anne")));
+    reads.extend(forward("doc:2"));
+    reads.extend(forward("doc:9"));
+
+    let check = |store: &dyn ReadStore, rev: Revision, reads: &[BatchRead]| {
+        let answers = store.read_batch(rev, reads).unwrap();
+        assert_eq!(answers.len(), reads.len());
+        assert!(answers[0].is_some(), "the first read must be answered");
+        for (read, answer) in reads.iter().zip(answers) {
+            let want = match read {
+                BatchRead::Exists(r) => BatchAnswer::Exists(store.exists(rev, r).unwrap()),
+                BatchRead::SubjectSets { resource, relation } => BatchAnswer::SubjectSets(
+                    store.read_subject_sets(rev, resource, relation).unwrap(),
+                ),
+                BatchRead::RelatedObjects { resource, relation } => BatchAnswer::RelatedObjects(
+                    store.read_related_objects(rev, resource, relation).unwrap(),
+                ),
+                other => panic!("unknown read {other:?}"),
+            };
+            assert_eq!(answer.as_ref(), Some(&want), "{read:?} at {rev:?}");
+        }
+    };
+    let snapshot = s.snapshot().unwrap();
+    for rev in [before, head] {
+        check(s, rev, &reads);
+        check(&*snapshot, rev, &reads);
+        // Each arm of a batch alone, and any read first.
+        for first in &reads {
+            check(&*snapshot, rev, std::slice::from_ref(first));
+        }
+    }
+    let above = Revision(head.0 + 1);
+    assert!(matches!(
+        s.read_batch(above, &reads),
+        Err(StoreError::RevisionOutOfRange { .. })
+    ));
+}
+
 fn read_order_bytewise(s: &dyn WritableStore) {
     let rev = write(
         s,

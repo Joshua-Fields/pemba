@@ -7,7 +7,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use pemba_core::model::Revision;
-use pemba_core::store::{ReadStore, ReverseFilter, SubjectRelMatch, WritableStore};
+use pemba_core::store::{BatchRead, ReadStore, ReverseFilter, SubjectRelMatch, WritableStore};
 use proptest::prelude::*;
 
 use crate::generate::{self, StoreOp};
@@ -57,6 +57,19 @@ pub fn reads(s: &dyn WritableStore, rev: Revision) -> Vec<String> {
     for r in &tuples {
         out.push(outcome(s.exists(rev, r)));
     }
+    // The same reads as one batch.
+    let mut batch: Vec<BatchRead> = tuples.iter().cloned().map(BatchRead::Exists).collect();
+    for (resource, relation) in &forward {
+        batch.push(BatchRead::SubjectSets {
+            resource: resource.clone(),
+            relation: relation.clone(),
+        });
+        batch.push(BatchRead::RelatedObjects {
+            resource: resource.clone(),
+            relation: relation.clone(),
+        });
+    }
+    out.push(outcome(s.read_batch(rev, &batch)));
     let mut subjects: Vec<_> = tuples.iter().map(|r| r.subject.clone()).collect();
     subjects.sort();
     subjects.dedup();

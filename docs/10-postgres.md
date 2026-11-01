@@ -887,6 +887,16 @@ Consequences:
   its tuples in one `jsonb` parameter (`05` §5 step 5), so a write is 10 round trips
   whatever its size (2,016 before for 1,000 tuples); the statement text is the same for
   any batch size. Measurements: OQ-056, `benches/RESULTS.md`.
+- **Batched reads (OQ-065, `04` §4):** a snapshot answers `read_batch` in one statement with
+  one fixed text per visibility form, its reads in array parameters, so it needs one cache
+  entry each. Each key is read through the forward index in a `LATERAL` subquery, as its
+  single read would be. The read asked for has no row limit; a speculative forward read
+  stops at 65 rows, and over 64 it is left unanswered. Rows are grouped and sorted bytewise
+  on the client, so the order does not depend on how the server combines the statement's arms.
+- **Opening a snapshot (OQ-065):** `BEGIN` and one `SELECT` of head, horizon and schema version
+  go in one simple-query message, one round trip instead of three. Every later read is pinned
+  by that `SELECT`, as before, and the snapshot then holds the schema version. A failure
+  there rolls back or closes the connection, as any snapshot's end does.
 - **TLS:** `tokio-postgres-rustls` 0.14.0, behind a default-on `tls` feature. T5.3 uses
   rustls 0.23 with the `ring` provider (its own `ClientConfig`, not the process default)
   and `rustls-native-certs` roots; `webpki-roots` is not used because its licence
