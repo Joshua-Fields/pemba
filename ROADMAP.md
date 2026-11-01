@@ -6,10 +6,12 @@ See [the milestones](docs/08-milestones.md) for the implementation plan,
 [triage](docs/TRIAGE.md) for reports and [release evidence](docs/RELEASE-0.1.0.md)
 for verification and human gates. Nothing here expands the supported scope.
 
-## Shipped alphas and the stable target
+## Published releases
 
-The latest shipped release is **0.1.0-alpha.4**; **stable 0.1.0 is not yet published
-or approved**. See [release history](CHANGELOG.md) and
+The latest shipped release is **stable 0.1.0**, published from commit
+`41075c399f942b62280edeca81c0f68eaf314dab`. Public packages, documentation and the
+playground passed T7.16 verification in [PR #93](https://github.com/Joshua-Fields/pemba/pull/93).
+See [release history](CHANGELOG.md) and
 [published releases](https://github.com/Joshua-Fields/pemba/releases).
 
 | Release | Delivered capabilities |
@@ -18,10 +20,10 @@ or approved**. See [release history](CHANGELOG.md) and
 | alpha.2 | Explain traces and EngineConfig setters |
 | alpha.3 | Synchronous Postgres store and foreign writes, PendingRevision |
 | alpha.4 | Browser playground and removal of deprecated Python integer conversions for pending revisions |
-| Stable 0.1.0 target (unreleased) | Existing Rust/CLI/Python scope, sync SQLite/Postgres transactions, audited extensible APIs, guides and release verification; post-alpha.4 constructors and Rust check_str are development changes until released |
+| Stable 0.1.0 | Rust/CLI/Python scope, sync SQLite/Postgres transactions, audited extensible APIs and constructors, Rust check_str, guides and public release verification |
 
 The [development guides](https://joshua-fields.github.io/pemba/docs/next/) may describe
-APIs absent from alpha.4. Use a release's own documentation when running that version.
+changes beyond stable 0.1.0. Use a release's own documentation when running that version.
 The playground uses an in-memory store; it cannot demonstrate a real database commit
 or rollback and is not a supported WASM package.
 
@@ -31,14 +33,17 @@ T7.0–T7.11 are merged: scope decisions, API audit/documentation, user and tran
 guides, documentation site, contributor onboarding, security review, issue/roadmap
 materials, launch drafts and the release rehearsal. Launch text remains unapproved.
 
-- T7.12–T7.13: prepare stable metadata/migrations and verify the exact stable candidate.
-- T7.14: human signs off T3.7 and the exact candidate and merges the release PR.
-- T7.15: human tags and publishes through the reviewed publishing sequence.
-- T7.16: read-only verification of public packages, documentation and playground.
-- T7.17: human approves/posts launch materials and verifies/activates private reporting,
-  labels, triage ownership and roadmap links. Reporting usability and authenticated
-  registry ownership/access/publisher safeguards still require human confirmation
-  before release sign-off/publication, as recorded in the evidence index.
+- T7.12–T7.13: stable metadata, migrations and exact-candidate verification completed in
+  [PR #92](https://github.com/Joshua-Fields/pemba/pull/92), now merged.
+- T7.14–T7.15: release-PR merge, tag and publication are observed. Those observations
+  do not establish explicit human sign-off or authenticated registry/account and
+  reporting confirmations; retain/confirm the human records identified in the evidence index.
+- T7.16: completed public verification of all nine Rust crates, Python wheels/sdist,
+  GitHub Release, documentation and playground; evidence is in merged PR #93.
+- T7.17: remains human work. The maintainer chooses announcement text, destinations
+  and timing, posts approved materials and verifies/activates private reporting,
+  labels, triage ownership and roadmap links. No announcement or community activation
+  completion is inferred. **M7 remains open** until its human acceptance criteria are met.
 
 Green CI alone is not release approval. This roadmap authorizes no merge, tag,
 publication, deployment or announcement.

@@ -597,6 +597,15 @@ verified path from installation to transactional permission writes. This is rele
 preparation, not a new evaluator, storage design or supported WASM distribution.
 Refs use the numbered specifications above; `CLAUDE.md` golden rules apply throughout.
 
+### Current release status (2026-11-01)
+
+Stable 0.1.0 is published from `41075c399f942b62280edeca81c0f68eaf314dab`.
+Release PR #92 and T7.16 public-verification PR #93 are merged; T7.16 is complete.
+See [release evidence](RELEASE-0.1.0.md#t716-public-artifacts-and-live-deployment-verification--2026-10-30).
+Merge/publication observations do not establish explicit human sign-off or outstanding
+reporting/account confirmations. T7.17 and M7 remain open pending their human actions;
+announcement timing belongs to the maintainer. The baseline below is historical.
+
 ### Baseline inspected for T7.0 (2026-10-29)
 
 - Planning starts at main `10ad07a`, after release PR #78. Tags alpha.1–alpha.4 exist;
