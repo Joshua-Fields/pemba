@@ -17,7 +17,7 @@ OQ-055/OQ-057/OQ-064 and the corrected publication-order lesson in
   `lookup_subjects` and `resolve(pending)`. OQ-064's resolve/cancellation behavior
   is explicitly approved. Caller-owned transactions and error propagation are retained.
 - Synchronous Rust/Python APIs, storage formats, supported backend/SQLite floors,
-  dependency versions and runtime implementations are unchanged by release preparation.
+  external dependency versions and runtime implementations are unchanged by release preparation.
   No migration is required from 0.1.0. Existing sync code keeps working; async users
   opt into the new entry points. Cancellation drains work, then the caller rolls back.
 - Rust/Python packages share 0.2.0. Root/fuzz locks must change only own package versions;

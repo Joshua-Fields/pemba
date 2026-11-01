@@ -131,7 +131,7 @@ app transaction. SQLAlchemy `AsyncSession.run_sync` is also supported: inside
 `session.begin()`, await `session.run_sync(lambda s: engine.write(..., conn=s))` and
 resolve after the enclosing commit. These routes remain available in stable 0.1.0.
 
-The unpublished 0.2.0 candidate additionally accepts `await engine.write_async(...,
+Version 0.2.0 additionally accepts `await engine.write_async(...,
 conn=conn)` for psycopg `AsyncConnection`, asyncpg `Connection`, and SQLAlchemy
 `AsyncSession`/`AsyncConnection` over either driver. Open the app transaction first:
 

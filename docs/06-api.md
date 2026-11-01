@@ -4,7 +4,7 @@ The public surface for 0.1.0 is frozen as documented here and in
 `PUBLIC_API_AUDIT.md`, including its non-exhaustive extension points. Public API or
 on-disk format changes require a specification update in the same change and an
 explicit migration/versioning review (CLAUDE.md rule 10). A release-candidate
-checkout does not itself approve or publish a release; see `RELEASE-0.2.0.md` for the current candidate.
+checkout does not itself approve or publish a release; see `RELEASE-0.2.0.md` for release evidence.
 
 ---
 
@@ -690,9 +690,10 @@ Rules:
   `OrphanReport`) are frozen `#[pyclass]`es with `__repr__`, `__eq__`, `__hash__` where
   sensible. Revisions in them are `Revision`.
 
-### 2.2.1 Async foreign writes and reads (0.2.0 candidate)
+### 2.2.1 Async foreign writes and reads (0.2.0)
 
-These additions are prepared for unpublished 0.2.0; they do not change published stable 0.1.0.
+These additions target 0.2.0; they do not change 0.1.0.
+Publication and verification are recorded separately in `RELEASE-0.2.0.md`.
 `Engine.write_async(*, touch=None, create=None, delete=None, preconditions=None,
 conn, allow_autocommit=False)` returns a coroutine yielding `PendingRevision`.
 It requires a Postgres engine and psycopg `AsyncConnection`, asyncpg `Connection`,

@@ -6,7 +6,7 @@ All notable changes to pemba are recorded here. The format is based on
 0.1.0 is frozen as specified in `docs/06-api.md`; documented non-exhaustive extension
 points remain. Earlier alpha releases could break the API.
 
-The Rust crates and the Python package share candidate version `0.2.0`.
+The Rust crates and the Python package share version `0.2.0`.
 This is prepared release content, not publication evidence. Exact-candidate
 verification and human approval are tracked in `docs/RELEASE-0.2.0.md`.
 Published stable 0.1.0 remains available with its original release evidence.

@@ -1,9 +1,8 @@
 # Installation and quick starts
 
-These guides describe candidate 0.2.0, including async Postgres foreign writes and
-`pemba.aio`. It is not yet published: use the checkout recipes below until the
-[release evidence](../RELEASE-0.2.0.md) records publication and public verification.
-Published stable 0.1.0 retains its own versioned documentation and
+These guides describe 0.2.0, including async Postgres foreign writes and `pemba.aio`.
+Check [release evidence](../RELEASE-0.2.0.md) for publication and public verification;
+checkout recipes are available below. Version 0.1.0 retains its own documentation and
 [public verification record](../RELEASE-0.1.0.md#t716-public-artifacts-and-live-deployment-verification--2026-10-30).
 The [Rust quick start](../../README.md#rust-quick-start) uses the compatible constructors
 and `Engine::check_str`; older alphas need their own versioned examples.
@@ -28,7 +27,7 @@ extension uses CPython's SQLite instead. Postgres support uses rustls, with plat
 certificate roots, and needs no OpenSSL or libpq for engine-owned connections. Optional
 application drivers have their own installation requirements.
 
-## Registry installation (after 0.2.0 publication)
+## Registry installation
 
 ```sh
 python -m venv .venv

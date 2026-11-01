@@ -917,7 +917,7 @@ client and the app's psycopg cannot interfere with each other.
 pemba never owns the foreign connection. It runs the shared Rust write algorithm (§1.6.1),
 whose `WriteTxn` calls are forwarded to the app's connection inside the open transaction.
 That is the ADR-006 pattern. Published stable 0.1.0 ships the sync rows; the async rows
-are implemented on main by T5.13 and remain unreleased. Per driver:
+are implemented by T5.13 for 0.2.0. Per driver:
 
 | App holds | pemba accepts | Placeholders | "In a transaction?" | SQLSTATE from |
 |---|---|---|---|---|
@@ -925,9 +925,9 @@ are implemented on main by T5.13 and remain unreleased. Per driver:
 | psycopg2 connection | the connection | `%s` (client-side binding) | `conn.info.transaction_status` (psycopg2 ≥ 2.8) | `e.pgcode` |
 | SQLAlchemy 2 `Session` / `Connection` | either one | `%s` (on the raw psycopg connection) | `session.in_transaction()` | as the driver |
 | Django | `django.db.connection` | `%s` via `connection.cursor()` | `not connection.get_autocommit()` (true inside `atomic()`) | as the driver |
-| psycopg 3 `AsyncConnection` | development: `write_async` (T5.13) | `%s` | `conn.info.transaction_status` | `e.sqlstate` |
-| asyncpg `Connection` | development: `write_async` (T5.13) | `$n` | `conn.is_in_transaction()` | `e.sqlstate` |
-| SQLAlchemy `AsyncSession` / `AsyncConnection` | development: `write_async` (T5.13) | `$n` (raw asyncpg) or `%s` (raw psycopg) | `session.in_transaction()` | as the driver |
+| psycopg 3 `AsyncConnection` | 0.2.0: `write_async` (T5.13) | `%s` | `conn.info.transaction_status` | `e.sqlstate` |
+| asyncpg `Connection` | 0.2.0: `write_async` (T5.13) | `$n` | `conn.is_in_transaction()` | `e.sqlstate` |
+| SQLAlchemy `AsyncSession` / `AsyncConnection` | 0.2.0: `write_async` (T5.13) | `$n` (raw asyncpg) or `%s` (raw psycopg) | `session.in_transaction()` | as the driver |
 
 SQLAlchemy specifics: `session.connection()` returns the connection in the session's
 current transaction (and begins one). Its `.connection.driver_connection` is the raw
@@ -968,8 +968,9 @@ Common rules:
 OQ-058 (maintainer decision, T7.1): the shipped synchronous PostgreSQL API is sufficient
 for stable 0.1.0. T5.13 was deferred until after stable release and is now merged on
 main in [PR #95](https://github.com/Joshua-Fields/pemba/pull/95), with passing CI and
-maintainer approval of OQ-064. These async additions remain unreleased; they are not
-part of published stable 0.1.0. See [post-merge evidence](T5.13-ASYNC.md).
+maintainer approval of OQ-064. These additions target 0.2.0; they are not
+part of 0.1.0. See [implementation evidence](T5.13-ASYNC.md) and
+[release evidence](RELEASE-0.2.0.md) for publication/verification status.
 
 **On published stable 0.1.0**, async apps can do these things:
 - read through `asyncio.to_thread(engine.check, ...)`, since the Rust side releases the
@@ -986,7 +987,7 @@ is the documented interim route:
 The adapter recognises SQLAlchemy's `AsyncAdapt_*` dialect connection as sync and sends
 statements through its `cursor()`; the session vouches for the transaction.
 
-T5.13 development implementation (not part of published stable 0.1.0):
+T5.13 implementation for 0.2.0 (not part of 0.1.0):
 
 `await engine.write_async(..., conn=async_conn)` runs the synchronous Rust write in a
 worker thread (`asyncio.to_thread`). Each `WriteTxn` call inside it schedules

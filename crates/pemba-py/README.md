@@ -25,7 +25,7 @@ reconciliation job, and no window where a document exists that nobody can open.
   <img src="https://raw.githubusercontent.com/Joshua-Fields/pemba/main/assets/transactional-writes.svg" alt="Diagram. Left, service-based authorisation: the application writes the row to its own database and the relationship to a separate authorisation service with its own database, a dual write that lets the two drift apart if either fails. Right, pemba: the application writes the row and the relationship to its own database in one transaction." width="900">
 </p>
 
-**Release candidate: 0.2.0 (unpublished).** Adds async Postgres foreign writes and
+**Version: 0.2.0.** Adds async Postgres foreign writes and
 `pemba.aio` read helpers; synchronous APIs and storage formats are unchanged.
 The API contract is documented in
 [the API contract](https://github.com/Joshua-Fields/pemba/blob/main/docs/06-api.md).
@@ -49,9 +49,10 @@ cargo add pemba-store-postgres@0.2.0                 # Rust: the Postgres store
 cargo install pemba-cli@0.2.0 --locked              # `pemba` command-line tool
 ```
 
-These commands target 0.2.0 after publication; the candidate is not yet available
-from registries. Published stable 0.1.0 remains available. Until publication use the
-source-build recipe below. The Rust example uses the compatible 0.2.0 API; follow the
+These commands target 0.2.0. Consult the release evidence and published releases above
+for registry availability; a versioned checkout alone does not establish publication.
+The source-build recipe below is also available. The Rust example uses the compatible
+0.2.0 API; follow the
 [installation and quick-start guide](https://github.com/Joshua-Fields/pemba/blob/main/docs/guides/installation.md)
 for its clean source-build recipe, supported platforms and prerequisites.
 
