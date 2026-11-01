@@ -469,6 +469,10 @@ AC:
 - Benchmark the per-statement hop, which decides whether the sans-IO follow-up is
   needed.
 
+T5.13 development implementation and local acceptance/check evidence (2026-11-01):
+[async foreign mode](T5.13-ASYNC.md). This does not change published stable 0.1.0
+or complete M7/T7.17; implementation review/CI and any future release remain separate.
+
 ---
 
 ## M6 — Playground

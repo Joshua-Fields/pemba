@@ -12,6 +12,18 @@ release content; publication and exact-candidate human approval are tracked in
 
 ## [Unreleased]
 
+### Added
+
+- T5.13 async Postgres foreign writes: await `Engine.write_async` with psycopg
+  `AsyncConnection`, asyncpg, or SQLAlchemy `AsyncSession`/`AsyncConnection` over
+  either driver. The shared synchronous Rust algorithm uses the approved loop/thread
+  bridge; caller-owned transactions still require caller commit/rollback. Cancellation
+  drains in-flight work before raising, then the caller must roll back.
+- `pemba.aio.check`, `lookup_resources`, `lookup_subjects` and `resolve` read helpers.
+  They preserve synchronous results and errors through `asyncio.to_thread`.
+  Reproducible per-statement bridge measurements are recorded in `benches/RESULTS.md`;
+  no sans-IO redesign or performance threshold is introduced.
+
 ## [0.1.0] - 2026-10-30
 
 The first stable API release: embedded Rust/CLI and Python authorization with memory,

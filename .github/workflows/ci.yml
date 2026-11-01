@@ -320,10 +320,10 @@ jobs:
           python -m venv .venv
           source .venv/bin/activate
           pip install maturin==1.15.0 pytest==9.1.1 mypy==2.4.0 "psycopg[binary]==3.3.6" \
-            psycopg2-binary==2.9.13 sqlalchemy==2.1.6 django==6.1.2 greenlet==3.5.6
+            psycopg2-binary==2.9.13 sqlalchemy==2.1.6 django==6.1.2 greenlet==3.5.6 asyncpg==0.32.0
           maturin develop
           python ci/check_tls.py
-          pytest -q tests/test_postgres.py tests/test_errors.py
+          pytest -q tests/test_postgres.py tests/test_async_postgres.py tests/test_aio.py tests/test_errors.py
           mypy --strict tests
       # The plaintext-only build still compiles and passes.
       - run: cargo test -p pemba-store-postgres --no-default-features

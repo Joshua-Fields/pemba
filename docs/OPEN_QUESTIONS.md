@@ -1589,3 +1589,23 @@ it is resolved.
   tag's source; an older tag dispatch still selects the newest available stable tag.
 - Maintainer review: confirm these empty/legacy states with the T7.6 PR; no version,
   release, historical asset or approved route is changed by this interpretation.
+
+## OQ-064 — Async helper signatures and safe cancellation handoff
+- Raised in: T5.13; `10` §2.4 and `06` §2.2.1.
+- Blocking: no; conservative details within the approved thread-bridge design,
+  for maintainer review with the implementation PR. No accepted ADR changes.
+- Ambiguity: §2.4 names `pemba.aio` read/resolve helpers without Python signatures;
+  Python has `PendingRevision.revision()`, not a public `Engine.resolve`. It warns
+  about partially written transactions on cancellation but does not specify when
+  rollback/release may safely begin relative to the still-running worker.
+- Conservative implementation: `aio.check(engine, ...)`, `lookup_resources(engine,
+  ...)`, `lookup_subjects(engine, ...)` preserve synchronous arguments/results/errors;
+  `aio.resolve(pending)` runs `pending.revision()` in a worker. No new evaluator API.
+  Cancelled writes stop scheduling further SQL and drain in-flight SQL/the worker
+  before raising `CancelledError`, including repeated cancellation. This can delay
+  cancellation by statement runtime. The caller then rolls back its possibly partial
+  transaction; pemba does not silently commit, roll it back or report a denial.
+  The existing raw-psycopg-only autocommit opt-in owns its own cleanup; asyncpg and
+  SQLAlchemy require explicit transactions, preserving OQ-055's ownership boundary.
+- Maintainer review: confirm these signatures and cancellation handoff in T5.13's PR.
+  No sans-IO work, new performance threshold or human release/launch approval is implied.

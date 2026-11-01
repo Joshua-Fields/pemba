@@ -1,7 +1,7 @@
 """Type stubs for pemba (``docs/06-api.md`` §2.2)."""
 
 import os
-from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Coroutine, Iterable, Iterator, Mapping, Sequence
 from typing import Any, Literal, final, overload
 
 __all__ = [
@@ -421,6 +421,20 @@ class Engine:
         A memory engine rejects conn with ValueError. A different database raises
         StorageError (FOREIGN_CONNECTION_MISMATCH). TransactionConflictError requires
         retrying the entire transaction with backoff, re-reading application state."""
+    def write_async(
+        self,
+        *,
+        touch: Iterable[str | Relationship] | None = None,
+        create: Iterable[str | Relationship] | None = None,
+        delete: Iterable[str | Relationship] | None = None,
+        preconditions: Iterable[Precondition] | None = None,
+        conn: object,
+        allow_autocommit: bool = False,
+    ) -> Coroutine[Any, Any, PendingRevision]:
+        """Await a foreign Postgres write on psycopg AsyncConnection, asyncpg Connection
+        or SQLAlchemy AsyncSession/AsyncConnection. Caller owns commit/rollback.
+        Cancellation drains the worker before raising CancelledError; roll back then.
+        Raw psycopg alone supports allow_autocommit opt-in. Same errors as write."""
     def delete_relationships(
         self,
         *,

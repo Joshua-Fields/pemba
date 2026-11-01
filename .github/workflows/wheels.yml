@@ -199,11 +199,11 @@ jobs:
           python -m venv .venv
           source .venv/bin/activate
           pip install pytest==9.1.1 "psycopg[binary]==3.3.6" psycopg2-binary==2.9.13 \
-            sqlalchemy==2.1.6 django==6.1.2 greenlet==3.5.6
+            sqlalchemy==2.1.6 django==6.1.2 greenlet==3.5.6 asyncpg==0.32.0
           pip install --no-index --find-links dist pemba
           python -c "import pemba, sys; assert 'site-packages' in pemba.__file__, pemba.__file__"
           python ci/check_tls.py
-          pytest -q -p no:cacheprovider tests/test_postgres.py tests/test_errors.py
+          pytest -q -p no:cacheprovider tests/test_postgres.py tests/test_async_postgres.py tests/test_aio.py tests/test_errors.py
 
   publish:
     # Trusted publishing: PyPI trusts this workflow, in the `pypi` environment, for the
