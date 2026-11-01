@@ -129,10 +129,30 @@ the driver version aligned.
 For an async application, a worker thread may own a sync connection and the complete
 app transaction. SQLAlchemy `AsyncSession.run_sync` is also supported: inside
 `session.begin()`, await `session.run_sync(lambda s: engine.write(..., conn=s))` and
-resolve after the enclosing commit. Direct asyncpg/psycopg async connections are
-rejected; native async adapters (`write_async`, `pemba.aio`, T5.13) remain deferred until
-after stable release. Cancelling a task awaiting a worker does not stop that worker;
-the application must manage transaction completion and rollback.
+resolve after the enclosing commit. These routes remain available in stable 0.1.0.
+
+Development checkouts with T5.13 additionally accept `await engine.write_async(...,
+conn=conn)` for psycopg `AsyncConnection`, asyncpg `Connection`, and SQLAlchemy
+`AsyncSession`/`AsyncConnection` over either driver. Open the app transaction first:
+
+```python
+from pemba import aio
+
+async with conn.transaction():  # psycopg AsyncConnection or asyncpg Connection
+    # Write application data on conn here, in this same transaction.
+    pending = await engine.write_async(touch=["document:readme#viewer@user:anne"], conn=conn)
+revision = await aio.resolve(pending)
+allowed = await aio.check(engine, "document:readme#view@user:anne", at_least=revision)
+```
+
+For SQLAlchemy, use `async with session.begin()` or `async with connection.begin()`.
+`allow_autocommit=True` is only for raw psycopg; pemba never commits a caller-owned
+transaction. `pemba.aio.lookup_resources` and `lookup_subjects` also wrap engine reads.
+Cancelling a read leaves its worker running. Cancelling `write_async` stops further
+statements and drains in-flight work before raising `CancelledError`; it can delay
+cancellation. Then roll back the app transaction, which may contain partial changes.
+Never release/reuse the connection while a write is running. Driver/server timeouts
+can bound an individual database statement; cancellation does not prove it did not run.
 
 Next: [troubleshooting](troubleshooting.md), [schema](schema.md),
 [installation](installation.md). The separate T7.5 task adds runnable commit/rollback

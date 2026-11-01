@@ -66,9 +66,9 @@ fn reject_async(conn: &Bound<'_, PyAny>) -> PyResult<()> {
     if is_async(conn)? {
         let (module, name) = (module_name(conn), type_name(conn));
         return Err(PyTypeError::new_err(format!(
-            "conn is an async connection ({module}.{name}); write(conn=) is synchronous. Until \
-             write_async arrives, use a sync connection in a worker thread, or \
-             AsyncSession.run_sync (docs/10-postgres.md §2.4)"
+            "conn is an async connection ({module}.{name}); write(conn=) is synchronous. Use \
+             await engine.write_async(..., conn=conn), a sync connection in a worker thread, \
+             or AsyncSession.run_sync (docs/10-postgres.md §2.4)"
         )));
     }
     Ok(())
@@ -110,6 +110,12 @@ fn libpq_status(conn: &Bound<'_, PyAny>) -> Option<i64> {
 /// `ValueError` for a failed transaction, one with a statement still running, or none
 /// open without `allow_autocommit`.
 pub(crate) fn foreign(conn: &Bound<'_, PyAny>, allow_autocommit: bool) -> PyResult<Foreign> {
+    if is_bridge(conn)? {
+        return Ok(Foreign {
+            raw: conn.clone().unbind(),
+            own_transaction: conn.getattr("own_transaction")?.extract()?,
+        });
+    }
     reject_async(conn)?;
     // SQLAlchemy and Django own their connection's transaction, so pemba never opens one
     // on them: they must already be in one, `allow_autocommit` or not.
@@ -255,13 +261,31 @@ fn store_err(py: Python<'_>, e: &PyErr) -> StoreError {
 /// A raw psycopg 3 or psycopg2 connection as a [`WriteTxn`]: one cursor, reused.
 pub(crate) struct PgPyTxn {
     cursor: Py<PyAny>,
+    bridge: bool,
+    dollar: bool,
+}
+
+/// Only the package's private loop/worker bridge can bypass sync driver discovery.
+fn is_bridge(conn: &Bound<'_, PyAny>) -> PyResult<bool> {
+    if module_name(conn) != "pemba._async" || type_name(conn) != "_ConnectionBridge" {
+        return Ok(false);
+    }
+    conn.is_instance(
+        &conn
+            .py()
+            .import("pemba._async")?
+            .getattr("_ConnectionBridge")?,
+    )
 }
 
 impl PgPyTxn {
     /// Opens a cursor on `raw`.
     pub(crate) fn new(py: Python<'_>, raw: &Py<PyAny>) -> PyResult<Self> {
+        let bridge = is_bridge(raw.bind(py))?;
         Ok(Self {
             cursor: raw.bind(py).call_method0("cursor")?.unbind(),
+            bridge,
+            dollar: bridge && raw.bind(py).getattr("_dollar")?.extract::<bool>()?,
         })
     }
 
@@ -276,8 +300,13 @@ impl PgPyTxn {
         py: Python<'py>,
         sql: &str,
         values: &[SqlValue],
+        query: bool,
     ) -> Result<Bound<'py, PyAny>, StoreError> {
-        let (sql, values) = format_style(sql, values)?;
+        let (sql, values) = if self.dollar {
+            (sql.to_owned(), values.to_vec())
+        } else {
+            format_style(sql, values)?
+        };
         let params: Vec<Bound<'py, PyAny>> = values
             .iter()
             .map(|v| match v {
@@ -288,9 +317,12 @@ impl PgPyTxn {
             .collect();
         let params = PyTuple::new(py, params).map_err(|e| store_err(py, &e))?;
         let cursor = self.cursor.bind(py);
-        cursor
-            .call_method1("execute", (sql, params))
-            .map_err(|e| store_err(py, &e))?;
+        if self.bridge {
+            cursor.call_method1("execute", (sql, params, query))
+        } else {
+            cursor.call_method1("execute", (sql, params))
+        }
+        .map_err(|e| store_err(py, &e))?;
         Ok(cursor.clone())
     }
 }
@@ -325,7 +357,7 @@ fn value(i: usize, v: &Bound<'_, PyAny>) -> Result<SqlValue, StoreError> {
 impl WriteTxn for PgPyTxn {
     fn execute(&mut self, sql: &str, values: &[SqlValue]) -> Result<u64, StoreError> {
         Python::attach(|py| {
-            let cursor = self.run(py, sql, values)?;
+            let cursor = self.run(py, sql, values, false)?;
             // -1 when the driver cannot tell.
             let n: i64 = cursor
                 .getattr("rowcount")
@@ -337,7 +369,7 @@ impl WriteTxn for PgPyTxn {
 
     fn query(&mut self, sql: &str, values: &[SqlValue]) -> Result<Vec<Vec<SqlValue>>, StoreError> {
         Python::attach(|py| {
-            let cursor = self.run(py, sql, values)?;
+            let cursor = self.run(py, sql, values, true)?;
             let rows = cursor
                 .call_method0("fetchall")
                 .map_err(|e| store_err(py, &e))?;

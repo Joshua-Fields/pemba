@@ -554,6 +554,41 @@ impl Engine {
         }
     }
 
+    /// Join an async Postgres transaction using the thread bridge (`10` §2.4).
+    ///
+    /// Await with a psycopg `AsyncConnection`, asyncpg `Connection` or `SQLAlchemy`
+    /// `AsyncSession`/`AsyncConnection`. Returns `PendingRevision`; the caller commits or
+    /// rolls back. Evaluation and storage failures remain exceptions. Cancellation
+    /// drains the worker before raising `CancelledError`; then roll back the transaction.
+    /// Raw psycopg alone supports `allow_autocommit` opt-in, as with synchronous write.
+    #[pyo3(signature = (*, touch=None, create=None, delete=None, preconditions=None, conn, allow_autocommit=false))]
+    #[allow(clippy::too_many_arguments)]
+    fn write_async<'py>(
+        slf: PyRef<'py, Self>,
+        py: Python<'py>,
+        touch: Option<&Bound<'py, PyAny>>,
+        create: Option<&Bound<'py, PyAny>>,
+        delete: Option<&Bound<'py, PyAny>>,
+        preconditions: Option<&Bound<'py, PyAny>>,
+        conn: &Bound<'py, PyAny>,
+        allow_autocommit: bool,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        if !matches!(&*slf.inner, Inner::Postgres(_)) {
+            return Err(PyValueError::new_err(
+                "write_async requires Engine.postgres()",
+            ));
+        }
+        py.import("pemba._async")?.getattr("write_async")?.call1((
+            slf,
+            touch,
+            create,
+            delete,
+            preconditions,
+            conn,
+            allow_autocommit,
+        ))
+    }
+
     /// Deletes up to `limit` live relationships matching the filter, at one new revision.
     ///
     /// `None` matches anything; `subject_relation=""` matches only subjects without a

@@ -690,6 +690,31 @@ Rules:
   `OrphanReport`) are frozen `#[pyclass]`es with `__repr__`, `__eq__`, `__hash__` where
   sensible. Revisions in them are `Revision`.
 
+### 2.2.1 Async foreign writes and reads (T5.13 development)
+
+These additions are after published stable 0.1.0; they do not change that release.
+`Engine.write_async(*, touch=None, create=None, delete=None, preconditions=None,
+conn, allow_autocommit=False)` returns a coroutine yielding `PendingRevision`.
+It requires a Postgres engine and psycopg `AsyncConnection`, asyncpg `Connection`,
+or SQLAlchemy `AsyncSession`/`AsyncConnection` over either driver. The caller owns
+the transaction and must commit before resolving. SQLAlchemy/asyncpg require an
+explicit transaction; only raw psycopg supports the existing autocommit opt-in.
+Same validation, preconditions, database identity checks and error mapping as `write`.
+Synchronous `write` still rejects raw async connections.
+
+`from pemba import aio` exposes `await aio.check(engine, ...)`,
+`await aio.lookup_resources(engine, ...)`, `await aio.lookup_subjects(engine, ...)`
+and `await aio.resolve(pending)`. Reads forward the synchronous API's arguments,
+return types and exceptions through `asyncio.to_thread`; they use engine-owned
+connections. `resolve` calls `pending.revision()` in a worker, preserving
+`RevisionPending` and `WriteRolledBack`.
+
+Cancelling a read does not stop its worker. Cancelling `write_async` stops further
+statements and waits for in-flight work before raising `CancelledError`, so caller
+rollback does not race the worker. The transaction may be partially written: roll
+back after any cancellation/error. Do not use/release a foreign connection concurrently
+with its write. See `10` §2.4 and OQ-064; no async runtime or async Rust store is added.
+
 ### 2.3 Exceptions
 
 ```text

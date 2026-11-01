@@ -169,3 +169,67 @@ Measured: 2026-10-28 12:08 UTC, at commit `75e3236c9a1bc43561921580e349d7fdd7c71
 | `write_batch_1000` | 406,688 / 2,016 | 201,468 / 1,009 | 19,255 / 10 |
 
 Commits: before `7278215`, cache `2798c07`, cache+bulk `75e3236`.
+
+## T5.13 async foreign statement bridge (Windows, Docker Postgres)
+
+This standalone section comes from `crates/pemba-py/bench/async_bridge.py`, rather
+than `benches/results.py`. Raw per-statement nanoseconds, execution order, block
+summaries, configuration and environment are in `benches/t5.13-async-bridge.json`.
+Measured 2026-11-01 11:03 UTC at `af88a56f5da857e16c5a477ff36f0db2545468e9`
+with uncommitted T5.13 changes (the JSON records the private bridge source SHA-256).
+
+Environment: Intel Core i5-14600KF, 20 logical CPUs, 31.8 GiB RAM;
+Windows 11 build 26300; CPython 3.12.10, Windows selector event loop;
+psycopg 3.3.6, asyncpg 0.32.0 (SQLAlchemy 2.1.6 installed, not timed).
+PostgreSQL 18.6 Debian x86_64 in Docker container `pemba-t513-pg18`, image
+`postgres:18`, image ID
+`sha256:edb0c08dc33befd0262ab3b5cf1c4f3f8cfd8b09e88c05b45adee29d6761ddb6`.
+TCP endpoint `127.0.0.1:55432`; Docker networking is part of the measured latency.
+Cargo builds and service tests were paused during measurement. No CPU affinity was set.
+
+Reproduction from the repository root, with a local PostgreSQL 18.6 server at the
+endpoint below, an installed pemba build including T5.13, and the recorded driver versions:
+
+```powershell
+& target/t7.9-pg-venv/Scripts/python.exe crates/pemba-py/bench/async_bridge.py --dsn postgres://postgres@127.0.0.1:55432/postgres --container pemba-t513-pg18 --repeats 12 --statements 1000 --warmup 200 --dispatch-samples 1000 --output benches/t5.13-async-bridge.json
+```
+
+Each mode/driver gets 200 warmup statements, then 12 blocks of 1,000 sequential
+statements (12,000 measured per cell). Drivers rotate each round, and direct/bridge
+order reverses on alternate rounds. Each driver keeps one connection and explicit
+transaction open. Both modes execute and fetch `SELECT %s::int` (psycopg) or
+`SELECT $1::int` (asyncpg), parameter `1`, through the same private
+`_ConnectionBridge._execute` coroutine. Direct mode awaits it on the caller's loop;
+bridge mode calls the actual synchronous `execute` and `fetchall` from one
+`asyncio.to_thread` worker loop per block. There is no per-statement `to_thread`.
+The worker's statement timer excludes its outer dispatch. Result validation is
+outside both statement timers. The no-op control uses the same bridge's asyncpg
+query path with an immediately returning coroutine and no network or driver work.
+
+Wall-clock latency, microseconds; nearest-rank percentiles of the pooled raw samples:
+
+| driver/control | direct p50 | direct p99 | bridge p50 | bridge p99 | median paired block p50 delta |
+|---|---:|---:|---:|---:|---:|
+| no-op coroutine | 0.5 | 1.6 | 130.5 | 294.0 | 123.1 |
+| psycopg async SELECT + fetch | 602.4 | 1,150.6 | 798.3 | 1,564.8 | 184.8 |
+| asyncpg SELECT + fetch | 641.3 | 1,284.8 | 795.6 | 1,564.2 | 177.3 |
+
+Separately, 1,000 warmed `await asyncio.to_thread(lambda: None)` calls measured
+111.6 µs p50 / 370.5 µs p99. This is a control for the outer dispatch once per
+write; it is not included in the statement bridge cells or an actual engine-write
+measurement. It does not include Rust execution or foreign adapter setup.
+
+The real-driver median paired block deltas were about 0.18 ms per statement on
+this machine. Across blocks they ranged from 57.3 to 346.4 µs (psycopg) and
+20.6 to 289.4 µs (asyncpg), so these figures include substantial scheduling/network
+variation. Paired block deltas are differences of medians, not a distribution of
+per-statement overhead; subtracting p99 columns would not give p99 overhead.
+The no-op control independently demonstrates a scheduling cost even without SQL.
+
+This run measures one caller's SELECT bridge, not complete writes, SQLAlchemy
+wrapping, contention or production network latency. It establishes a measurable
+cost worth profiling against an application's write-latency budget. No budget or
+acceptance threshold has been set, so it cannot establish that a sans-IO rewrite
+is required. Keep the thread bridge; consider a separately scoped sans-IO follow-up
+if representative end-to-end write measurements show this cost matters. No
+sans-IO implementation is included.

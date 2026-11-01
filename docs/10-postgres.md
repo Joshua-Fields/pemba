@@ -985,7 +985,7 @@ is the documented interim route:
 The adapter recognises SQLAlchemy's `AsyncAdapt_*` dialect connection as sync and sends
 statements through its `cursor()`; the session vouches for the transaction.
 
-The plan for T5.13:
+T5.13 development implementation (not part of published stable 0.1.0):
 
 `await engine.write_async(..., conn=async_conn)` runs the synchronous Rust write in a
 worker thread (`asyncio.to_thread`). Each `WriteTxn` call inside it schedules
@@ -1003,15 +1003,36 @@ awaiting the worker. Reads: `pemba.aio` wraps `check`, `lookup_*` and `resolve` 
 2. **Every read uses a worker thread**, so concurrency is bounded by the default executor's
    size (`min(32, cpu + 4)`) and by `pool_size`.
 3. **Cancellation is coarse.** Cancelling the awaiting task does not stop a `check`
-   already running in its thread, and a cancelled `write_async` can leave the app's
-   transaction half-written. The app must then roll back, as it would after any
-   cancellation mid-transaction.
+   already running in its thread. `write_async` stops scheduling further statements,
+   drains any in-flight statement and its worker, then raises `CancelledError`.
+   Repeated cancellation also waits for draining. This can delay cancellation by a
+   database statement's runtime; use driver/server timeouts when needed. The caller's
+   transaction can be half-written and must then be rolled back. pemba does not roll
+   back a caller-owned transaction. It only cleans up its own raw-psycopg autocommit
+   opt-in transaction. Cancellation cannot prove that a statement did not complete.
 4. **Calling it from the loop thread deadlocks.** Calling the sync `engine.write(conn=)`
    with an *async* connection is detected and raises `TypeError`.
 
 The fallback, if T5.13's benchmark shows the hop matters, is a sans-IO write state machine
 in Rust. Python would drive it directly with `await` and no thread. That is an internal
 change with no API impact, so it is deferred.
+
+T5.13 supports SQLAlchemy `AsyncConnection` as well as `AsyncSession`, over either
+psycopg or asyncpg, as specified in §2.3. All driver access, transaction inspection,
+cursor fetching and cursor cleanup run on the caller's loop. SQLAlchemy's deferred
+asyncpg transaction is materialized through `exec_driver_sql("SELECT 1")` before
+using the raw driver; SQLAlchemy retains ownership of BEGIN and commit/rollback.
+Existing synchronous `write` continues rejecting raw async connections. No optional
+driver is imported by pemba. `allow_autocommit` retains OQ-055's raw-psycopg-only
+scope; asyncpg and SQLAlchemy require an explicit transaction.
+
+`pemba.aio.check(engine, ...)`, `lookup_resources(engine, ...)` and
+`lookup_subjects(engine, ...)` forward their synchronous arguments/results/errors.
+`pemba.aio.resolve(pending)` awaits `pending.revision()` after caller commit (Python
+has no public `Engine.resolve`). No helper turns an evaluation error into denial.
+OQ-064 records the unspecified helper signature and cancellation-drain choices for
+maintainer review. Method/environment/raw bridge benchmark results are in
+`benches/RESULTS.md`; they create no performance threshold or sans-IO authorization.
 
 ---
 

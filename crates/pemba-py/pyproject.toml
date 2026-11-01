@@ -32,6 +32,7 @@ postgres-test = [
     "sqlalchemy>=2.0",
     "django>=5.0",
     "greenlet>=3.0",
+    "asyncpg>=0.32",
 ]
 # bench/test_scenarios.py (docs/07-testing.md §7)
 bench = ["pytest>=9.1", "pytest-benchmark>=5.3"]
