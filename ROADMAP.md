@@ -50,9 +50,17 @@ publication, deployment or announcement.
 
 ## After stable: scoped candidates
 
-**T5.13 async foreign adapters follow stable**, as approved in T7.1. The shipped sync
-Postgres scope is sufficient for 0.1.0; no raw async connection support is promised
-today. This follow-up does not start automatically after launch.
+**T5.13 async foreign mode is complete on main**, merged in
+[PR #95](https://github.com/Joshua-Fields/pemba/pull/95) after passing CI. It adds
+`write_async` for psycopg, asyncpg and SQLAlchemy async transactions, plus `pemba.aio`
+read helpers. See [implementation and verification evidence](docs/T5.13-ASYNC.md).
+The maintainer approved the resolve helper and cancellation handoff in OQ-064.
+
+These additions are **unreleased**: published stable 0.1.0 retains synchronous
+Postgres foreign writes. A future release needs its own version decision, preparation
+and verification. The bridge benchmark establishes no performance threshold requiring
+a sans-IO redesign; that remains a separately scoped candidate. M8 and the later
+candidates below have not started.
 
 | Milestone | Candidate scope and required constraints |
 |---|---|
