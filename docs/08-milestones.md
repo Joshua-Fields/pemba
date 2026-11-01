@@ -469,9 +469,13 @@ AC:
 - Benchmark the per-statement hop, which decides whether the sans-IO follow-up is
   needed.
 
-T5.13 development implementation and local acceptance/check evidence (2026-11-01):
-[async foreign mode](T5.13-ASYNC.md). This does not change published stable 0.1.0
-or complete M7/T7.17; implementation review/CI and any future release remain separate.
+**Complete on main, unreleased (2026-11-01):**
+[PR #95](https://github.com/Joshua-Fields/pemba/pull/95) merged as
+`4f80f93473ff02d013d6bba165f7257383e23e30`; all executed PR checks passed.
+The maintainer approved OQ-064's resolve helper and cancellation handoff.
+[Async foreign mode evidence](T5.13-ASYNC.md) records acceptance coverage, local checks,
+remote workflows and benchmark results. This does not change published stable 0.1.0
+or complete M7/T7.17; any future release remains a separate decision and verification.
 
 ---
 

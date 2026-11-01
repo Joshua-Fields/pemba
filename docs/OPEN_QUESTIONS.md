@@ -1592,8 +1592,7 @@ it is resolved.
 
 ## OQ-064 — Async helper signatures and safe cancellation handoff
 - Raised in: T5.13; `10` §2.4 and `06` §2.2.1.
-- Blocking: no; conservative details within the approved thread-bridge design,
-  for maintainer review with the implementation PR. No accepted ADR changes.
+- Blocking: no; resolved by the maintainer, 2026-11-01. No accepted ADR changes.
 - Ambiguity: §2.4 names `pemba.aio` read/resolve helpers without Python signatures;
   Python has `PendingRevision.revision()`, not a public `Engine.resolve`. It warns
   about partially written transactions on cancellation but does not specify when
@@ -1607,5 +1606,9 @@ it is resolved.
   transaction; pemba does not silently commit, roll it back or report a denial.
   The existing raw-psycopg-only autocommit opt-in owns its own cleanup; asyncpg and
   SQLAlchemy require explicit transactions, preserving OQ-055's ownership boundary.
-- Maintainer review: confirm these signatures and cancellation handoff in T5.13's PR.
-  No sans-IO work, new performance threshold or human release/launch approval is implied.
+- Resolution: explicitly approved by the maintainer in this chat on 2026-11-01,
+  after PR #95 merged: `aio.resolve(pending)` resolves the pending revision;
+  cancelling `write_async` waits for in-flight SQL and its worker before raising
+  `CancelledError`, after which the caller rolls back. The read helper signatures
+  and transaction-ownership boundary above are retained. No sans-IO work, new
+  performance threshold or human release/launch approval is implied.

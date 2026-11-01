@@ -916,8 +916,8 @@ client and the app's psycopg cannot interfere with each other.
 
 pemba never owns the foreign connection. It runs the shared Rust write algorithm (§1.6.1),
 whose `WriteTxn` calls are forwarded to the app's connection inside the open transaction.
-That is the ADR-006 pattern. The first Postgres release ships the sync rows; the async rows
-are T5.13. Per driver:
+That is the ADR-006 pattern. Published stable 0.1.0 ships the sync rows; the async rows
+are implemented on main by T5.13 and remain unreleased. Per driver:
 
 | App holds | pemba accepts | Placeholders | "In a transaction?" | SQLSTATE from |
 |---|---|---|---|---|
@@ -925,9 +925,9 @@ are T5.13. Per driver:
 | psycopg2 connection | the connection | `%s` (client-side binding) | `conn.info.transaction_status` (psycopg2 ≥ 2.8) | `e.pgcode` |
 | SQLAlchemy 2 `Session` / `Connection` | either one | `%s` (on the raw psycopg connection) | `session.in_transaction()` | as the driver |
 | Django | `django.db.connection` | `%s` via `connection.cursor()` | `not connection.get_autocommit()` (true inside `atomic()`) | as the driver |
-| psycopg 3 `AsyncConnection` | later: `write_async` (T5.13) | `%s` | `conn.info.transaction_status` | `e.sqlstate` |
-| asyncpg `Connection` | later: `write_async` (T5.13) | `$n` | `conn.is_in_transaction()` | `e.sqlstate` |
-| SQLAlchemy `AsyncSession` / `AsyncConnection` | later: `write_async` (T5.13) | `$n` (raw asyncpg) or `%s` (raw psycopg) | `session.in_transaction()` | as the driver |
+| psycopg 3 `AsyncConnection` | development: `write_async` (T5.13) | `%s` | `conn.info.transaction_status` | `e.sqlstate` |
+| asyncpg `Connection` | development: `write_async` (T5.13) | `$n` | `conn.is_in_transaction()` | `e.sqlstate` |
+| SQLAlchemy `AsyncSession` / `AsyncConnection` | development: `write_async` (T5.13) | `$n` (raw asyncpg) or `%s` (raw psycopg) | `session.in_transaction()` | as the driver |
 
 SQLAlchemy specifics: `session.connection()` returns the connection in the session's
 current transaction (and begins one). Its `.connection.driver_connection` is the raw
@@ -963,14 +963,15 @@ Common rules:
     trip.
 - **Search path.** It is irrelevant, because every statement is schema-qualified (§3.3).
 
-### 2.4 Async callers (later phase: T5.13, after stable 0.1.0)
+### 2.4 Async callers (T5.13, after stable 0.1.0)
 
 OQ-058 (maintainer decision, T7.1): the shipped synchronous PostgreSQL API is sufficient
-for stable 0.1.0. T5.13 native async adapters are deferred until after stable release;
-M7 documents the supported synchronous and thread-bridge patterns below without adding
-native async APIs.
+for stable 0.1.0. T5.13 was deferred until after stable release and is now merged on
+main in [PR #95](https://github.com/Joshua-Fields/pemba/pull/95), with passing CI and
+maintainer approval of OQ-064. These async additions remain unreleased; they are not
+part of published stable 0.1.0. See [post-merge evidence](T5.13-ASYNC.md).
 
-**Until T5.13**, async apps can do these things:
+**On published stable 0.1.0**, async apps can do these things:
 - read through `asyncio.to_thread(engine.check, ...)`, since the Rust side releases the
   GIL;
 - write relationships on a native engine connection (not atomic with app data);
@@ -1030,8 +1031,8 @@ scope; asyncpg and SQLAlchemy require an explicit transaction.
 `lookup_subjects(engine, ...)` forward their synchronous arguments/results/errors.
 `pemba.aio.resolve(pending)` awaits `pending.revision()` after caller commit (Python
 has no public `Engine.resolve`). No helper turns an evaluation error into denial.
-OQ-064 records the unspecified helper signature and cancellation-drain choices for
-maintainer review. Method/environment/raw bridge benchmark results are in
+OQ-064 records the helper signature and cancellation-drain choices explicitly approved
+by the maintainer on 2026-11-01. Method/environment/raw bridge benchmark results are in
 `benches/RESULTS.md`; they create no performance threshold or sans-IO authorization.
 
 ---
