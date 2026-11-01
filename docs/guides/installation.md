@@ -1,9 +1,8 @@
 # Installation and quick starts
 
-These guides describe the 0.1.0 API. Installation commands target 0.1.0 after
-publication; for an unpublished release candidate, use the checkout recipes below.
-Check [release status](https://github.com/Joshua-Fields/pemba/releases) and
-[release evidence](../RELEASE-0.1.0.md) before assuming a registry artifact exists.
+These guides describe the published stable 0.1.0 API. Registry installation and
+transaction examples passed [T7.16 public verification](../RELEASE-0.1.0.md#t716-public-artifacts-and-live-deployment-verification--2026-10-30).
+For development builds, use the checkout recipes below.
 The [Rust quick start](../../README.md#rust-quick-start) uses the 0.1.0 constructors
 and `Engine::check_str`; older alphas need their own versioned examples.
 See [CHANGELOG](../../CHANGELOG.md) for migrations and [API documentation](../06-api.md).

@@ -47,8 +47,8 @@ cargo add pemba-store-postgres@0.1.0                 # Rust: the Postgres store
 cargo install pemba-cli@0.1.0 --locked              # `pemba` command-line tool
 ```
 
-These commands target 0.1.0 after publication. For an unpublished release candidate,
-use the source-build recipe below. The Rust example uses the 0.1.0 API; follow the
+These commands install published stable 0.1.0, verified in
+[T7.16](https://github.com/Joshua-Fields/pemba/pull/93). The Rust example uses the 0.1.0 API; follow the
 [installation and quick-start guide](https://github.com/Joshua-Fields/pemba/blob/main/docs/guides/installation.md)
 for its clean source-build recipe, supported platforms and prerequisites.
 

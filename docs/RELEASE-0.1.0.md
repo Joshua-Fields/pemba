@@ -1,9 +1,17 @@
 # 0.1.0 release evidence
 
-This is the evidence index required by M7. No stable release is approved or published.
-T7.2–T7.12 implementation/rehearsal/preparation evidence is recorded here. T7.13's
-exact-candidate verification record is linked below; T7.14–T7.17 remain human/public
-verification gates. T7.11 is merged; the stable release PR remains unmerged.
+Stable **0.1.0 is published** from `41075c399f942b62280edeca81c0f68eaf314dab`.
+[Release PR #92](https://github.com/Joshua-Fields/pemba/pull/92) and
+[T7.16 verification PR #93](https://github.com/Joshua-Fields/pemba/pull/93) are merged.
+T7.16 passed public verification of all nine Rust crates, Python wheels/sdist,
+GitHub Release, documentation and playground; see the dated record below and its
+[verification manifest](release-evidence/t7.16-public.json).
+
+This index retains historical preparation/rehearsal records as observations at their
+stated dates, including then-pending gates. Publication and merge do not substitute
+for explicit T7.14 human sign-off, reporting usability or authenticated account/security
+confirmations. T7.17 announcement approval, timing, posting and community activation
+remain human work; no completion is inferred and **M7 remains open**.
 
 ## Preceding gates
 
