@@ -4,17 +4,21 @@ Internal release and process state. The visitor-facing page is
 [`ROADMAP.md`](../ROADMAP.md); keep task IDs, gates and approval language here or in
 [`08-milestones.md`](08-milestones.md), not there.
 
-## Current state (2026-11-01)
+## Current state (2026-11-02)
 
-- **Latest release: 0.2.0.** Tag, GitHub Release and registry versions are recorded in
-  [`RELEASE-0.2.0.md`](RELEASE-0.2.0.md#publication-record), with the human-only items
+- **Latest published release: 0.2.0.** Tag, GitHub Release and registry versions are recorded
+  in [`RELEASE-0.2.0.md`](RELEASE-0.2.0.md#publication-record), with the human-only items
   still open.
+- **0.3.0 is a release candidate, not published.** The scope is complete: public docs cleanup;
+  fewer Postgres round trips on deep hierarchies (T10.1, OQ-056); FastAPI helper (T10.2, `06`
+  §2.4). The version bump and release PR come from branch `release/0.3.0`. Merge, tag,
+  publication, deployment and announcement remain human steps, and a version in this tree
+  establishes none of them. See [`RELEASE-0.3.0.md`](RELEASE-0.3.0.md) for what was verified
+  and the decisions still open.
+- **OQ-066 is not accepted** unless a later record says so: the T10.1 p99 and write-batch
+  slowdowns block 0.3.0 until the maintainer accepts them or asks for more.
 - **M7 remains open.** T7.17 (announcement, private reporting, labels, triage ownership) is
   human work. Neither a merge nor a publication establishes it.
-- **0.3.0 scope, in order** (maintainer decision, 2026-11-01): public docs cleanup; fewer
-  Postgres round trips on deep hierarchies (M10, OQ-056); FastAPI helper (`06` §2.4). One
-  task per PR, each stopping for maintainer review. Version bumps, tags, publishing,
-  release PRs and announcements are outside these tasks.
 - **M8 authorised queries** is the intended 0.4.0 headline. Nothing is implemented, and its
   task breakdown is drafted only on request.
 - **M9 SpiceDB import/export is deprioritised:** SpiceDB service users are unlikely to

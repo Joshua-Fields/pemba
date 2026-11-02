@@ -276,6 +276,9 @@ def test_deny_configuration_reaches_no_error() -> None:
     bad_input = Harness(StubEngine(), authz_options=options)
     response = bad_input.get("sync", "*")
     assert (response.status_code, response.json()) == (422, BAD_ID)
+    ahead = Harness(StubEngine(error=error_for(BOUND_AHEAD)), authz_options=options)
+    response = ahead.get("sync", "readme")
+    assert (response.status_code, response.json()) == (409, {"detail": "Requested revision is not available yet"})
 
 
 # Errors stay errors
@@ -938,7 +941,7 @@ def test_at_least_is_read_per_request(store: Store) -> None:
     assert app.ran == ["fresh"]
 
 
-def test_a_bound_ahead_of_the_store_is_a_500_a_client_cannot_flood_the_log_with(
+def test_a_bound_ahead_of_the_store_is_a_409_with_no_error_log(
     store: Store, caplog: pytest.LogCaptureFixture,
 ) -> None:
     def bound(request: Request) -> int:
@@ -948,7 +951,7 @@ def test_a_bound_ahead_of_the_store_is_a_500_a_client_cannot_flood_the_log_with(
     app = Harness(store.engine, at_least=bound)
     with caplog.at_level(logging.INFO, logger="pemba.contrib.fastapi"):
         ahead = app.client.get("/sync/fresh", headers={"x-revision": str(int(revision) + 1000)})
-    assert (ahead.status_code, ahead.json()) == (500, {"detail": "Internal Server Error"})
+    assert (ahead.status_code, ahead.json()) == (409, {"detail": "Requested revision is not available yet"})
     assert app.ran == []
     assert isinstance(app.causes[-1], pemba.ConsistencyError)
     records = [record for record in caplog.records if record.name == "pemba.contrib.fastapi"]

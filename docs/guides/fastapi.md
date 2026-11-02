@@ -1,8 +1,9 @@
 # FastAPI
 
-> **Unreleased.** This helper is on `main` and planned for 0.3.0. It is not in 0.2.0, so
-> `pip install pemba[fastapi]` and `pemba.contrib.fastapi` do not work with the current
-> release. To try it now, [build the current checkout](installation.md).
+> **New in 0.3.0.** `pip install pemba[fastapi]` and `pemba.contrib.fastapi` do not work with
+> 0.2.0 or earlier. If 0.3.0 is not yet on the
+> [releases page](https://github.com/Joshua-Fields/pemba/releases),
+> [build the current checkout](installation.md).
 
 `pemba.contrib.fastapi` checks a permission before a route runs. The route body runs only
 if the check returned true. Everything else is an HTTP error.
@@ -77,7 +78,8 @@ use. On SQLite, engine calls hold the GIL ([details](../06-api.md#22-signatures-
 | Allowed | The route's response | Yes |
 | Denied | 403 `Forbidden`, or your `deny_status` and `deny_detail` | No |
 | Store failure or transaction conflict, which a retry can clear | 503 `Authorization is temporarily unavailable` | No |
-| Any other engine error: unknown type or permission, no schema, an evaluation limit, a revision bound ahead of the store, a database not migrated | 500 | No |
+| An `at_least` revision bound ahead of the store | 409 `Requested revision is not available yet` | No |
+| Any other engine error: unknown type or permission, no schema, an evaluation limit, a database not migrated | 500 | No |
 | An id the engine refuses (`*`, `#`, `@`, `:`, non-ASCII, over 1,024 characters) | 422 `Invalid resource id` | No |
 | `subject` returned `None`, or a string with an empty id or ending in `:None` | 401 `Authentication required` | No |
 | `subject` raised, or returned a malformed subject, a wildcard or a subject set | 500 | No |
@@ -135,11 +137,12 @@ def session_revision(request):
 gate = authz.require("document", "view", path_param="doc_id", at_least=session_revision)
 ```
 
-If the store is behind the bound, the check fails and the client gets a 500, with one line at
-`INFO` on the `pemba.contrib.fastapi` logger and no traceback. A client that sends its own
-token can cause that 500 at will, so keep tokens server-side, as here, or sign them. Parse any
-client-supplied token in the callable, and raise your own `HTTPException` if it is invalid; a
-value the engine refuses is a 500.
+If the store is behind the bound, the check fails and the client gets a 409, with one line at
+`INFO` on the `pemba.contrib.fastapi` logger and no traceback. It is a 4xx because a client that
+sends its own token can cause it at will, and that must not trip an alert on your 5xx rate. A
+409 is neither a deny nor an outage: the caller may retry, but a token ahead of the store stays
+a 409 until the store reaches it. Parse any client-supplied token in the callable, and raise
+your own `HTTPException` if it is invalid; a value the engine refuses is a 500.
 
 There is no `at_exactly`. A gate that answered from an older revision would let a caller back
 in after their access was revoked.

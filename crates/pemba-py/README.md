@@ -13,9 +13,9 @@ job. When an answer surprises you, **explain traces** show which relationship gr
 denied it. **[Try it in the browser](https://joshua-fields.github.io/pemba/)**: the
 playground runs the real engine locally, and nothing you type leaves your machine.
 
-`pip install pemba` (Python 3.11 or newer) or `cargo add pemba`. The latest release is
-0.2.0; see the [roadmap](https://github.com/Joshua-Fields/pemba/blob/main/ROADMAP.md) for
-what's next.
+`pip install pemba` (Python 3.11 or newer) or `cargo add pemba`. This is version 0.3.0; see
+the [releases](https://github.com/Joshua-Fields/pemba/releases) for what is published and the
+[roadmap](https://github.com/Joshua-Fields/pemba/blob/main/ROADMAP.md) for what's next.
 
 ## Python quick start
 
@@ -90,7 +90,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-This is a complete `src/main.rs` for `pemba = "0.2.0"`, and the same example is a doctest on
+This is a complete `src/main.rs` for `pemba = "0.3.0"`, and the same example is a doctest on
 the `pemba` crate. For persistence, use `SqliteStore::open("app.db", SqliteConfig::default())`
 in place of `MemoryStore::new()`.
 
@@ -119,12 +119,14 @@ and answers differ for cyclic data and for wildcards against subject sets.
 ## Install
 
 ```bash
-python -m pip install pemba==0.2.0                  # Python 3.11 or newer; includes Postgres
-cargo add pemba@0.2.0                              # Rust library
-cargo add pemba-store-postgres@0.2.0                 # Rust: the Postgres store
-cargo install pemba-cli@0.2.0 --locked              # `pemba` command-line tool
+python -m pip install pemba==0.3.0                  # Python 3.11 or newer; includes Postgres
+cargo add pemba@0.3.0                              # Rust library
+cargo add pemba-store-postgres@0.3.0                 # Rust: the Postgres store
+cargo install pemba-cli@0.3.0 --locked              # `pemba` command-line tool
 ```
 
+These install 0.3.0 once it is on the
+[releases page](https://github.com/Joshua-Fields/pemba/releases).
 The `pemba` crate re-exports the engine and both stores (features `sqlite` and `memory`,
 both on by default). Supported platforms and building from source are in the
 [installation guide](https://github.com/Joshua-Fields/pemba/blob/main/docs/guides/installation.md).
@@ -133,6 +135,7 @@ User guides: [schema](https://github.com/Joshua-Fields/pemba/blob/main/docs/guid
 [consistency and history](https://github.com/Joshua-Fields/pemba/blob/main/docs/guides/consistency.md),
 [transactions and Postgres operations](https://github.com/Joshua-Fields/pemba/blob/main/docs/guides/transactions.md),
 [transactional-write tutorial](https://github.com/Joshua-Fields/pemba/blob/main/docs/guides/transactional-tutorial.md),
+[FastAPI](https://github.com/Joshua-Fields/pemba/blob/main/docs/guides/fastapi.md),
 [troubleshooting and limits](https://github.com/Joshua-Fields/pemba/blob/main/docs/guides/troubleshooting.md).
 The [API contract](https://github.com/Joshua-Fields/pemba/blob/main/docs/06-api.md) is the
 full reference.
@@ -213,7 +216,7 @@ CI runner where a round trip took about 120 µs, that came to 0.61 ms for a dire
 6.7 ms for 30 folders, 16 ms for that lookup and 19 ms for a 1,000-tuple write
 ([`benches/RESULTS.md`](https://github.com/Joshua-Fields/pemba/blob/main/benches/RESULTS.md)).
 Keep the database close to the app, and prefer shallow hierarchies on hot paths. These
-figures are for the unreleased 0.3.0. In 0.2.0 a direct check costs about 5 round trips,
+figures are for 0.3.0. In 0.2.0 a direct check costs about 5 round trips,
 each level adds about 3 (99 at 30 folders), and that lookup costs about 500.
 
 Before production, read the

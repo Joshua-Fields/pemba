@@ -8,10 +8,11 @@ together. If you have one application and one database, that is the reason to pi
 [Compare it with SpiceDB](README.md#pemba-vs-spicedb-when-to-use-which) or
 [try it in the browser](https://joshua-fields.github.io/pemba/).
 
-## Current release: 0.2.0
+## Releases
 
 | Release | What it added |
 |---|---|
+| 0.3.0 | Fewer Postgres round trips on deep hierarchies, and a FastAPI helper |
 | 0.2.0 | Async Python: `write_async` for psycopg, asyncpg and SQLAlchemy async transactions, and `pemba.aio` read helpers |
 | 0.1.0 | First stable API: audited Rust constructors, `check_str`, user guides and the documentation site |
 | 0.1.0-alpha.4 | Browser playground running the real engine |
@@ -19,23 +20,23 @@ together. If you have one application and one database, that is the reason to pi
 | 0.1.0-alpha.2 | Explain traces (`pemba check --explain`) and engine configuration |
 | 0.1.0-alpha.1 | The engine, schema language, `check` and lookups, memory and SQLite stores, Python bindings and writes inside your own SQLite transaction |
 
-Migration notes are in the [changelog](CHANGELOG.md), and packages and release notes are on
-the [releases page](https://github.com/Joshua-Fields/pemba/releases).
+Migration notes are in the [changelog](CHANGELOG.md). A version is available once it is on
+the [releases page](https://github.com/Joshua-Fields/pemba/releases), with its packages and
+release notes.
+
+In 0.3.0:
+
+- **Fewer Postgres round trips.** A check on a document 30 folders deep goes from 99 round
+  trips to 33 and from 13.3 ms to 6.7 ms (p50), and a lookup over 10,000 documents from 506 to
+  8 and from 72 ms to 16 ms ([measurements](benches/RESULTS.md#postgres-rust-linux)). Shallow
+  checks gain less, and some are slower at p99.
+- **FastAPI helper.** `pip install pemba[fastapi]` adds a permission check for your routes: a
+  configurable 403 on deny, and errors that stay errors rather than turning into a deny
+  ([guide](docs/guides/fastapi.md)).
 
 ## What's next
 
 This is the intended order, with no promised dates.
-
-**0.3.0: faster deep hierarchies on Postgres, and a FastAPI helper**
-
-- **Fewer Postgres round trips.** Done on `main`, not yet released. A check on a document 30
-  folders deep goes from 99 round trips to 33 and from 13.3 ms to 6.7 ms (p50), and a lookup
-  over 10,000 documents from 506 to 8 and from 72 ms to 16 ms
-  ([measurements](benches/RESULTS.md#postgres-rust-linux)). Shallow checks gain less, and
-  some are slower at p99.
-- **FastAPI helper.** Done on `main`, not yet released. `pip install pemba[fastapi]` adds a
-  permission check for your routes: a configurable 403 on deny, and errors that stay errors
-  rather than turning into a deny ([guide](docs/guides/fastapi.md)).
 
 **0.4.0: authorised queries**
 

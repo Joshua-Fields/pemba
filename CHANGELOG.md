@@ -6,9 +6,16 @@ All notable changes to pemba are recorded here. The format is based on
 0.1.0 is frozen as specified in `docs/06-api.md`; documented non-exhaustive extension
 points remain. Earlier alpha releases could break the API.
 
-The Rust crates and the Python package share one version; the latest release is `0.2.0`.
+The Rust crates and the Python package share one version, `0.3.0` in this tree. Published
+versions are on the [releases page](https://github.com/Joshua-Fields/pemba/releases).
 
 ## [Unreleased]
+
+## [0.3.0] - YYYY-MM-DD
+
+Fewer Postgres round trips on deep hierarchies, and a FastAPI helper. No migration is needed
+from 0.2.0: public APIs keep working and storage formats are unchanged. A custom `ReadStore`
+keeps compiling, because the new trait methods are provided.
 
 ### Changed
 
@@ -20,14 +27,20 @@ The Rust crates and the Python package share one version; the latest release is 
 - Inside a read snapshot, Postgres statements use generic plans, set with `SET LOCAL`, so they
   are not replanned on every call. The first open-ended read below head returns to the
   server's default, for one more round trip.
+- Not every Postgres scenario got faster. In one benchmark run on one runner, slower than the
+  baseline at p99: `direct_hit_below_head` by 43% (p50 by 1%), `direct_hit` by 9%,
+  `wide_groups_10k` by 6% and `groups_depth_1_below_head` by 2%. `write_batch_1000` was 10%
+  slower at p50 and 16% at p99, and `write_batch_100` 1% at p50, although no write statement
+  changed. One run gives no noise floor (`benches/RESULTS.md`).
 
 ### Added
 
 - `pemba.contrib.fastapi.Authz`, a permission check for FastAPI routes, with the new extra
   `pip install pemba[fastapi]`. A deny gets a configurable 4xx (403 by default). A transient
   store failure gets a 503 with a fixed detail, and any other engine error a 500. An id the
-  engine refuses gets a 422, and a request with no subject a 401, whose headers you can set
-  with `unauthenticated_headers`. See `docs/guides/fastapi.md`.
+  engine refuses gets a 422, an `at_least` bound ahead of the store a 409, and a request with
+  no subject a 401, whose headers you can set with `unauthenticated_headers`. See
+  `docs/guides/fastapi.md`.
 - `ReadStore::batch_read_limit` and `ReadStore::read_batch`, provided methods a store may
   implement to batch reads, with `BatchRead` and `BatchAnswer`.
 
@@ -306,7 +319,8 @@ First public pre-release.
 - The `pemba` CLI (`pemba-cli`): `schema validate`, `schema fmt` (experimental; keeps
   comments) and `test`, which runs YAML fixture files.
 
-[Unreleased]: https://github.com/Joshua-Fields/pemba/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/Joshua-Fields/pemba/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/Joshua-Fields/pemba/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/Joshua-Fields/pemba/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/Joshua-Fields/pemba/compare/v0.1.0-alpha.4...v0.1.0
 [0.1.0-alpha.4]: https://github.com/Joshua-Fields/pemba/compare/v0.1.0-alpha.3...v0.1.0-alpha.4

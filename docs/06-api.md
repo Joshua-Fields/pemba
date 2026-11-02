@@ -4,7 +4,7 @@ The public surface for 0.1.0 is frozen as documented here and in
 `PUBLIC_API_AUDIT.md`, including its non-exhaustive extension points. Public API or
 on-disk format changes require a specification update in the same change and an
 explicit migration/versioning review (CLAUDE.md rule 10). A release-candidate
-checkout does not itself approve or publish a release; see `RELEASE-0.2.0.md` for release evidence.
+checkout does not itself approve or publish a release; see `RELEASE-0.3.0.md` for the current release evidence.
 
 ---
 
@@ -750,7 +750,7 @@ persistent `SchemaChanged`), else false.
 Python argument mistakes raise built-in `ValueError` / `TypeError` (or `OverflowError`
 for native integer conversion as above), not `PembaError`.
 
-### 2.4 FastAPI helper (`pemba.contrib.fastapi`, unreleased, for 0.3.0)
+### 2.4 FastAPI helper (`pemba.contrib.fastapi`, since 0.3.0)
 
 ```python
 from pemba.contrib.fastapi import Authz
@@ -789,7 +789,7 @@ FastAPI runs `subject` and the check in its threadpool on `def` and `async def` 
 |---|---|
 | `check` returned anything but `True` | `HTTPException(deny_status, deny_detail)`, 403 by default |
 | `check` raised `STORE_ERROR` or `TRANSACTION_CONFLICT`, the only transient codes | `HTTPException(503)`, fixed detail; cause logged at `ERROR` and on `__cause__` |
-| `check` raised `REVISION_NOT_YET_AVAILABLE`: the bound is ahead of the store | `HTTPException(500)`, fixed detail; one `INFO` line and no traceback, because a client can send the bound; cause on `__cause__` |
+| `check` raised `REVISION_NOT_YET_AVAILABLE`: the bound is ahead of the store | `HTTPException(409)`, fixed detail; one `INFO` line and no traceback, because a client can send the bound and must not be able to trip 5xx alerts; cause on `__cause__` |
 | `check` raised any other `PembaError`, including a code added later: unknown type or permission, no schema, an evaluation limit (depth, fan-out, reads), an expired or pending revision, a store not migrated | That exception, unchanged: a 500 |
 | The id is not a valid object id for the type | `HTTPException(422)`, fixed detail, no `check` |
 | `subject` returned `None`, or a subject whose id is empty or exactly `None` | `HTTPException(401)`, fixed detail, `unauthenticated_headers`, no `check` |
@@ -810,8 +810,8 @@ FastAPI runs `subject` and the check in its threadpool on `def` and `async def` 
   RFC 9110 §15.5.2 requires a 401 to carry `WWW-Authenticate`; the helper does not know the
   scheme and leaves it to the application, so without this argument its 401 has no such header.
 - `Latest` by default (`04` §1). `at_least` is a per-request callable; `None` means no bound. A
-  bound the store has not reached is `ConsistencyError`, so 500, as in the table. `at_exactly` is
-  not offered: a gate must not answer from before a revocation.
+  bound the store has not reached is a 409, as in the table. `at_exactly` is not offered: a gate
+  must not answer from before a revocation.
 - The check runs before FastAPI validates the route's parameters and reads the raw path value.
   A body parameter that changes it (a normalising validator, a coercion to `int` or `UUID`) can
   read a different object than the one checked. A path convertor runs first, so it is safe.

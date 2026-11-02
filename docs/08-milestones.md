@@ -999,8 +999,10 @@ starts, against the spec as it stands then.
   - Deny gives 403, or the configured client-error status and detail. Configuration applies
     to a deny only: it cannot produce a success or a redirect, and cannot reach an error.
   - Only a transient `PembaError` code (`STORE_ERROR`, `TRANSACTION_CONFLICT`) gives 503, with a
-    fixed detail. Every other code, including one added later, gives 500. No response contains
-    a store message, SQL or connection detail. The cause of a 503 reaches server-side logs.
+    fixed detail. `REVISION_NOT_YET_AVAILABLE`, which a client can drive with its bound, gives
+    409 with a fixed detail and no `ERROR` log. Every other code, including one added later,
+    gives 500. No response contains a store message, SQL or connection detail. The cause of a
+    503 reaches server-side logs.
   - An id the engine refuses (empty, `*`, `#`, `@`, `:`, over 1,024 characters, non-ASCII) never
     reaches `check`, and gets a client error that is neither a deny nor a 503. It cannot
     change which object or subject is checked.
@@ -1018,6 +1020,9 @@ starts, against the spec as it stands then.
   - Wheel and sdist are each installed in a clean venv and run a small app, with and without
     the extra (`ci/check_contrib_packaged.py` keeps the contents checked in CI). `06` §2.4, a user guide, the docs site, `CHANGELOG.md` and `ROADMAP.md` are
     updated, and the helper is marked unreleased until 0.3.0.
+- **0.3.0 release preparation.** The maintainer authorised the version bump and release PR on
+  2026-11-02. [Release preparation](RELEASE-0.3.0.md) follows `09` §4.1; it authorises no merge,
+  tag, publication, deployment or announcement.
 - Candidates carried over from the old stretch list: Node bindings (napi-rs) and a WASM
   build; anything on the
   `CLAUDE.md` §6 out-of-scope list still needs an explicit decision first.
