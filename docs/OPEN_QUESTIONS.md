@@ -1682,11 +1682,15 @@ it is resolved.
     bring a pruned revision back. Python sees one code for every store failure, so the few a
     retry cannot clear (`Corrupt`, `Poisoned`) are still 503s. A check at boot for a misspelled
     permission was not added: it needs a subject type from the schema, and a store at startup.
-  - **A bound ahead of the store: 500, one `INFO` line, no traceback.** `REVISION_NOT_YET_AVAILABLE`
-    follows the 500 rule, but a client can send the bound, and raised unchanged it would put a
-    traceback in the server's log per request. A client can still cause the 500, so an alert on
-    the 5xx rate can still be tripped. A 4xx would stop that; it departs from the rule above, so
-    it is left for the maintainer to decide.
+  - **A bound ahead of the store: 409, fixed detail, one `INFO` line, no traceback (maintainer,
+    0.3.0 release preparation).** A client can send the bound, so it must not be able to trip an
+    alert on the 5xx rate or put a traceback in the server's log per request. This is the one
+    code that leaves the 500 rule above; the 503 allowlist is unchanged. 409 because the request
+    conflicts with the store's current state and can succeed if resubmitted once the store
+    catches up. Not 422, which here means a refused id and cannot succeed on retry. Not 412,
+    which RFC 9110 defines for conditional headers. Not 425, which is about TLS early data. Not
+    403: a bound is not a decision about the caller. The detail is fixed, so neither head nor the
+    requested revision reaches the client. The first version of this choice was a 500.
   - **The check reads the raw path value.** It runs before FastAPI validates the route's
     parameters, and a dependency cannot see the validated value. A body parameter that changes
     the value can read a different object than the one checked. Documented in §2.4 and the
@@ -1726,6 +1730,8 @@ it is resolved.
     the cause. The helper also logs to `pemba.contrib.fastapi` at `ERROR`, the first logger in
     the Python package, for a 503. Denies and bad input are not logged at all, and a bound ahead
     of the store only at `INFO`, so a client cannot fill the log at the default levels.
-- Resolve by: maintainer, on review of this PR. The 401 headers, the `None` and empty-id refusal
-  and the 503 allowlist are decided. Still open: whether a bound ahead of the store should be a
-  4xx rather than a 500.
+- Resolve by: maintainer, on review of PR #101 and the 0.3.0 release PR.
+- Resolution: Resolved. The maintainer decided the 401 headers, the `None` and empty-id refusal
+  and the 503 allowlist on PR #101, and a 4xx with a fixed detail and no `ERROR` log for a bound
+  ahead of the store in 0.3.0 release preparation, 2026-11-02, leaving the status to be chosen.
+  The choice of 409 is justified above and is reviewed on the release PR.

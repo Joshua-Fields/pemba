@@ -2,9 +2,10 @@
 
 The route body runs only after ``Engine.check`` returned ``True``. Every other outcome is an
 HTTP error: 403 (or the configured client error) on deny, 503 only for a store failure that a
-retry can clear (``_TRANSIENT_CODES``), 422 for an id the engine refuses, 401 for no subject,
-and a 500 for everything else: an unknown name, an evaluation limit, a bad bound or a
-programming mistake. Retrying cannot fix those, so they must not look like an outage.
+retry can clear (``_TRANSIENT_CODES``), 422 for an id the engine refuses, 409 for an
+``at_least`` bound ahead of the store, 401 for no subject, and a 500 for everything else: an
+unknown name, an evaluation limit, a value the engine refuses as a bound, or a programming
+mistake. Retrying cannot fix those, so they must not look like an outage.
 Configuration reaches the deny response and the headers of the 401 only.
 
 The dependency is a plain ``def``, so FastAPI runs the subject callable and the check in its
@@ -37,8 +38,8 @@ _log = logging.getLogger(__name__)
 
 _UNAVAILABLE = "Authorization is temporarily unavailable"
 _BAD_ID = "Invalid resource id"
+_BOUND_AHEAD = "Requested revision is not available yet"
 _NO_SUBJECT = "Authentication required"
-_SERVER_ERROR = "Internal Server Error"
 
 # An allowlist, so a code added later is a 500 until someone decides it is transient. Python
 # sees one code for every store failure, including the few a retry cannot clear (`Corrupt`).
@@ -212,10 +213,10 @@ class Authz:
             )
         except PembaError as exc:
             if exc.code == "REVISION_NOT_YET_AVAILABLE":
-                # A client can send any bound, so one must not write a traceback per request:
-                # raised unchanged, the server would log it at ERROR (OQ-067).
+                # A client can send any bound, so one must not be able to trip a 5xx alert or
+                # write a traceback per request (OQ-067).
                 _log.info("pemba check got an at_least bound ahead of the store, type %s", resource_type)
-                raise HTTPException(status_code=500, detail=_SERVER_ERROR) from exc
+                raise HTTPException(status_code=409, detail=_BOUND_AHEAD) from exc
             if exc.code not in _TRANSIENT_CODES:
                 raise
             # FastAPI does not log an HTTPException, so `from` alone would lose the cause.
