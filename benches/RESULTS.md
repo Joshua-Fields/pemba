@@ -170,6 +170,68 @@ Measured: 2026-11-01 21:46 UTC, at commit `27f9cb2d2fc025d25915541028afaf5abc3c7
 
 Commits: baseline `ad0b5e9`, read-ahead `27f9cb2`.
 
+## Postgres before and after, three runs (OQ-066)
+
+Hand-written, so `benches/results.py` does not regenerate it. The single-run table above is the
+run that raised OQ-066; this one tests it. Three `bench-postgres` runs on 2026-11-02, each
+benching baseline `ad0b5e9` and candidate `73b08d2` on one `ubuntu-24.04` runner, 2,000 samples
+per operation: [run 1](https://github.com/Joshua-Fields/pemba/actions/runs/41542115283),
+[run 2](https://github.com/Joshua-Fields/pemba/actions/runs/41542122204) and
+[run 3](https://github.com/Joshua-Fields/pemba/actions/runs/41542125995). Run 2 benched the
+candidate first. Compare a pair only within its run, because the runners differ: run 1 had an AMD
+EPYC 9V74 and a `SELECT 1` of 93 µs, runs 2 and 3 an EPYC 7763 and 116 and 136 µs.
+
+Candidate against baseline; a positive number is slower:
+
+| Scenario | p50 %, runs 1 / 2 / 3 | p99 %, runs 1 / 2 / 3 | Round trips |
+|---|---|---|---|
+| `direct_hit` | +3.6 / -2.2 / -2.7 | +4.3 / -4.2 / -10.7 | 5 → 3 |
+| `direct_hit_below_head` | +6.5 / +1.3 / -7.0 | +2.1 / -4.2 / +0.8 | 5 → 3 |
+| `exclusion` | -22.2 / -31.5 / -27.9 | -24.2 / -33.8 / -34.8 | 7 → 3 |
+| `exclusion_below_head` | -26.1 / -34.3 / -30.4 | -34.1 / -43.4 / -27.9 | 7 → 3 |
+| `folders_depth_1` | -44.1 / -47.8 / -46.9 | -46.9 / -47.3 / -50.7 | 12 → 4 |
+| `folders_depth_10` | -44.9 / -48.6 / -48.7 | -43.3 / -49.3 / -48.6 | 39 → 13 |
+| `folders_depth_10_below_head` | -44.4 / -46.9 / -48.3 | -46.3 / -47.0 / -49.6 | 39 → 13 |
+| `folders_depth_1_below_head` | -41.7 / -47.5 / -45.3 | -31.0 / -56.0 / -47.6 | 12 → 4 |
+| `folders_depth_30` | -45.9 / -49.0 / -49.8 | -41.4 / -50.8 / -49.9 | 99 → 33 |
+| `folders_depth_30_below_head` | -46.3 / -48.2 / -48.3 | -40.3 / -46.5 / -46.8 | 99 → 33 |
+| `groups_depth_1` | +1.1 / -9.4 / -17.5 | -6.0 / -25.7 / -29.6 | 7 → 4 |
+| `groups_depth_10` | -20.8 / -21.1 / -22.2 | -21.0 / -24.3 / -19.5 | 25 → 13 |
+| `groups_depth_10_below_head` | -17.7 / -22.0 / -20.9 | -17.4 / -16.5 / -21.5 | 25 → 13 |
+| `groups_depth_1_below_head` | -3.4 / -7.7 / -7.2 | +0.6 / -6.2 / -10.4 | 7 → 4 |
+| `groups_depth_5` | -11.5 / -18.5 / -21.9 | -15.7 / -24.3 / -29.1 | 15 → 8 |
+| `groups_depth_5_below_head` | -11.9 / -19.5 / -19.1 | -1.0 / -25.0 / -21.2 | 15 → 8 |
+| `lookup_resources_10k` | -72.8 / -77.4 / -78.7 | -75.1 / -76.3 / -76.9 | 506 → 8 |
+| `lookup_resources_10k_below_head` | -73.6 / -77.8 / -78.4 | -75.7 / -77.0 / -77.0 | 506 → 9 |
+| `lookup_resources_10k_pages_100` | -61.9 / -69.7 / -70.6 | -64.9 / -68.9 / -69.6 | 530 → 25 |
+| `lookup_resources_10k_pages_100_below_head` | -63.9 / -69.7 / -70.9 | -64.7 / -68.1 / -69.7 | 530 → 30 |
+| `wide_groups_10k` | -1.5 / -8.9 / -9.1 | +5.7 / -4.1 / -13.7 | 7 → 4 |
+| `wide_groups_10k_below_head` | +30.5 / -20.6 / -3.2 | +28.1 / -23.5 / -20.6 | 7 → 4 |
+| `write_batch_1` | -0.9 / +2.5 / +0.0 | -8.6 / +5.6 / -0.2 | 10 → 10 |
+| `write_batch_100` | -0.7 / +2.5 / -1.3 | -4.6 / +19.5 / -15.6 | 10 → 10 |
+| `write_batch_1000` | -0.3 / +9.6 / -9.0 | -4.6 / -3.2 / -1.1 | 10 → 10 |
+
+The scenarios OQ-066 is about, in microseconds:
+
+| Scenario | p50 µs, baseline → candidate, runs 1 / 2 / 3 | p99 µs, baseline → candidate, runs 1 / 2 / 3 |
+|---|---|---|
+| `direct_hit` | 532 → 551 / 635 → 621 / 659 → 641 | 605 → 631 / 918 → 879 / 1,007 → 900 |
+| `direct_hit_below_head` | 545 → 581 / 647 → 655 / 723 → 672 | 751 → 767 / 780 → 748 / 937 → 944 |
+| `groups_depth_1_below_head` | 803 → 776 / 958 → 884 / 975 → 905 | 886 → 891 / 1,268 → 1,190 / 1,346 → 1,206 |
+| `wide_groups_10k` | 764 → 753 / 924 → 842 / 934 → 849 | 1,005 → 1,062 / 1,209 → 1,159 / 1,253 → 1,081 |
+| `wide_groups_10k_below_head` | 1,343 → 1,753 / 1,927 → 1,530 / 1,628 → 1,576 | 2,139 → 2,741 / 2,621 → 2,005 / 2,454 → 1,948 |
+| `write_batch_100` | 2,655 → 2,637 / 3,260 → 3,341 / 3,277 → 3,236 | 3,787 → 3,611 / 4,937 → 5,902 / 5,392 → 4,548 |
+| `write_batch_1000` | 16,587 → 16,536 / 17,712 → 19,407 / 18,833 → 17,138 | 28,062 → 26,773 / 31,885 → 30,873 / 32,144 → 31,790 |
+
+No scenario was slower in all three runs, at p50 or at p99. Three p50s were more than 5% slower
+in one run: `wide_groups_10k_below_head` (+30.5%, run 1), `write_batch_1000` (+9.6%, run 2) and
+`direct_hit_below_head` (+6.5%, run 1). `write.rs` and `txn.rs` are identical in both commits and
+a write is 10 round trips in both, so the `write_batch_1000` swing of +9.6% to -9.0% is a
+measure of noise between pairs. It does not explain +30.5%. Run 1 was the least favourable to the
+candidate overall (median read p50 -24.2%, against -32.9% and -29.1%). It was also the runner
+with the cheapest round trip, where saving round trips gains least. One runner cannot separate
+those two explanations.
+
 ## T5.13 async foreign statement bridge (Windows, Docker Postgres)
 
 This standalone section comes from `crates/pemba-py/bench/async_bridge.py`, rather

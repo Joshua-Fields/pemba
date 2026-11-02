@@ -9,14 +9,14 @@ Internal release and process state. The visitor-facing page is
 - **Latest published release: 0.2.0.** Tag, GitHub Release and registry versions are recorded
   in [`RELEASE-0.2.0.md`](RELEASE-0.2.0.md#publication-record), with the human-only items
   still open.
-- **0.3.0 is a release candidate, not published.** The scope is complete: public docs cleanup;
+- **0.3.0 is on `main`, not tagged or published.** The scope is complete: public docs cleanup;
   fewer Postgres round trips on deep hierarchies (T10.1, OQ-056); FastAPI helper (T10.2, `06`
-  §2.4). The version bump and release PR come from branch `release/0.3.0`. Merge, tag,
-  publication, deployment and announcement remain human steps, and a version in this tree
-  establishes none of them. See [`RELEASE-0.3.0.md`](RELEASE-0.3.0.md) for what was verified
-  and the decisions still open.
-- **OQ-066 is not accepted** unless a later record says so: the T10.1 p99 and write-batch
-  slowdowns block 0.3.0 until the maintainer accepts them or asks for more.
+  §2.4). PR #102 merged `841b5f1` as `73b08d2`. Tag, publication, deployment and announcement
+  remain human steps, and a version in this tree establishes none of them. See
+  [`RELEASE-0.3.0.md`](RELEASE-0.3.0.md) for what was verified and the decisions still open.
+- **OQ-066 is not accepted** unless a later record says so. Three further benchmark runs found no
+  consistent regression, but three p50s were over 5% slower in one run each, so it blocks 0.3.0
+  until the maintainer decides. The changelog date waits for that decision.
 - **M7 remains open.** T7.17 (announcement, private reporting, labels, triage ownership) is
   human work. Neither a merge nor a publication establishes it.
 - **M8 authorised queries** is the intended 0.4.0 headline. Nothing is implemented, and its

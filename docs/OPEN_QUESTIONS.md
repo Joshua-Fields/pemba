@@ -1666,7 +1666,29 @@ it is resolved.
   p50 16,987 → 18,656 and p99 28,758 → 33,328, and `write_batch_100` p50 3,251 → 3,294 (p99
   5,664 → 5,192), although no write statement changed. One run does not give a noise floor, so
   these are reported rather than explained.
-- Resolve by: maintainer, on review of this PR: accept the p99 rows above, or ask for more.
+- Three more runs (maintainer, 2026-11-02): one run was not enough to accept. Bar fixed before any
+  result: accept if every scenario's p50 is within about 5% of baseline across runs and p99
+  regressions are not consistent; a consistent p50 regression stops the release. Reading fixed in
+  the bench commits, also before any result: a p50 passes at no more than 5% slower in each run; a
+  regression is consistent at more than 5% slower in all three; anything between is reported and
+  not accepted without the maintainer. Each run benched `73b08d2` and `ad0b5e9` on one runner
+  (`benches/RESULTS.md`).
+- Result: **no consistent regression, and the bar is not met as read.** No scenario was slower in
+  all three runs at p50 or p99. Over 5% at p50 in one run each: `wide_groups_10k_below_head` +30.5 /
+  -20.6 / -3.2, `write_batch_1000` -0.3 / +9.6 / -9.0, `direct_hit_below_head` +6.5 / +1.3 / -7.0.
+  Over 5% at p99 in one run each, never consistent: `wide_groups_10k` +5.7, `wide_groups_10k_below_head`
+  +28.1, `write_batch_1` +5.6, `write_batch_100` +19.5.
+- The single-run slowdowns did not reproduce. `direct_hit_below_head` p99 was +2.1 / -4.2 / +0.8,
+  against +43%; `write_batch_1000` p99 was -4.6 / -3.2 / -1.1, against +16%.
+- Writes: the reruns support noise. `write.rs` and `txn.rs` are identical in both commits, a write
+  is 10 round trips in both, and the slowdown changed sign between runs. So noise between pairs on
+  this workflow reaches about 10% at p50, and a 5% limit on each run can fail on unchanged code.
+- Not explained: `wide_groups_10k_below_head` at +30.5% exceeds that noise. Its baseline p50 alone
+  ranged from 1,343 to 1,927 µs, and this path is the known exact read above that can use
+  `pemba_rel_rev` and filter. Run 1 was the runner with the cheapest round trip (93 µs), where
+  saving round trips gains least, so the result may be real on such a host; one runner cannot say.
+- Resolve by: maintainer: accept on these results, or ask for more runs of
+  `wide_groups_10k_below_head`. Not accepted yet, so this still blocks 0.3.0.
 
 ## OQ-067 — What the FastAPI helper does where `06` §2.4 is silent (M10, T10.2)
 - Raised in: T10.2
@@ -1733,5 +1755,7 @@ it is resolved.
 - Resolve by: maintainer, on review of PR #101 and the 0.3.0 release PR.
 - Resolution: Resolved. The maintainer decided the 401 headers, the `None` and empty-id refusal
   and the 503 allowlist on PR #101, and a 4xx with a fixed detail and no `ERROR` log for a bound
-  ahead of the store in 0.3.0 release preparation, 2026-11-02, leaving the status to be chosen.
-  The choice of 409 is justified above and is reviewed on the release PR.
+  ahead of the store in 0.3.0 release preparation, 2026-11-02, leaving the status to be chosen,
+  and accepted 409 on 2026-11-02. No `Retry-After`: the maintainer asked for it only if trivial. The
+  header is trivial, but the helper knows no honest delay, and a bound from another store or a
+  forged token never clears, so a number would promise something it cannot know.

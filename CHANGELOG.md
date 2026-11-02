@@ -27,11 +27,12 @@ keeps compiling, because the new trait methods are provided.
 - Inside a read snapshot, Postgres statements use generic plans, set with `SET LOCAL`, so they
   are not replanned on every call. The first open-ended read below head returns to the
   server's default, for one more round trip.
-- Not every Postgres scenario got faster. In one benchmark run on one runner, slower than the
-  baseline at p99: `direct_hit_below_head` by 43% (p50 by 1%), `direct_hit` by 9%,
-  `wide_groups_10k` by 6% and `groups_depth_1_below_head` by 2%. `write_batch_1000` was 10%
-  slower at p50 and 16% at p99, and `write_batch_100` 1% at p50, although no write statement
-  changed. One run gives no noise floor (`benches/RESULTS.md`).
+- Not every Postgres scenario got much faster. Over three benchmark runs against the baseline,
+  shallow checks stayed about level (median p50: `direct_hit` -2.2%, `direct_hit_below_head`
+  +1.3%, `wide_groups_10k_below_head` -3.2%) and writes did not change. No scenario was slower in
+  all three runs, at p50 or p99, but a single run can be: `wide_groups_10k_below_head` ranged from
+  +30.5% to -20.6% at p50, and `write_batch_1000`, whose code did not change, from +9.6% to -9.0%
+  (`benches/RESULTS.md`).
 
 ### Added
 

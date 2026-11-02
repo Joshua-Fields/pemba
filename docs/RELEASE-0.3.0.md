@@ -1,7 +1,8 @@
 # 0.3.0 release record
 
-**0.3.0 is a release candidate. It is not merged, tagged or published.** This document
-supplies no approval. Published 0.2.0 and its [record](RELEASE-0.2.0.md) remain unchanged.
+**0.3.0 is merged to `main`. It is not tagged or published.** PR #102 merged `841b5f1` as
+`73b08d2` on 2026-11-02 at 22:58:47 UTC. This document supplies no approval, and the merge is an
+observation rather than a recorded approval. Published 0.2.0 and its [record](RELEASE-0.2.0.md) remain unchanged.
 When 0.3.0 is published, add a publication record here, as 0.2.0 did, and keep the text below
 as evidence.
 
@@ -10,30 +11,20 @@ as evidence.
 None of these has been made by this record or by green CI.
 
 - [ ] **OQ-066: accept the T10.1 performance results, or ask for more. Unaccepted.** OQ-066 is
-  blocking for 0.3.0 until the maintainer records a decision. From one `bench-postgres` run on
-  one runner, `27f9cb2` against baseline `ad0b5e9`, so with no noise floor:
+  blocking for 0.3.0 until the maintainer records a decision. Three runs against a bar fixed
+  beforehand found no consistent regression, but the bar is not met as read: three p50s were over
+  5% slower in one run each. `wide_groups_10k_below_head` at +30.5% is more than the noise that
+  unchanged write code shows, and is unexplained. Details are in OQ-066 and
+  [`benches/RESULTS.md`](../benches/RESULTS.md#postgres-before-and-after-three-runs-oq-066).
+- [x] **The 409 for a bound ahead of the store.** Accepted by the maintainer on 2026-11-02, with no
+  `Retry-After` (OQ-067).
+- [ ] **The release date.** `CHANGELOG.md` has `## [0.3.0] - YYYY-MM-DD`. The maintainer's
+  decision: the day of the tag, filled in once OQ-066 is decided. The release notes are extracted
+  from that section.
+- [ ] **Explicit approval of the exact candidate SHA** before tag and publication.
 
-  | Scenario | p50 baseline → T10.1 (µs) | p99 baseline → T10.1 (µs) |
-  |---|---|---|
-  | `direct_hit_below_head` | 646 → 650 | 858 → 1,230 (+43%) |
-  | `direct_hit` | 693 → 608 | 778 → 850 (+9%) |
-  | `wide_groups_10k` | 892 → 821 | 1,073 → 1,138 (+6%) |
-  | `groups_depth_1_below_head` | 969 → 859 | 1,187 → 1,208 (+2%) |
-  | `write_batch_100` | 3,251 → 3,294 (+1%) | 5,664 → 5,192 |
-  | `write_batch_1000` | 16,987 → 18,656 (+10%) | 28,758 → 33,328 (+16%) |
-
-  No write statement changed, and the write slowdowns are reported, not explained. The
-  changelog, README and roadmap state that some scenarios are slower. They do not say that
-  this is accepted.
-- [ ] **The 409 for a bound ahead of the store.** The maintainer decided on a 4xx with a fixed
-  detail and no `ERROR` log. The agent chose 409; the reasoning is in OQ-067.
-- [ ] **The release date.** `CHANGELOG.md` has `## [0.3.0] - YYYY-MM-DD` for the maintainer to
-  fill before tagging. The release notes are extracted from that section.
-- [ ] **Explicit approval of the exact candidate SHA** before merge, tag and publication.
-- [ ] **Text on `main` between merge and publication.** `README.md` and the guides name 0.3.0
-  and point to the releases page for what is published, and `ROADMAP.md` lists 0.3.0 under
-  releases. That text stays true after publication and is visible on `main` before it. Merge
-  close to publication if this matters.
+Until publication, `main` names 0.3.0 in `README.md` and the guides and lists it under releases
+in `ROADMAP.md`. That text points to the releases page for what is published.
 
 Still open, for the maintainer alone:
 
@@ -106,25 +97,29 @@ test needs a real store lock, and only Postgres has an unresolved `PendingRevisi
 
 ### Only remote CI can prove
 
-These were not observed locally. Read their results on the release PR, whose `Cargo.lock`
-change also triggers `wheels.yml`:
+These were not observed locally:
 
 - Linux and macOS builds and tests, and the platform wheels and their smoke matrix.
 - Python 3.11 (`python-oldest`, with SQLite 3.26.0). Locally only 3.12 was available.
 - Postgres 15 and 18. Locally only 17 was available.
 - `cargo deny` and the other CI-only jobs.
 
-Run separately from the PR:
+Observed on PR #102 at `841b5f1`: 42 checks passed, including all of the above except macOS Python,
+and 4 publishing and deployment jobs were skipped. **`python (macos-latest)` never ran there:** it
+was cancelled after 15 minutes with "The job was not acquired by Runner of type hosted even after
+multiple attempts", with no step started and no rerun, and the PR merged with it in that state.
+**Differential tests against SpiceDB passed on PR #102**, on memory and on Postgres, so the earlier
+text here saying they had not run on this candidate was wrong.
 
-- Differential tests against SpiceDB and full property tests last passed on their schedule at
-  `5cd51bf`, the T10.1 merge. Neither was run on this candidate. Since `5cd51bf` the only change
-  under any `crates/*/src` is the version in a doc comment in `crates/pemba/src/lib.rs`.
+Observed on `main` at `73b08d2`: CI and Playground passed, including `python (macos-latest)`. That
+is the first run of the macOS Python suite and the FastAPI tests on this code.
+
+Full property tests last passed on their schedule at `5cd51bf`, the T10.1 merge, and did not run on
+this candidate; the 1,000-case property job in CI did. Since `5cd51bf` the only change under any
+`crates/*/src` is the version in a doc comment in `crates/pemba/src/lib.rs`.
 
 ### Not run
 
-- **Benchmarks.** No new run. The numbers above measured `27f9cb2`. Since then the only change
-  under any `crates/*/src` is that same doc comment, and the helper is Python that the
-  benchmarks do not exercise.
 - Registry installs, docs.rs, release assets, live documentation and playground routes: they
   cannot exist before publication.
 
@@ -139,10 +134,9 @@ down`), before any test ran. It did not recur on `f7aa60b`.
 Follow `09-repo-and-tooling.md` §4.1. After the required checks are green, the maintainer
 reviews the exact candidate SHA, the decisions above, the release text and the API scope.
 
-1. Record the OQ-066 decision and fill in the changelog date, which changes the candidate, then
-   let CI pass on the new SHA.
-2. Record explicit approval and merge the reviewed PR. Check that `main`'s tree matches the
-   approved candidate.
+1. Record the OQ-066 decision and fill in the changelog date in the pre-tag PR, then let CI pass
+   on it.
+2. Merge that PR, then record explicit approval of the resulting `main` SHA.
 3. Tag `v0.3.0` on approved `main`. `wheels.yml` builds and tests the tag's artifacts. Review
    the protected `pypi` environment, then let trusted publishing upload them. Do not substitute
    local rebuilds.
