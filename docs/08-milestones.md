@@ -1020,6 +1020,9 @@ starts, against the spec as it stands then.
   - Wheel and sdist are each installed in a clean venv and run a small app, with and without
     the extra (`ci/check_contrib_packaged.py` keeps the contents checked in CI). `06` §2.4, a user guide, the docs site, `CHANGELOG.md` and `ROADMAP.md` are
     updated, and the helper is marked unreleased until 0.3.0.
+- **0.3.0 release preparation.** The maintainer authorised the version bump and release PR on
+  2026-11-02. [Release preparation](RELEASE-0.3.0.md) follows `09` §4.1; it authorises no merge,
+  tag, publication, deployment or announcement.
 - Candidates carried over from the old stretch list: Node bindings (napi-rs) and a WASM
   build; anything on the
   `CLAUDE.md` §6 out-of-scope list still needs an explicit decision first.

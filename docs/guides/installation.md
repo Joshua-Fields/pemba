@@ -1,8 +1,9 @@
 # Installation and quick starts
 
-These guides describe 0.2.0, the latest release, including async Postgres foreign writes
-and `pemba.aio`. It is on PyPI and crates.io; checkout recipes are available below.
-Version 0.1.0 retains its own documentation.
+These guides describe 0.3.0, including the [FastAPI helper](fastapi.md). Check the
+[releases page](https://github.com/Joshua-Fields/pemba/releases) for what is on PyPI and
+crates.io; checkout recipes are available below. Earlier versions keep their documentation
+at their own tags.
 The [Rust quick start](../../README.md#rust-quick-start) uses the compatible constructors
 and `Engine::check_str`; older alphas need their own versioned examples.
 See [CHANGELOG](../../CHANGELOG.md) for migrations and [API documentation](../06-api.md).
@@ -32,10 +33,10 @@ application drivers have their own installation requirements.
 python -m venv .venv
 # POSIX: . .venv/bin/activate
 # PowerShell: .venv\Scripts\Activate.ps1
-python -m pip install pemba==0.2.0
-cargo add pemba@0.2.0
-cargo add pemba-store-postgres@0.2.0
-cargo install pemba-cli@0.2.0 --locked
+python -m pip install pemba==0.3.0
+cargo add pemba@0.3.0
+cargo add pemba-store-postgres@0.3.0
+cargo install pemba-cli@0.3.0 --locked
 pemba --help
 ```
 
@@ -119,4 +120,4 @@ assert engine.check("document:readme#view@user:anne", at_least=rev)
 
 Next: [schema](schema.md), [consistency](consistency.md),
 [transactions and Postgres](transactions.md), [troubleshooting and limits](troubleshooting.md).
-The [FastAPI helper](fastapi.md) is on `main` and not yet released.
+The [FastAPI helper](fastapi.md) needs 0.3.0 or newer.

@@ -4,7 +4,7 @@ The public surface for 0.1.0 is frozen as documented here and in
 `PUBLIC_API_AUDIT.md`, including its non-exhaustive extension points. Public API or
 on-disk format changes require a specification update in the same change and an
 explicit migration/versioning review (CLAUDE.md rule 10). A release-candidate
-checkout does not itself approve or publish a release; see `RELEASE-0.2.0.md` for release evidence.
+checkout does not itself approve or publish a release; see `RELEASE-0.3.0.md` for the current release evidence.
 
 ---
 
@@ -750,7 +750,7 @@ persistent `SchemaChanged`), else false.
 Python argument mistakes raise built-in `ValueError` / `TypeError` (or `OverflowError`
 for native integer conversion as above), not `PembaError`.
 
-### 2.4 FastAPI helper (`pemba.contrib.fastapi`, unreleased, for 0.3.0)
+### 2.4 FastAPI helper (`pemba.contrib.fastapi`, since 0.3.0)
 
 ```python
 from pemba.contrib.fastapi import Authz

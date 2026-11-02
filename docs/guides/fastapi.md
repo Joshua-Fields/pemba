@@ -1,8 +1,9 @@
 # FastAPI
 
-> **Unreleased.** This helper is on `main` and planned for 0.3.0. It is not in 0.2.0, so
-> `pip install pemba[fastapi]` and `pemba.contrib.fastapi` do not work with the current
-> release. To try it now, [build the current checkout](installation.md).
+> **New in 0.3.0.** `pip install pemba[fastapi]` and `pemba.contrib.fastapi` do not work with
+> 0.2.0 or earlier. If 0.3.0 is not yet on the
+> [releases page](https://github.com/Joshua-Fields/pemba/releases),
+> [build the current checkout](installation.md).
 
 `pemba.contrib.fastapi` checks a permission before a route runs. The route body runs only
 if the check returned true. Everything else is an HTTP error.
