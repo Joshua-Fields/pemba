@@ -11,7 +11,7 @@ versions are on the [releases page](https://github.com/Joshua-Fields/pemba/relea
 
 ## [Unreleased]
 
-## [0.3.0] - YYYY-MM-DD
+## [0.3.0] - 2026-11-03
 
 Fewer Postgres round trips on deep hierarchies, and a FastAPI helper. No migration is needed
 from 0.2.0: public APIs keep working and storage formats are unchanged. A custom `ReadStore`

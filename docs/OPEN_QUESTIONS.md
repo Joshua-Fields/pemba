@@ -1637,7 +1637,7 @@ it is resolved.
 
 ## OQ-066 — Read-ahead made checks slower by replanning every batch (M10, T10.1)
 - Raised in: T10.1, by the benchmark after PR #99 merged. Nothing had been released.
-- Blocking: yes, for 0.3.0, until the maintainer accepts the numbers below.
+- Blocking: no. It blocked 0.3.0 until the maintainer accepted the numbers below; see Resolution.
 - Finding: round trips fell as derived, but check latency rose in every scenario, up to 3×.
   On a local Postgres 18 under the real bench (`pg_stat_statements`), the batch took 233 µs to
   plan and 43 µs to run at head, and 474 and 55 µs below head, replanned on every call. Under
@@ -1688,7 +1688,13 @@ it is resolved.
   `pemba_rel_rev` and filter. Run 1 was the runner with the cheapest round trip (93 µs), where
   saving round trips gains least, so the result may be real on such a host; one runner cannot say.
 - Resolve by: maintainer: accept on these results, or ask for more runs of
-  `wide_groups_10k_below_head`. Not accepted yet, so this still blocks 0.3.0.
+  `wide_groups_10k_below_head`.
+- Resolution: Accepted by the maintainer, 2026-11-02. No scenario regressed consistently across
+  the three runs. The 5% limit on each run was below this workflow's measured noise (unchanged
+  write code swung +9.6% to -9.0% at p50), so the strict reading above is not treated as a failure.
+  `wide_groups_10k_below_head` (+30.5 / -20.6 / -3.2, with its baseline alone spanning 1,343 to
+  1,927 µs) is accepted as noise and not investigated now. Watch it in future benchmark runs. Future
+  bars on this workflow use consistency across runs, not a percentage on a single run.
 
 ## OQ-067 — What the FastAPI helper does where `06` §2.4 is silent (M10, T10.2)
 - Raised in: T10.2

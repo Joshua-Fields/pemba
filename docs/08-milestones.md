@@ -995,6 +995,9 @@ starts, against the spec as it stands then.
   - Three further runs, `73b08d2` against `ad0b5e9` (`benches/RESULTS.md`): none of those
     slowdowns reproduced, and no scenario was slower in all three at p50 or p99. Three p50s
     were over 5% slower in one run each, the largest `wide_groups_10k_below_head` at +30.5%.
+    Accepted by the maintainer (OQ-066); watch that scenario in future runs.
+  - Future bars on `bench-postgres` use consistency across runs, not a percentage on a single run:
+    unchanged write code swung +9.6% to -9.0% at p50 between pairs (OQ-066).
 - **T10.2 FastAPI helper (0.3.0).** Spec: `06` §2.4; decisions: OQ-067. Acceptance criteria:
   - `pemba.contrib.fastapi.Authz(engine, subject=...).require(type, permission,
     path_param=...)` is a FastAPI dependency. The route body runs only after `check` returned

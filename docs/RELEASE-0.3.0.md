@@ -8,19 +8,21 @@ as evidence.
 
 ## Decisions for the maintainer
 
-None of these has been made by this record or by green CI.
+A ticked box records a decision the maintainer stated. Neither this record nor green CI makes
+any of them.
 
-- [ ] **OQ-066: accept the T10.1 performance results, or ask for more. Unaccepted.** OQ-066 is
-  blocking for 0.3.0 until the maintainer records a decision. Three runs against a bar fixed
-  beforehand found no consistent regression, but the bar is not met as read: three p50s were over
-  5% slower in one run each. `wide_groups_10k_below_head` at +30.5% is more than the noise that
-  unchanged write code shows, and is unexplained. Details are in OQ-066 and
+- [x] **OQ-066: the T10.1 performance results. Accepted by the maintainer on 2026-11-02.** No
+  scenario regressed consistently across three runs. The 5% limit on each run was below this
+  workflow's measured noise (unchanged write code swung +9.6% to -9.0% at p50), so the strict
+  reading is not treated as a failure. `wide_groups_10k_below_head` (+30.5 / -20.6 / -3.2, with its
+  baseline alone spanning 1,343 to 1,927 µs) is accepted as noise and not investigated now; watch it
+  in future benchmark runs. Details are in OQ-066 and
   [`benches/RESULTS.md`](../benches/RESULTS.md#postgres-before-and-after-three-runs-oq-066).
 - [x] **The 409 for a bound ahead of the store.** Accepted by the maintainer on 2026-11-02, with no
   `Retry-After` (OQ-067).
-- [ ] **The release date.** `CHANGELOG.md` has `## [0.3.0] - YYYY-MM-DD`. The maintainer's
-  decision: the day of the tag, filled in once OQ-066 is decided. The release notes are extracted
-  from that section.
+- [x] **The release date.** `CHANGELOG.md` has `## [0.3.0] - 2026-11-03`, the day the maintainer
+  plans to tag. The release notes are extracted from that section, so if the tag moves to another
+  day, change the date first.
 - [ ] **Explicit approval of the exact candidate SHA** before tag and publication.
 
 Until publication, `main` names 0.3.0 in `README.md` and the guides and lists it under releases
@@ -134,9 +136,9 @@ down`), before any test ran. It did not recur on `f7aa60b`.
 Follow `09-repo-and-tooling.md` §4.1. After the required checks are green, the maintainer
 reviews the exact candidate SHA, the decisions above, the release text and the API scope.
 
-1. Record the OQ-066 decision and fill in the changelog date in the pre-tag PR, then let CI pass
-   on it.
-2. Merge that PR, then record explicit approval of the resulting `main` SHA.
+1. Merge the pre-tag PR. As a docs-only PR it skips the code jobs, so check that CI passes on the
+   resulting `main` SHA, including `python (macos-latest)`: pushes to `main` run everything.
+2. Record explicit approval of that `main` SHA.
 3. Tag `v0.3.0` on approved `main`. `wheels.yml` builds and tests the tag's artifacts. Review
    the protected `pypi` environment, then let trusted publishing upload them. Do not substitute
    local rebuilds.

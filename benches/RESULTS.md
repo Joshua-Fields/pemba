@@ -230,7 +230,8 @@ a write is 10 round trips in both, so the `write_batch_1000` swing of +9.6% to -
 measure of noise between pairs. It does not explain +30.5%. Run 1 was the least favourable to the
 candidate overall (median read p50 -24.2%, against -32.9% and -29.1%). It was also the runner
 with the cheapest round trip, where saving round trips gains least. One runner cannot separate
-those two explanations.
+those two explanations. The maintainer accepted these results and treats
+`wide_groups_10k_below_head` as noise to watch in future runs (OQ-066).
 
 ## T5.13 async foreign statement bridge (Windows, Docker Postgres)
 
