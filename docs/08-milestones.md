@@ -998,13 +998,15 @@ starts, against the spec as it stands then.
     `True`, on `def` and `async def` routes, without blocking the event loop.
   - Deny gives 403, or the configured client-error status and detail. Configuration applies
     to a deny only: it cannot produce a success or a redirect, and cannot reach an error.
-  - Every `PembaError` class gives 503 with a fixed detail: no store message, SQL or
-    connection detail in the response. The cause reaches server-side logs.
+  - Only a transient `PembaError` code (`STORE_ERROR`, `TRANSACTION_CONFLICT`) gives 503, with a
+    fixed detail. Every other code, including one added later, gives 500. No response contains
+    a store message, SQL or connection detail. The cause of a 503 reaches server-side logs.
   - An id the engine refuses (empty, `*`, `#`, `@`, `:`, over 1,024 characters, non-ASCII) never
     reaches `check`, and gets a client error that is neither a deny nor a 503. It cannot
     change which object or subject is checked.
   - A failing `subject` callable gives no anonymous fallback: an exception stays an error, and
-    `None`, a malformed subject, a wildcard or a subject set never reach a check. A missing
+    `None`, an empty id, a malformed subject, a wildcard or a subject set never reach a check.
+    The application can set the headers of the helper's 401. A missing
     `path_param` is an error and is never read from the query string.
   - The default consistency is `Latest`. A caller can pass `at_least` per request. No
     `at_exactly`: a gate must not answer from an older revision.

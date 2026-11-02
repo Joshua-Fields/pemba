@@ -29,7 +29,7 @@ Issues = "https://github.com/Joshua-Fields/pemba/issues"
 fastapi = ["fastapi>=0.115.3"]
 test = ["pytest>=9.1", "mypy>=2.4"]
 # tests/test_contrib_fastapi.py: httpx drives the app, at both ends of the tested range.
-fastapi-test = ["fastapi>=0.115.3", "httpx>=0.27.2"]
+fastapi-test = ["pemba[fastapi]", "httpx>=0.27.2"]
 # tests/test_postgres.py: the drivers foreign mode supports (docs/10-postgres.md §2.3).
 postgres-test = [
     "psycopg[binary]>=3.2",

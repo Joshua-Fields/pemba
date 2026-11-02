@@ -38,6 +38,8 @@ from fastapi.responses import JSONResponse
 from fastapi.testclient import TestClient
 
 import pemba
+from pemba import _pemba  # type: ignore[attr-defined]
+from pemba.contrib import fastapi as fastapi_helper
 from pemba.contrib.fastapi import Authz
 from test_readme_example import ROOT, python_block
 
@@ -208,16 +210,24 @@ def test_configured_deny_response(store: Store, route: str) -> None:
     assert app.ran == ["readme"]
 
 
+def documented_subject(request: Request) -> str | None:
+    """The subject callable of ``06`` §2.4, word for word."""
+    user_id = request.state.user_id  # Set by your authentication; None when there is no user.
+    return None if user_id is None else f"user:{user_id}"
+
+
 def test_the_form_in_the_spec_works(store: Store) -> None:
     """``06`` §2.4 as written: a ``_`` parameter, and ``request.state`` for the subject."""
     app = FastAPI()
-    authz = Authz(store.engine, subject=lambda request: f"user:{request.state.user_id}")
+    authz = Authz(store.engine, subject=documented_subject)
+    ran: list[str] = []
 
     def get_doc(doc_id: str, _: None = Depends(authz.require("document", "view", path_param="doc_id"))) -> str:
+        ran.append(doc_id)
         return doc_id
 
     async def with_user(request: Request, call_next: Any) -> Any:
-        request.state.user_id = request.headers["x-user"]
+        request.state.user_id = request.headers.get("x-user")
         return await call_next(request)
 
     app.add_api_route("/documents/{doc_id}", get_doc)
@@ -225,6 +235,12 @@ def test_the_form_in_the_spec_works(store: Store) -> None:
     client = TestClient(app, raise_server_exceptions=False)
     assert client.get("/documents/readme", headers={"x-user": "anne"}).status_code == 200
     assert client.get("/documents/readme", headers={"x-user": "bob"}).status_code == 403
+    assert ran == ["readme"]
+    # Anonymous, on a `user:*` document that any real subject could read: 401, never an allow.
+    assert store.engine.check("document:public", "view", "user:bob")
+    anonymous = client.get("/documents/public")
+    assert (anonymous.status_code, anonymous.json()) == (401, NO_SUBJECT)
+    assert ran == ["readme"]
 
 
 @pytest.mark.parametrize("answer", [False, None, 0, 1, "yes", [True]])
@@ -265,34 +281,32 @@ def test_deny_configuration_reaches_no_error() -> None:
 # Errors stay errors
 
 
-def every_pemba_error() -> list[type[pemba.PembaError]]:
-    found: list[type[pemba.PembaError]] = []
-    pending: list[type[pemba.PembaError]] = [pemba.PembaError]
-    while pending:
-        current = pending.pop()
-        found.append(current)
-        pending.extend(current.__subclasses__())
-    return found
+SECRET = "SELECT * FROM pemba_rel; postgres://admin:hunter2@db.internal:5432/app"
+TRANSIENT_CODES = {"STORE_ERROR", "TRANSACTION_CONFLICT"}
+# Its own row in the table: a client can send the bound, so it is covered further down.
+BOUND_AHEAD = "REVISION_NOT_YET_AVAILABLE"
+# Rust's Parse is a built-in ValueError, not a PembaError.
+PERMANENT_CODES = sorted(set(_pemba.ERROR_CODES) - TRANSIENT_CODES - {BOUND_AHEAD, "PARSE"})
 
 
-def test_every_documented_error_class_is_covered() -> None:
-    names = {cls.__name__ for cls in every_pemba_error()}
-    assert names == {
-        "PembaError", "SchemaError", "SchemaChangeOrphansError", "NoSchemaError",
-        "InvalidRelationshipError", "InvalidRequestError", "ConsistencyError", "RevisionPending",
-        "WriteRolledBack", "EvaluationLimitError", "StaleRelationshipError",
-        "AmbiguousWildcardExclusionError", "WriteConflictError", "StorageError",
-        "TransactionConflictError",
-    }
+def error_for(code: str) -> pemba.PembaError:
+    cls: type[pemba.PembaError] = getattr(pemba, _pemba._exception_class_name(code))
+    return cls(SECRET, code)
+
+
+def test_the_allowlist_names_real_codes() -> None:
+    """A renamed code would otherwise turn every store outage into a 500, silently."""
+    assert TRANSIENT_CODES <= set(_pemba.ERROR_CODES)
+    assert fastapi_helper._TRANSIENT_CODES == TRANSIENT_CODES
+    assert BOUND_AHEAD in _pemba.ERROR_CODES
 
 
 @pytest.mark.parametrize("route", ROUTES)
-@pytest.mark.parametrize("error_class", every_pemba_error(), ids=lambda cls: cls.__name__)
-def test_every_pemba_error_is_a_503_that_exposes_nothing(
-    error_class: type[pemba.PembaError], route: str, caplog: pytest.LogCaptureFixture,
+@pytest.mark.parametrize("code", sorted(TRANSIENT_CODES))
+def test_a_transient_error_is_a_503_that_exposes_nothing(
+    code: str, route: str, caplog: pytest.LogCaptureFixture,
 ) -> None:
-    secret = "SELECT * FROM pemba_rel; postgres://admin:hunter2@db.internal:5432/app"
-    error = error_class(secret, "STORE_ERROR")
+    error = error_for(code)
     app = Harness(StubEngine(error=error))
     with caplog.at_level(logging.ERROR, logger="pemba.contrib.fastapi"):
         response = app.get(route, "readme")
@@ -306,21 +320,41 @@ def test_every_pemba_error_is_a_503_that_exposes_nothing(
 
 
 @pytest.mark.parametrize("route", ROUTES)
-def test_no_schema_is_a_503(bare_store: Store, route: str) -> None:
+@pytest.mark.parametrize("code", [*PERMANENT_CODES, "A_CODE_ADDED_LATER"])
+def test_every_other_error_is_a_500_that_exposes_nothing(code: str, route: str) -> None:
+    """Retrying cannot fix these, so none may look like an outage, or like a deny."""
+    error = error_for(code) if code in PERMANENT_CODES else pemba.PembaError(SECRET, code)
+    app = Harness(StubEngine(error=error))
+    response = app.get(route, "readme")
+    assert response.status_code == 500
+    assert "hunter2" not in response.text and "SELECT" not in response.text
+    assert app.ran == []
+
+
+@pytest.mark.parametrize("code", ["MAX_DEPTH_EXCEEDED", "FANOUT_EXCEEDED", "READ_LIMIT_EXCEEDED"])
+def test_a_limit_error_is_a_500(code: str) -> None:
+    """Only ``max_depth`` can be configured from Python, so the others are stubbed."""
+    app = Harness(StubEngine(error=pemba.EvaluationLimitError(SECRET, code)))
+    assert app.get("sync", "readme").status_code == 500
+    assert app.ran == []
+
+
+@pytest.mark.parametrize("route", ROUTES)
+def test_no_schema_is_a_500(bare_store: Store, route: str) -> None:
     app = Harness(bare_store.engine)
-    assert app.get(route, "readme").status_code == 503
+    assert app.get(route, "readme").status_code == 500
     assert app.ran == []
 
 
 @pytest.mark.parametrize("route", ROUTES)
-def test_unknown_permission_is_a_503(store: Store, route: str) -> None:
+def test_unknown_permission_is_a_500(store: Store, route: str) -> None:
     app = Harness(store.engine, permission="missing")
-    assert app.get(route, "readme").status_code == 503
+    assert app.get(route, "readme").status_code == 500
     assert app.ran == []
 
 
 @pytest.mark.parametrize("route", ROUTES)
-def test_evaluation_limit_is_a_503(tmp_path: Path, route: str) -> None:
+def test_evaluation_limit_is_a_500(tmp_path: Path, route: str) -> None:
     engine = pemba.Engine.sqlite(tmp_path / "deep.db", max_depth=2)
     engine.write_schema(SCHEMA)
     engine.write(touch=[
@@ -330,7 +364,7 @@ def test_evaluation_limit_is_a_503(tmp_path: Path, route: str) -> None:
         "group:three#member@user:anne",
     ])
     app = Harness(engine)
-    assert app.get(route, "deep").status_code == 503
+    assert app.get(route, "deep").status_code == 500
     assert app.ran == []
 
 
@@ -473,6 +507,38 @@ def test_path_convertors(store: Store) -> None:
     assert (empty.status_code, empty.json()) == (422, BAD_ID)
     assert client.get("/path/a:b").status_code == 422
     assert ran == ["a/b", "7"]
+
+
+def test_the_check_reads_the_raw_path_value_not_the_validated_one() -> None:
+    """Why the guide says to keep a gated parameter a plain ``str`` or a path convertor."""
+    engine = StubEngine()
+    app = FastAPI()
+    gate = Depends(Authz(cast(pemba.Engine, engine), subject=header_subject).require(
+        "document", "view", path_param="doc_id"))
+
+    def annotated(doc_id: int) -> int:
+        return doc_id
+
+    def converted(doc_id: int) -> int:
+        return doc_id
+
+    app.add_api_route("/annotated/{doc_id}", annotated, dependencies=[gate])
+    app.add_api_route("/converted/{doc_id:int}", converted, dependencies=[gate])
+    client = TestClient(app, raise_server_exceptions=False, headers={"x-user": "anne"})
+
+    # The annotation applies after the check: it allowed 007, and the body reads 7.
+    response = client.get("/annotated/007")
+    assert (response.status_code, response.json()) == (200, 7)
+    assert engine.calls[-1][0] == ("document:007", "view", "user:anne")
+
+    # A convertor applies before it: the check and the body agree.
+    response = client.get("/converted/007")
+    assert (response.status_code, response.json()) == (200, 7)
+    assert engine.calls[-1][0] == ("document:7", "view", "user:anne")
+
+    # A failed annotation is not reached if the check denies: 403, not 422.
+    engine.answer = False
+    assert client.get("/annotated/abc").status_code == 403
 
 
 # Sync and async: the event loop keeps running
@@ -635,7 +701,43 @@ def test_no_subject_is_a_401_with_no_check(route: str) -> None:
     app = Harness(engine, subject=lambda request: None)
     response = app.get(route, "readme")
     assert (response.status_code, response.json()) == (401, NO_SUBJECT)
+    assert "www-authenticate" not in response.headers
     assert engine.calls == [] and app.ran == []
+
+
+@pytest.mark.parametrize("route", ROUTES)
+def test_the_401_carries_the_configured_headers(route: str) -> None:
+    engine = StubEngine()
+    options = {"unauthenticated_headers": {"WWW-Authenticate": 'Bearer realm="docs"'}}
+    app = Harness(engine, subject=lambda request: None, authz_options=options)
+    response = app.get(route, "readme")
+    assert (response.status_code, response.json()) == (401, NO_SUBJECT)
+    assert response.headers["www-authenticate"] == 'Bearer realm="docs"'
+    assert engine.calls == [] and app.ran == []
+
+
+def test_the_configured_headers_reach_only_the_401() -> None:
+    options = {"unauthenticated_headers": {"WWW-Authenticate": "Bearer"}}
+    denied = Harness(StubEngine(answer=False), authz_options=options)
+    allowed = Harness(StubEngine(), authz_options=options)
+    failing = Harness(StubEngine(error=pemba.StorageError("down", "STORE_ERROR")), authz_options=options)
+    for app, status in ((denied, 403), (allowed, 200), (failing, 503)):
+        response = app.get("sync", "readme")
+        assert response.status_code == status
+        assert "www-authenticate" not in response.headers
+
+
+def test_the_configured_headers_are_copied() -> None:
+    headers = {"WWW-Authenticate": "Bearer"}
+    app = Harness(StubEngine(), subject=lambda request: None, authz_options={"unauthenticated_headers": headers})
+    headers["WWW-Authenticate"] = "Changed"
+    assert app.get("sync", "readme").headers["www-authenticate"] == "Bearer"
+
+
+@pytest.mark.parametrize("value", ["Bearer", [("WWW-Authenticate", "Bearer")], {"a": 1}, {1: "a"}, {"a": None}])
+def test_unauthenticated_headers_must_map_str_to_str(value: Any) -> None:
+    with pytest.raises(TypeError, match="unauthenticated_headers"):
+        Authz(cast(pemba.Engine, StubEngine()), subject=header_subject, unauthenticated_headers=value)
 
 
 @pytest.mark.parametrize("route", ROUTES)
@@ -648,8 +750,24 @@ def test_a_formatted_none_is_no_subject_and_opens_no_wildcard(store: Store, rout
     assert app.ran == []
 
 
+@pytest.mark.parametrize("route", ROUTES)
+def test_an_empty_subject_id_is_no_subject(store: Store, route: str) -> None:
+    """``f"user:{''}"``: the same mistake as ``None``, so the same answer."""
+    app = Harness(store.engine, subject=lambda request: "user:")
+    response = app.get(route, "public")
+    assert (response.status_code, response.json()) == (401, NO_SUBJECT)
+    assert app.ran == []
+
+
+def test_other_stringified_empties_are_not_blocklisted() -> None:
+    """``null`` is an ordinary id: returning ``None`` is the callable's job (OQ-067)."""
+    engine = StubEngine()
+    assert Harness(engine, subject=lambda request: "user:null").get("sync", "readme").status_code == 200
+    assert engine.calls[0][0] == ("document:readme", "view", "user:null")
+
+
 MALFORMED_SUBJECTS = [
-    "", " ", "user", "user:", ":anne", "*", "user:*", "nosuch:*", "user:anne ", " user:anne",
+    "", " ", "user", ":", ":anne", "*", "user:*", "nosuch:*", "user:anne ", " user:anne", "a:b:", "USER:",
     "user:anne\n", "user:a@b", "user:a:b", "USER:anne", "user:é", "group:eng#member",
     "user:anne#member", "group:eng#", "document:readme#view@user:anne", "user:*#member",
     "user:" + "x" * 1025,
@@ -817,9 +935,25 @@ def test_at_least_is_read_per_request(store: Store) -> None:
     revision = store.engine.write(touch=["document:fresh#viewer@user:anne"])
     app = Harness(store.engine, at_least=bound)
     assert app.client.get("/sync/fresh", headers={"x-revision": str(int(revision))}).status_code == 200
-    ahead = app.client.get("/sync/fresh", headers={"x-revision": str(int(revision) + 1000)})
-    assert (ahead.status_code, ahead.json()) == (503, UNAVAILABLE)
     assert app.ran == ["fresh"]
+
+
+def test_a_bound_ahead_of_the_store_is_a_500_a_client_cannot_flood_the_log_with(
+    store: Store, caplog: pytest.LogCaptureFixture,
+) -> None:
+    def bound(request: Request) -> int:
+        return int(request.headers["x-revision"])
+
+    revision = store.engine.write(touch=["document:fresh#viewer@user:anne"])
+    app = Harness(store.engine, at_least=bound)
+    with caplog.at_level(logging.INFO, logger="pemba.contrib.fastapi"):
+        ahead = app.client.get("/sync/fresh", headers={"x-revision": str(int(revision) + 1000)})
+    assert (ahead.status_code, ahead.json()) == (500, {"detail": "Internal Server Error"})
+    assert app.ran == []
+    assert isinstance(app.causes[-1], pemba.ConsistencyError)
+    records = [record for record in caplog.records if record.name == "pemba.contrib.fastapi"]
+    assert [record.levelno for record in records] == [logging.INFO]
+    assert records[0].exc_info is None
 
 
 def test_at_least_none_means_latest() -> None:
@@ -840,15 +974,14 @@ def test_at_least_takes_a_pending_revision_after_commit(tmp_path: Path) -> None:
     assert app.get("sync", "new").status_code == 200
 
 
-def test_an_unresolved_postgres_write_is_a_503(store: Store) -> None:
+def test_an_unresolved_postgres_write_is_a_500(store: Store) -> None:
     if store.kind != "postgres":
         pytest.skip("only Postgres has an unresolved PendingRevision")
     psycopg = importlib.import_module("psycopg")
     with psycopg.connect(PG_URL) as conn:
         pending = store.engine.write(touch=["document:new#viewer@user:anne"], conn=conn)
         app = Harness(store.engine, at_least=lambda request: pending)
-        before = app.get("sync", "new")
-        assert (before.status_code, before.json()) == (503, UNAVAILABLE)
+        assert app.get("sync", "new").status_code == 500
         conn.commit()
         assert app.get("sync", "new").status_code == 200
     assert app.ran == ["new"]

@@ -59,6 +59,7 @@ jobs:
         run: |
           ls dist
           [ "$(ls dist/*.whl | wc -l)" -eq 1 ]
+          python3 ci/check_contrib_packaged.py dist/*.whl
           case "$(ls dist/*.whl)" in *-cp311-abi3-*) ;; *) echo "not an abi3 (cp311) wheel"; exit 1;; esac
           python3 -c "import sys, zipfile; z = zipfile.ZipFile(sys.argv[1]); [open(n.rsplit('/', 1)[-1], 'wb').write(z.read(n)) for n in z.namelist() if '_pemba' in n]" dist/*.whl
           python3 ci/check_no_sqlite.py _pemba.*
@@ -86,6 +87,7 @@ jobs:
       - name: the sdist builds and imports
         shell: bash
         run: |
+          python3 crates/pemba-py/ci/check_contrib_packaged.py crates/pemba-py/dist/*.tar.gz
           python3 -m venv /tmp/sdist-venv
           /tmp/sdist-venv/bin/pip install crates/pemba-py/dist/*.tar.gz
           cd /tmp && /tmp/sdist-venv/bin/python -c "import pemba, pemba.contrib; print(pemba.__file__)"

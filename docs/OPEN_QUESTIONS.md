@@ -1674,6 +1674,23 @@ it is resolved.
 - Problem: §2.4 specified 403 on deny and 503 on `PembaError`, and nothing else. A check has
   more outcomes than those, and several of them can be driven by the client.
 - Choices, the most conservative that keeps an error an error:
+  - **503 is an allowlist, everything else is a 500 (maintainer, PR #101 review).** 503 means
+    try again, so only `STORE_ERROR` and `TRANSACTION_CONFLICT` get it. Unknown types and
+    permissions, no schema, evaluation limits, stale data, `NOT_MIGRATED` and any code added
+    later propagate unchanged, for a 500: a misspelled permission must not look like an outage.
+    `REVISION_EXPIRED` is not on the list because its `retryable` is false and a retry cannot
+    bring a pruned revision back. Python sees one code for every store failure, so the few a
+    retry cannot clear (`Corrupt`, `Poisoned`) are still 503s. A check at boot for a misspelled
+    permission was not added: it needs a subject type from the schema, and a store at startup.
+  - **A bound ahead of the store: 500, one `INFO` line, no traceback.** `REVISION_NOT_YET_AVAILABLE`
+    follows the 500 rule, but a client can send the bound, and raised unchanged it would put a
+    traceback in the server's log per request. A client can still cause the 500, so an alert on
+    the 5xx rate can still be tripped. A 4xx would stop that; it departs from the rule above, so
+    it is left for the maintainer to decide.
+  - **The check reads the raw path value.** It runs before FastAPI validates the route's
+    parameters, and a dependency cannot see the validated value. A body parameter that changes
+    the value can read a different object than the one checked. Documented in §2.4 and the
+    guide, and pinned by a test, not prevented: use a plain `str` or a path convertor.
   - **Refused id: 422**, fixed detail, no `check`. It is a `ValueError`, so §2.4 did not cover
     it. 503 would let a client fake a store outage and trip alerts, and 403 would report bad
     input as a decision. Updated in §2.4. The engine raises `ValueError` for a bad subject
@@ -1682,14 +1699,21 @@ it is resolved.
   - **Sync dependency, not `pemba.aio`.** A `def` dependency puts `subject` and `check` in
     FastAPI's threadpool. `aio.check` would leave `subject` on the loop and needs asyncio. Cost:
     a slow store can hold threads that `def` routes also use.
-  - **Subject.** `None` is 401 with no challenge header, because the helper does not know the
-    scheme. Exceptions propagate (a 500, or the app's own `HTTPException`). Non-strings,
-    malformed subjects, `type:*` and subject sets raise, for a 500: a request acts for one
-    object, and allowing sets later is compatible while forbidding them later is not.
-  - **`user:None` is treated as no subject (401).** The spec's own example
-    `f"user:{request.state.user_id}"` produces it when `user_id` is `None`. It parses, and it
-    returned `True` on a `user:*` document when probed. A real account with the id `None`
-    cannot pass the helper; that is the accepted cost, and it is documented.
+  - **Subject.** `None` is 401 (maintainer, PR #101 review). RFC 9110 §15.5.2 requires a 401 to
+    carry `WWW-Authenticate`, and the helper does not know the scheme, so the application
+    supplies it with `unauthenticated_headers=` on `Authz`. Fixed headers, not a factory: a
+    subject callable can already raise its own `HTTPException` for a challenge that varies by
+    request. Without the argument the 401 has no such header. Exceptions propagate (a 500, or
+    the app's own `HTTPException`). Non-strings, malformed subjects, `type:*` and subject sets
+    raise, for a 500: a request acts for one object, and allowing sets later is compatible while
+    forbidding them later is not.
+  - **`user:None` and an empty id are treated as no subject (401)** (maintainer, PR #101 review).
+    The first version of §2.4's example, `f"user:{request.state.user_id}"`, produced `user:None`
+    when `user_id` was `None`. It parses, and it returned `True` on a `user:*` document when
+    probed. A real account with the id `None` cannot pass the helper; that is the accepted cost,
+    and it is documented. `user:null` and `user:undefined` are not blocklisted, because they are
+    ordinary ids and a list would never be complete. The examples now return `None` when there
+    is no user, and a test holds the documented callable to a 401 on a `user:*` document.
   - **Missing `path_param`:** `LookupError` on every request, a 500. It cannot be caught when
     declared, because a dependency does not know its route. The value is read only from
     `path_params`, so a query string cannot supply it.
@@ -1700,6 +1724,8 @@ it is resolved.
     the engine accepts as 1, is refused.
   - **Logging:** FastAPI does not log an `HTTPException`, so `raise ... from` alone would lose
     the cause. The helper also logs to `pemba.contrib.fastapi` at `ERROR`, the first logger in
-    the Python package. Denies and bad input are not logged, so a client cannot fill the log.
-- Resolve by: maintainer, on review of this PR. The two most open to disagreement are the 401
-  with no `WWW-Authenticate` header and refusing the id `None`.
+    the Python package, for a 503. Denies and bad input are not logged at all, and a bound ahead
+    of the store only at `INFO`, so a client cannot fill the log at the default levels.
+- Resolve by: maintainer, on review of this PR. The 401 headers, the `None` and empty-id refusal
+  and the 503 allowlist are decided. Still open: whether a bound ahead of the store should be a
+  4xx rather than a 500.

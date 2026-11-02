@@ -1,9 +1,11 @@
 """A permission check for FastAPI routes (``docs/06-api.md`` §2.4, OQ-067).
 
 The route body runs only after ``Engine.check`` returned ``True``. Every other outcome is an
-HTTP error: 403 (or the configured client error) on deny, 503 on ``PembaError``, 422 for an id
-the engine refuses, 401 for no subject, and a server error for a programming mistake.
-Configuration reaches the deny response only.
+HTTP error: 403 (or the configured client error) on deny, 503 only for a store failure that a
+retry can clear (``_TRANSIENT_CODES``), 422 for an id the engine refuses, 401 for no subject,
+and a 500 for everything else: an unknown name, an evaluation limit, a bad bound or a
+programming mistake. Retrying cannot fix those, so they must not look like an outage.
+Configuration reaches the deny response and the headers of the 401 only.
 
 The dependency is a plain ``def``, so FastAPI runs the subject callable and the check in its
 threadpool, on ``def`` and ``async def`` routes alike. ``pemba.aio`` does not fit: it covers
@@ -14,12 +16,15 @@ from __future__ import annotations
 
 import inspect
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import Any
 
 try:
     from fastapi import HTTPException, Request
-except ImportError as exc:
+except ModuleNotFoundError as exc:
+    if exc.name != "fastapi":
+        # FastAPI is installed and something it needs is not: the extra would change nothing.
+        raise
     raise ImportError(
         "pemba.contrib.fastapi needs FastAPI; install it with: pip install 'pemba[fastapi]'"
     ) from exc
@@ -33,6 +38,11 @@ _log = logging.getLogger(__name__)
 _UNAVAILABLE = "Authorization is temporarily unavailable"
 _BAD_ID = "Invalid resource id"
 _NO_SUBJECT = "Authentication required"
+_SERVER_ERROR = "Internal Server Error"
+
+# An allowlist, so a code added later is a 500 until someone decides it is transient. Python
+# sees one code for every store failure, including the few a retry cannot clear (`Corrupt`).
+_TRANSIENT_CODES = frozenset({"STORE_ERROR", "TRANSACTION_CONFLICT"})
 
 
 def _refuse_coroutine_function(name: str, value: object) -> None:
@@ -57,15 +67,19 @@ def _parse_subject(value: object) -> str | None:
     if not isinstance(value, str):
         _close_coroutine(value)
         raise TypeError(f"subject must return a str or None, not {type(value).__name__}")
+    # f"user:{''}" has no id to parse, so the parser would call it malformed: fill one in to
+    # check the rest, which keeps ":" and "a:b:" malformed.
+    no_id = value.endswith(":")
     try:
-        parsed = Relationship.parse(f"pemba_contrib:x#rel@{value}")
+        parsed = Relationship.parse(f"pemba_contrib:x#rel@{value}{'x' if no_id else ''}")
     except ValueError as exc:
         raise ValueError("subject returned a malformed subject") from exc
     if parsed.subject_id == "*" or parsed.subject_relation is not None:
         # A request acts for one object: `user:*` is not a caller, and neither is a set.
         raise ValueError("subject must return a plain object such as user:anne")
-    if parsed.subject_id == "None":
-        # f"user:{None}". It parses, and a `user:*` grant would admit it (OQ-067).
+    if no_id or parsed.subject_id == "None":
+        # f"user:{None}" parses, and a `user:*` grant would admit it (OQ-067). Other strings
+        # are not blocklisted: return None for no caller, as `06` §2.4 shows.
         return None
     return value
 
@@ -87,6 +101,9 @@ class Authz:
     exception, so raise ``HTTPException(401, headers=...)`` to send your own challenge.
 
     A deny gets ``deny_status``, a client error (400 to 499), and ``deny_detail``.
+
+    ``unauthenticated_headers`` go on the helper's own 401. RFC 9110 requires that response to
+    carry ``WWW-Authenticate``, and the scheme is the application's, so set it here.
     """
 
     def __init__(
@@ -96,6 +113,7 @@ class Authz:
         subject: Callable[[Request], str | None],
         deny_status: int = 403,
         deny_detail: str = "Forbidden",
+        unauthenticated_headers: Mapping[str, str] | None = None,
     ) -> None:
         if not callable(subject):
             raise TypeError("subject must be a callable taking the Request")
@@ -106,6 +124,12 @@ class Authz:
             raise ValueError("deny_status must be a client error, 400 to 499")
         if not isinstance(deny_detail, str):
             raise TypeError("deny_detail must be a str")
+        if unauthenticated_headers is not None and not (
+            isinstance(unauthenticated_headers, Mapping)
+            and all(isinstance(part, str) for item in unauthenticated_headers.items() for part in item)
+        ):
+            raise TypeError("unauthenticated_headers must map str to str")
+        self._unauthenticated_headers = dict(unauthenticated_headers or {})
         self._engine = engine
         self._subject = subject
         self._deny_status = deny_status
@@ -122,9 +146,13 @@ class Authz:
         """A dependency for ``Depends``: ``permission`` on ``resource_type:<path_param>``.
 
         ``path_param`` is read from the route's path and nowhere else. A route without it
-        fails on every request. ``at_least``, if given, takes the ``Request`` and returns a
-        revision bound for this check; the default is the newest committed revision. There
-        is no ``at_exactly``: a permission gate must not answer from before a revocation.
+        fails on every request. The check runs before FastAPI validates the route's parameters
+        and sees the raw value, so a route that changes it (a normalising validator, a coercion
+        to ``int`` or ``UUID``) can read a different object than the one checked: declare it
+        as a plain ``str`` or a path convertor. ``at_least``, if given, takes the ``Request``
+        and returns a revision bound for this check; the default is the newest committed
+        revision. There is no ``at_exactly``: a permission gate must not answer from before a
+        revocation.
         """
         if not isinstance(resource_type, str) or not isinstance(permission, str):
             raise TypeError("resource_type and permission must be str")
@@ -163,7 +191,11 @@ class Authz:
         # Before the id, so that a caller with no identity learns nothing about ids.
         subject = _parse_subject(self._subject(request))
         if subject is None:
-            raise HTTPException(status_code=401, detail=_NO_SUBJECT)
+            raise HTTPException(
+                status_code=401,
+                detail=_NO_SUBJECT,
+                headers=dict(self._unauthenticated_headers) or None,
+            )
         if not _valid_resource(resource_type, resource_id):
             raise HTTPException(status_code=422, detail=_BAD_ID)
 
@@ -179,6 +211,13 @@ class Authz:
                 f"{resource_type}:{resource_id}", permission, subject, at_least=bound
             )
         except PembaError as exc:
+            if exc.code == "REVISION_NOT_YET_AVAILABLE":
+                # A client can send any bound, so one must not write a traceback per request:
+                # raised unchanged, the server would log it at ERROR (OQ-067).
+                _log.info("pemba check got an at_least bound ahead of the store, type %s", resource_type)
+                raise HTTPException(status_code=500, detail=_SERVER_ERROR) from exc
+            if exc.code not in _TRANSIENT_CODES:
+                raise
             # FastAPI does not log an HTTPException, so `from` alone would lose the cause.
             _log.error(
                 "pemba check failed with %s for %s on type %s",
