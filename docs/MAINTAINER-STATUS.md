@@ -104,8 +104,8 @@ The existing top post-release performance follow-up is
 a recursive query are candidates, not a promised implementation. Any optimization
 must preserve one snapshot and agree with the independent evaluator.
 
-Other M10 candidates include a FastAPI helper, Node bindings and a supported WASM
-build. Items excluded by [CLAUDE §6](../CLAUDE.md#6-things-that-are-explicitly-out-of-scope-until-told-otherwise)
+The FastAPI helper is T10.2 (OQ-067), the last item of the 0.3.0 scope. Other M10
+candidates include Node bindings and a supported WASM build. Items excluded by [CLAUDE §6](../CLAUDE.md#6-things-that-are-explicitly-out-of-scope-until-told-otherwise)
 need an explicit human scope decision first. No caveats/CEL, expiration, Watch,
 server mode, distributed dispatch or SpiceDB wire compatibility is approved here.
 

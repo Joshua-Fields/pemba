@@ -10,6 +10,7 @@ const items = info.complete ? [
   { text: 'Transactions', link: '/guides/transactions' },
   { text: 'Transactional tutorial', link: '/guides/transactional-tutorial' },
   { text: 'Consistency', link: '/guides/consistency' },
+  ...(info.fastapi ? [{ text: 'FastAPI', link: '/guides/fastapi' }] : []),
   { text: 'Limits and troubleshooting', link: '/guides/troubleshooting' },
   { text: 'API reference', link: '/api' },
   ...(info.contributing ? [{ text: 'Contributing', link: '/contributing' }] : []),

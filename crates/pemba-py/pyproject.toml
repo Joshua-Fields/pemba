@@ -24,7 +24,12 @@ Repository = "https://github.com/Joshua-Fields/pemba"
 Issues = "https://github.com/Joshua-Fields/pemba/issues"
 
 [project.optional-dependencies]
+# pemba.contrib.fastapi. 0.115.3 is the lowest version CI tests, and the first that requires a
+# Starlette with the fix for CVE-2024-47874.
+fastapi = ["fastapi>=0.115.3"]
 test = ["pytest>=9.1", "mypy>=2.4"]
+# tests/test_contrib_fastapi.py: httpx drives the app, at both ends of the tested range.
+fastapi-test = ["pemba[fastapi]", "httpx>=0.27.2"]
 # tests/test_postgres.py: the drivers foreign mode supports (docs/10-postgres.md §2.3).
 postgres-test = [
     "psycopg[binary]>=3.2",
@@ -62,4 +67,9 @@ strict = true
 # `unused-ignore` where Django is absent.
 [[tool.mypy.overrides]]
 module = ["django", "django.*"]
+ignore_missing_imports = true
+
+# The same for tests/test_contrib_fastapi.py, which mypy reads with and without FastAPI.
+[[tool.mypy.overrides]]
+module = ["fastapi", "fastapi.*", "httpx"]
 ignore_missing_imports = true

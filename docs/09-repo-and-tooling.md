@@ -124,7 +124,10 @@ them, never `set -x` around them, and do not expose them to workflows triggered 
   each (`prop1` job, ubuntu only, `--ignored` in `pemba-testkit`'s `properties` test),
   `cargo deny check`, `cargo doc`, Python tests (`maturin develop`, `pytest`,
   `mypy --strict` on the tests and sample) on ubuntu, macos and windows, the oldest supported combination (Rocky Linux 8: CPython 3.11, SQLite
-  3.26.0, `python-oldest`), and `cargo publish --workspace --dry-run` for every
+  3.26.0, `python-oldest`), the FastAPI helper's tests (`python` at the pinned versions,
+  `python-oldest` at the lowest `pyproject.toml` allows, `postgres` on a real server, each with
+  `PEMBA_FASTAPI_REQUIRED` so a missing package fails instead of skipping), and
+  `cargo publish --workspace --dry-run` for every
   publishable crate (`publish`), and that the published crates and `pemba-py` carry
   byte-identical copies of the root `LICENSE` and `NOTICE` (`package-files`). Publishing to
   crates.io is a manual human step. The `wasm` job (ADR-016, T6.1) runs `cargo clippy

@@ -750,18 +750,78 @@ persistent `SchemaChanged`), else false.
 Python argument mistakes raise built-in `ValueError` / `TypeError` (or `OverflowError`
 for native integer conversion as above), not `PembaError`.
 
-### 2.4 FastAPI helper (stretch, `pemba.contrib.fastapi`)
+### 2.4 FastAPI helper (`pemba.contrib.fastapi`, unreleased, for 0.3.0)
 
 ```python
 from pemba.contrib.fastapi import Authz
-authz = Authz(engine, subject=lambda request: f"user:{request.state.user_id}")
+
+def current_subject(request):
+    user_id = request.state.user_id  # Set by your authentication; None when there is no user.
+    return None if user_id is None else f"user:{user_id}"
+
+authz = Authz(engine, subject=current_subject,
+              unauthenticated_headers={"WWW-Authenticate": "Bearer"})
 
 @app.get("/documents/{doc_id}")
 def get_doc(doc_id: str, _=Depends(authz.require("document", "view", path_param="doc_id"))):
     ...
 ```
-Raises `HTTPException(403)` on deny, `HTTPException(503)` on `PembaError` (fail closed).
-Pure Python, optional extra `pip install pemba[fastapi]`.
+
+```python
+class Authz:
+    def __init__(self, engine: Engine, *, subject: Callable[[Request], str | None],
+                 deny_status: int = 403, deny_detail: str = "Forbidden",
+                 unauthenticated_headers: Mapping[str, str] | None = None) -> None: ...
+    def require(self, resource_type: str, permission: str, *, path_param: str,
+                at_least: Callable[[Request], int | PendingRevision | None] | None = None
+                ) -> Callable[[Request], None]: ...
+```
+
+Pure Python, optional extra `pip install pemba[fastapi]`. `import pemba` does not import
+FastAPI; importing this module without it raises `ImportError` naming the extra. User guide:
+`docs/guides/fastapi.md`. Decisions: OQ-067.
+
+The route body runs only after `Engine.check` returned `True`. The dependency is a `def`, so
+FastAPI runs `subject` and the check in its threadpool on `def` and `async def` routes alike;
+`pemba.aio` is not used, because it leaves `subject` on the event loop and requires asyncio.
+
+| Outcome | Raises |
+|---|---|
+| `check` returned anything but `True` | `HTTPException(deny_status, deny_detail)`, 403 by default |
+| `check` raised `STORE_ERROR` or `TRANSACTION_CONFLICT`, the only transient codes | `HTTPException(503)`, fixed detail; cause logged at `ERROR` and on `__cause__` |
+| `check` raised `REVISION_NOT_YET_AVAILABLE`: the bound is ahead of the store | `HTTPException(500)`, fixed detail; one `INFO` line and no traceback, because a client can send the bound; cause on `__cause__` |
+| `check` raised any other `PembaError`, including a code added later: unknown type or permission, no schema, an evaluation limit (depth, fan-out, reads), an expired or pending revision, a store not migrated | That exception, unchanged: a 500 |
+| The id is not a valid object id for the type | `HTTPException(422)`, fixed detail, no `check` |
+| `subject` returned `None`, or a subject whose id is empty or exactly `None` | `HTTPException(401)`, fixed detail, `unauthenticated_headers`, no `check` |
+| `subject` raised | That exception, unchanged (an `HTTPException` is how an app sends its own 401) |
+| `subject` returned a non-`str`, a malformed subject, `type:*` or a subject set | `TypeError` / `ValueError`, no `check`: a 500 |
+| `path_param` is not in `request.path_params` | `LookupError`, no `check`: a 500. Never read from the query |
+| `at_least` raised, or `check` refused its value | That exception (`TypeError`, `ValueError`): a 500 |
+
+- **Departures from the first version of this section:** 503 is an allowlist of transient codes,
+  not every `PembaError`: a retry cannot fix a misspelled permission or an evaluation limit, and
+  a permanent mistake must not look like an outage (OQ-067). A refused id is 422, not 503. It
+  raises `ValueError`, and a client must not be able to make its input look like a store
+  outage. The helper parses the id and the subject separately before `check`, because the
+  engine raises `ValueError` for both, and only the id is the client's fault. A `ValueError`
+  from `check` itself is therefore a server error.
+- `deny_status` must be 400 to 499 (`ValueError`), and neither `deny_status` nor `deny_detail`
+  reaches any other row of the table. `unauthenticated_headers` reaches the helper's 401 only.
+  RFC 9110 §15.5.2 requires a 401 to carry `WWW-Authenticate`; the helper does not know the
+  scheme and leaves it to the application, so without this argument its 401 has no such header.
+- `Latest` by default (`04` §1). `at_least` is a per-request callable; `None` means no bound. A
+  bound the store has not reached is `ConsistencyError`, so 500, as in the table. `at_exactly` is
+  not offered: a gate must not answer from before a revocation.
+- The check runs before FastAPI validates the route's parameters and reads the raw path value.
+  A body parameter that changes it (a normalising validator, a coercion to `int` or `UUID`) can
+  read a different object than the one checked. A path convertor runs first, so it is safe.
+- `check` gets three arguments, never the tuple string, so an id cannot supply a subject.
+- `subject`, `at_least`, `resource_type`, `permission` and `path_param` are validated when
+  `Authz` or `require` is called. `async def` callables raise `TypeError` there.
+- `subject_id == "None"` is refused because `f"user:{None}"` parses, and a `user:*` grant would
+  admit it. Such an id cannot pass this helper. An empty id (`f"user:{''}"`) is refused the same
+  way. Other strings such as `null` are not blocklisted: the callable must return `None` when
+  there is no user, as above, rather than format a missing value.
 
 ### 2.5 SQLite in the same process
 
