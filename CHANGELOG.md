@@ -11,11 +11,6 @@ versions are on the [releases page](https://github.com/Joshua-Fields/pemba/relea
 
 ## [Unreleased]
 
-### Added
-
-- `examples/django`, a small Django project on Postgres and SQLite with permissions in
-  `transaction.atomic()`. CI runs its tests on both.
-
 ## [0.3.0] - 2026-11-03
 
 Fewer Postgres round trips on deep hierarchies, and a FastAPI helper. No migration is needed
@@ -41,6 +36,8 @@ keeps compiling, because the new trait methods are provided.
 
 ### Added
 
+- `examples/django`, a small Django project on Postgres and SQLite with permissions in
+  `transaction.atomic()`. CI runs its tests on both.
 - `pemba.contrib.fastapi.Authz`, a permission check for FastAPI routes, with the new extra
   `pip install pemba[fastapi]`. A deny gets a configurable 4xx (403 by default). A transient
   store failure gets a 503 with a fixed detail, and any other engine error a 500. An id the

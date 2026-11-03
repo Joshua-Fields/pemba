@@ -125,7 +125,7 @@ cargo add pemba-store-postgres@0.3.0                 # Rust: the Postgres store
 cargo install pemba-cli@0.3.0 --locked              # `pemba` command-line tool
 ```
 
-These install 0.3.0 once it is on the
+Published versions are on the
 [releases page](https://github.com/Joshua-Fields/pemba/releases).
 The `pemba` crate re-exports the engine and both stores (features `sqlite` and `memory`,
 both on by default). Supported platforms and building from source are in the

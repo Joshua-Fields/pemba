@@ -1,10 +1,79 @@
 # 0.3.0 release record
 
-**0.3.0 is merged to `main`. It is not tagged or published.** PR #102 merged `841b5f1` as
-`73b08d2` on 2026-11-02 at 22:58:47 UTC. This document supplies no approval, and the merge is an
-observation rather than a recorded approval. Published 0.2.0 and its [record](RELEASE-0.2.0.md) remain unchanged.
-When 0.3.0 is published, add a publication record here, as 0.2.0 did, and keep the text below
-as evidence.
+**0.3.0 is tagged and published.** Publication is recorded below. The sections after it are the
+preparation text as written before publication, kept as evidence, with the two decisions it left
+for this point now ticked. Published 0.2.0 and its [record](RELEASE-0.2.0.md) remain unchanged.
+
+## Publication record
+
+Read from public sources on 2026-11-03.
+
+**Approval.** The maintainer approved `7d0b3c668c2f0c456c488820de64d5d15c900f41` in a
+[commit comment](https://github.com/Joshua-Fields/pemba/commit/7d0b3c668c2f0c456c488820de64d5d15c900f41#commitcomment-207903214) at 2026-11-03T09:52:26Z. The
+CI run's first attempt on that SHA failed in `python (Rocky Linux 8, Python 3.11, SQLite 3.26.0)`,
+when `rustup` stopped installing the toolchain with `detected conflict: 'bin/cargo-clippy'`, before
+anything compiled. A rerun of that job on the same SHA passed
+([run](https://github.com/Joshua-Fields/pemba/actions/runs/41612657122)). The cause was not
+established.
+
+**Git and GitHub.** Tag `v0.3.0` is a lightweight tag on `7d0b3c668c2f0c456c488820de64d5d15c900f41`, the merge of PR #104. The
+[GitHub Release](https://github.com/Joshua-Fields/pemba/releases/tag/v0.3.0) was published at
+2026-11-03T09:54:45Z, is neither a draft nor a pre-release, and has `playground-0.3.0.tar.gz`.
+
+**PyPI** (`pypi.org/pypi/pemba/0.3.0/json`). The
+[wheels run](https://github.com/Joshua-Fields/pemba/actions/runs/41614601339) passed every build
+and smoke job, and its `pypi` environment deployment shows as approved by `Joshua-Fields`. None of
+these files is yanked:
+
+| File | Uploaded (UTC) |
+|---|---|
+| `pemba-0.3.0-cp311-abi3-macosx_10_12_x86_64.whl` | 2026-11-03T09:57:59Z |
+| `pemba-0.3.0-cp311-abi3-macosx_11_0_arm64.whl` | 2026-11-03T09:58:01Z |
+| `pemba-0.3.0-cp311-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl` | 2026-11-03T09:58:03Z |
+| `pemba-0.3.0-cp311-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl` | 2026-11-03T09:58:05Z |
+| `pemba-0.3.0-cp311-abi3-win_amd64.whl` | 2026-11-03T09:58:06Z |
+| `pemba-0.3.0.tar.gz` | 2026-11-03T09:58:08Z |
+
+**crates.io** (`crates.io/api/v1/crates/<name>/0.3.0`). All nine shipping crates have 0.3.0, none
+yanked, uploaded in the required order. The first crate went up about 23 seconds before the first
+PyPI file, so step 4 below overlapped step 3 instead of following it.
+
+| Crate | Uploaded (UTC) |
+|---|---|
+| `pemba-schema` | 2026-11-03T09:57:36Z |
+| `pemba-core` | 2026-11-03T09:57:43Z |
+| `pemba-sqlite-common` | 2026-11-03T09:57:49Z |
+| `pemba-store-memory` | 2026-11-03T09:57:53Z |
+| `pemba-store-sqlite` | 2026-11-03T09:58:02Z |
+| `pemba-store-postgres` | 2026-11-03T09:58:17Z |
+| `pemba-fixtures` | 2026-11-03T09:58:25Z |
+| `pemba` | 2026-11-03T09:58:29Z |
+| `pemba-cli` | 2026-11-03T09:58:40Z |
+
+### Post-publication checks
+
+Run from the registries on Windows 11 x86_64 with Python 3.12, in clean virtual environments and
+scratch directories. Registry installs were not repeated on Linux or macOS; the wheels run's smoke
+jobs tested those artifacts before upload.
+
+| Check | Result |
+|---|---|
+| `pip install "pemba[fastapi]==0.3.0"`, import `pemba.contrib.fastapi.Authz` | Pass |
+| `cargo install pemba-cli --version 0.3.0 --locked`, `pemba --version` prints `pemba 0.3.0` | Pass |
+| `cargo add pemba@0.3.0`, `cargo check` | Pass |
+| docs.rs pages for the eight library crates, and the `pemba-cli` page | HTTP 200 |
+| `joshua-fields.github.io/pemba/` and `/pemba/v/0.3.0/` in Chromium | Footer `pemba 0.3.0`, `7d0b3c6` |
+| `joshua-fields.github.io/pemba/docs/` and `/docs/next/` in Chromium | HTTP 200, no page errors |
+| `examples/django` from the tag, 7 tests, pemba 0.3.0 from PyPI, Django 6.1 and 5.2, psycopg 3 and psycopg2, Postgres 18 and 15, SQLite | Pass |
+
+Shortly after upload, `pypi.org/pypi/pemba/json` was still served from cache with 0.2.0 as latest,
+while the simple index and the versioned JSON already had 0.3.0.
+
+## Preparation record
+
+PR #102 merged `841b5f1` as `73b08d2` on 2026-11-02 at 22:58:47 UTC. PRs #103 and #104 followed
+before the tag: #103 changed only documentation, and #104 added `examples/django`, its CI step and
+README links. No file under `crates/*/src` changed between `73b08d2` and the tag.
 
 ## Decisions for the maintainer
 
@@ -23,14 +92,16 @@ any of them.
 - [x] **The release date.** `CHANGELOG.md` has `## [0.3.0] - 2026-11-03`, the day the maintainer
   plans to tag. The release notes are extracted from that section, so if the tag moves to another
   day, change the date first.
-- [ ] **Explicit approval of the exact candidate SHA** before tag and publication.
+- [x] **Explicit approval of the exact candidate SHA.** Approved by the maintainer on 2026-11-03:
+  `7d0b3c668c2f0c456c488820de64d5d15c900f41` ([comment](https://github.com/Joshua-Fields/pemba/commit/7d0b3c668c2f0c456c488820de64d5d15c900f41#commitcomment-207903214)).
 
 Until publication, `main` names 0.3.0 in `README.md` and the guides and lists it under releases
 in `ROADMAP.md`. That text points to the releases page for what is published.
 
 Still open, for the maintainer alone:
 
-- [ ] Protected `pypi` environment review of the tag artifacts.
+- [x] Protected `pypi` environment review of the tag artifacts. Approved by the maintainer on
+  2026-11-03, per the wheels run's deployment record.
 - [ ] Authenticated registry ownership, publisher, access and 2FA settings.
 - [ ] Private security report form and its notifications.
 - [ ] Announcement decision, and M7/T7.17 community activation.
