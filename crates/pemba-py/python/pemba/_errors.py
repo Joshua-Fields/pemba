@@ -124,5 +124,9 @@ class StorageError(PembaError):
     """The store failed, or the database is not at the supported storage version."""
 
 
+class EngineClosedError(StorageError):
+    """The engine was closed (``docs/06-api.md`` §1.2). Not retryable: open a new one."""
+
+
 class TransactionConflictError(StorageError):
     """Another writer got in first: retry the whole transaction, re-reading its inputs."""

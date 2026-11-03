@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import importlib
 import os
+import threading
 import uuid
 import warnings
 from collections.abc import Coroutine, Iterator
@@ -23,6 +24,7 @@ import pytest
 
 import pemba
 from conftest import SCHEMA
+from pemba import aio
 
 URL = os.environ.get("PEMBA_PG_URL", "")
 if not URL:
@@ -541,3 +543,119 @@ def test_transactional_postgres_tutorial(schema: str) -> None:
     e = pemba.Engine.postgres(URL, schema=schema)
     assert e.check("document:committed", "view", "user:anne") is True
     assert e.check("document:rolled_back", "view", "user:anne") is False
+
+
+# ---- close (06 §1.2) ----
+
+
+def test_database_can_be_dropped_right_after_close() -> None:
+    """Without gc.collect() or WITH (FORCE), holding what used to keep an engine alive."""
+    database = f"pemba_py_{uuid.uuid4().hex[:12]}"
+    with admin() as c:
+        c.execute(f'CREATE DATABASE "{database}"')
+    url = psycopg.conninfo.make_conninfo(URL, dbname=database)
+    engine = pemba.Engine.postgres(url, schema="public", auto_migrate=True, pool_size=4)
+    engine.write_schema(SCHEMA)
+    with psycopg.connect(url) as app:
+        pending = engine.write(touch=[ANNE], conn=app)
+    assert engine.check("document:readme#view@user:anne", at_least=pending)
+    resources = engine.iter_resources("document", "view", "user:anne")
+
+    threads = [
+        threading.Thread(target=lambda: engine.check("document:readme", "view", "user:anne"))
+        for _ in range(8)
+    ]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    engine.close()
+
+    with admin() as c:
+        c.execute(f'DROP DATABASE "{database}"')
+    # Both still there, and both say so rather than answer.
+    assert pending.resolved
+    with pytest.raises(pemba.EngineClosedError):
+        next(resources)
+
+
+def test_context_manager_on_postgres(schema: str) -> None:
+    with pemba.Engine.postgres(URL, schema=schema, auto_migrate=True) as engine:
+        engine.write_schema(SCHEMA)
+        engine.write(touch=[ANNE])
+    assert engine.closed
+    with pytest.raises(pemba.EngineClosedError):
+        engine.check("document:readme", "view", "user:anne")
+
+
+def test_close_leaves_the_applications_transaction_working(engine: pemba.Engine, schema: str) -> None:
+    with psycopg.connect(URL) as app:
+        app.execute(f"""INSERT INTO "{schema}".documents VALUES ('readme')""")
+        pending = engine.write(touch=[ANNE], conn=app)
+
+        engine.close()
+
+        with pytest.raises(pemba.EngineClosedError):
+            engine.write(touch=[BOB], conn=app)
+        with pytest.raises(pemba.EngineClosedError):
+            pending.revision()
+    # The block committed: the outcome was the application's, not the engine's.
+    assert documents(schema) == ["readme"]
+    with pemba.Engine.postgres(URL, schema=schema) as reopened:
+        assert reopened.check("document:readme", "view", "user:anne")
+        assert not reopened.check("document:readme", "view", "user:bob")
+
+
+def test_closed_engine_sends_nothing_on_the_applications_connection(engine: pemba.Engine) -> None:
+    engine.close()
+    with psycopg.connect(URL, autocommit=True) as app:
+        with pytest.raises(pemba.EngineClosedError):
+            engine.write(touch=[ANNE], conn=app, allow_autocommit=True)
+        assert app.info.transaction_status == psycopg.pq.TransactionStatus.IDLE
+
+
+def test_readers_racing_close_on_postgres(engine: pemba.Engine) -> None:
+    engine.write(touch=[ANNE])
+    start = threading.Barrier(9)
+    bad: list[object] = []
+
+    def read() -> None:
+        start.wait()
+        while True:
+            try:
+                answer = engine.check("document:readme", "view", "user:anne")
+            except pemba.EngineClosedError:
+                return
+            except BaseException as e:
+                bad.append(e)
+                return
+            if answer is not True:
+                bad.append(answer)
+                return
+
+    threads = [threading.Thread(target=read) for _ in range(8)]
+    for t in threads:
+        t.start()
+    start.wait()
+    engine.close()
+    for t in threads:
+        t.join()
+    assert not bad
+
+
+def test_write_async_and_aio_close(engine: pemba.Engine, schema: str) -> None:
+    async def run() -> None:
+        async with await psycopg.AsyncConnection.connect(URL) as app:
+            pending = await engine.write_async(touch=[ANNE], conn=app)
+            await aio.close(engine)
+            with pytest.raises(pemba.EngineClosedError):
+                await engine.write_async(touch=[BOB], conn=app)
+            with pytest.raises(pemba.EngineClosedError):
+                await aio.resolve(pending)
+            # Still the application's transaction, and it commits as this block ends.
+
+    run_async(run())
+    with pemba.Engine.postgres(URL, schema=schema) as reopened:
+        assert reopened.check("document:readme", "view", "user:anne")
+        assert not reopened.check("document:readme", "view", "user:bob")

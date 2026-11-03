@@ -10,13 +10,16 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use pemba::model::{
     Consistency, ObjectRef, RelName, Relationship, RelationshipFilter, Revision, SubjectRef,
-    WriteOp, WriteRequest,
+    TypeName, WriteOp, WriteRequest,
 };
 use pemba::store::{
     DeleteResult, ReadStore, RelationCount, ReverseFilter, SchemaCheck, StoreError, StoredSchema,
     WritableStore,
 };
-use pemba::{CheckItem, CheckRequest, Engine, EngineConfig, Error, MemoryStore};
+use pemba::{
+    CheckItem, CheckRequest, Engine, EngineConfig, Error, LookupResourcesRequest,
+    LookupSubjectsRequest, MemoryStore, ReadRelationshipsRequest,
+};
 
 // ---------------------------------------------------------------------------------------
 // Helpers
@@ -1737,4 +1740,112 @@ fn lookup_resources_fails_closed_on_the_ambiguity() {
         ))
         .unwrap();
     assert_eq!(got.resource_ids, Vec::new());
+}
+
+// ---- close (docs/06-api.md §1.2) ----
+
+fn assert_closed<T: std::fmt::Debug>(what: &str, result: Result<T, Error>) {
+    match result {
+        Err(e @ Error::Store(StoreError::Closed)) => assert_eq!(e.code(), "ENGINE_CLOSED"),
+        other => panic!("{what} after close: {other:?}"),
+    }
+}
+
+/// Every method that uses the engine, except the two that need a SQL store (`write_in`,
+/// `resolve`): those have their own tests in the SQLite and Postgres store crates.
+fn assert_every_method_closed<S: WritableStore>(e: &Engine<S>) {
+    assert_closed("write_schema", e.write_schema(SCHEMA));
+    assert_closed("read_schema", e.read_schema());
+    assert_closed("write", e.write(touch(&["document:a#viewer@user:b"])));
+    assert_closed(
+        "delete_relationships",
+        e.delete_relationships(
+            RelationshipFilter::new("document".parse::<TypeName>().unwrap()),
+            None,
+        ),
+    );
+    assert_closed("gc", e.gc(Revision(0)));
+    assert_closed("head_revision", e.head_revision());
+    assert_closed(
+        "read_relationships",
+        e.read_relationships(ReadRelationshipsRequest::new(RelationshipFilter::new(
+            "document".parse::<TypeName>().unwrap(),
+        ))),
+    );
+    assert_closed(
+        "check_str",
+        e.check_str("document:a", "view", "user:anne", Consistency::Latest),
+    );
+    assert_closed(
+        "check",
+        e.check(request("document:a#view@user:anne", Consistency::Latest)),
+    );
+    assert_closed(
+        "check_with_trace",
+        e.check_with_trace(request("document:a#view@user:anne", Consistency::Latest)),
+    );
+    assert_closed(
+        "check_with_trace_limit",
+        e.check_with_trace_limit(
+            request("document:a#view@user:anne", Consistency::Latest),
+            10,
+        ),
+    );
+    assert_closed(
+        "check_bulk",
+        e.check_bulk(vec![item("document:a#view@user:anne")], Consistency::Latest),
+    );
+    assert_closed(
+        "lookup_resources",
+        e.lookup_resources(LookupResourcesRequest::new(
+            "document".parse().unwrap(),
+            "view".parse().unwrap(),
+            "user:anne".parse().unwrap(),
+        )),
+    );
+    assert_closed(
+        "lookup_subjects",
+        e.lookup_subjects(LookupSubjectsRequest::new(
+            "document:a".parse().unwrap(),
+            "view".parse().unwrap(),
+            "user".parse().unwrap(),
+        )),
+    );
+}
+
+#[test]
+fn every_method_fails_after_close() {
+    let e = engine(SCHEMA, &["document:a#viewer@user:anne"]);
+    assert_allowed(&e, "document:a#view@user:anne");
+    assert!(!e.is_closed());
+
+    e.close().unwrap();
+    e.close().unwrap();
+
+    assert!(e.is_closed());
+    assert_every_method_closed(&e);
+    // The store reached through the engine refuses too, and has not kept the data.
+    assert!(matches!(e.store().head_revision(), Err(StoreError::Closed)));
+}
+
+#[test]
+fn the_engine_enforces_close_when_the_store_does_nothing() {
+    let e = Engine::builder()
+        .store(FlakyStore::default())
+        .build()
+        .unwrap();
+    e.write_schema(SCHEMA).unwrap();
+    e.write(touch(&["document:a#viewer@user:anne"])).unwrap();
+    let head = e.head_revision().unwrap();
+
+    e.close().unwrap();
+
+    assert_every_method_closed(&e);
+    // The default `WritableStore::close` left this store working: only the engine refused.
+    assert_eq!(e.store().inner.head_revision().unwrap(), head);
+}
+
+#[test]
+fn closed_is_not_retryable() {
+    assert!(!StoreError::Closed.is_retryable());
 }

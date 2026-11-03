@@ -2,6 +2,7 @@
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, PoisonError, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use pemba_schema::ir::CompiledSchema;
@@ -212,6 +213,7 @@ impl<S: WritableStore> EngineBuilder<S> {
             store,
             config: self.config,
             schema: RwLock::new(schema),
+            closed: AtomicBool::new(false),
         })
     }
 }
@@ -282,6 +284,9 @@ pub struct Engine<S> {
     /// reads use the version in their own snapshot (`docs/05-storage.md` §7), and writes
     /// commit only if the store is still at the version they were validated against.
     schema: RwLock<Option<Arc<Loaded>>>,
+    /// Set by [`Engine::close`]. Held here as well as in the store because a custom store's
+    /// `close` may do nothing, and because the schema cache could otherwise answer.
+    closed: AtomicBool,
 }
 
 /// A stored schema, compiled.
@@ -318,6 +323,36 @@ impl Loaded {
 const SCHEMA_RETRIES: usize = 3;
 
 impl<S: WritableStore> Engine<S> {
+    /// Closes the engine (`docs/06-api.md` §1.2): stops new calls, waits for calls in
+    /// flight, and closes every pooled connection. Afterwards every other method fails with
+    /// [`StoreError::Closed`] (code `ENGINE_CLOSED`). Idempotent. The caller's own
+    /// connections and transactions are not touched.
+    ///
+    /// Blocks with no timeout, so do not call it while holding something a call in flight
+    /// may wait on, such as an open transaction whose locks it needs.
+    ///
+    /// # Errors
+    ///
+    /// [`StoreError::Poisoned`] if a panic poisoned a lock of the store; the engine is
+    /// closed to new calls regardless.
+    pub fn close(&self) -> Result<(), Error> {
+        self.closed.store(true, Ordering::Release);
+        self.store.close()
+    }
+
+    /// Whether [`close`](Self::close) has been called.
+    pub fn is_closed(&self) -> bool {
+        self.closed.load(Ordering::Acquire)
+    }
+
+    /// The first thing every other method does.
+    fn ensure_open(&self) -> Result<(), Error> {
+        if self.is_closed() {
+            return Err(Error::Store(StoreError::Closed));
+        }
+        Ok(())
+    }
+
     /// Starts building an engine: `Engine::builder().store(store).config(cfg).build()`.
     pub fn builder() -> EngineBuilder<S> {
         EngineBuilder {
@@ -341,6 +376,7 @@ impl<S: WritableStore> Engine<S> {
     /// [`Error::Schema`] with every compile error; [`Error::SchemaChangeOrphans`] listing
     /// each orphaned group of live relationships; [`Error::Store`] if the store fails.
     pub fn write_schema(&self, source: &str) -> Result<SchemaWriteResult, Error> {
+        self.ensure_open()?;
         let _span = tracing::info_span!("write_schema", bytes = source.len()).entered();
         let compiled = pemba_schema::compile(source).map_err(Error::Schema)?;
         if let Some(stored) = self.store.current_schema()?
@@ -390,6 +426,7 @@ impl<S: WritableStore> Engine<S> {
     ///
     /// [`Error::Store`] if the store fails.
     pub fn read_schema(&self) -> Result<Option<String>, Error> {
+        self.ensure_open()?;
         Ok(self.store.current_schema()?.map(|s| s.source))
     }
 
@@ -410,6 +447,7 @@ impl<S: WritableStore> Engine<S> {
         reason = "signature fixed by docs/06-api.md §1"
     )]
     pub fn write(&self, req: WriteRequest) -> Result<Revision, Error> {
+        self.ensure_open()?;
         let _span = tracing::info_span!(
             "write",
             ops = req.ops.len(),
@@ -457,6 +495,7 @@ impl<S: WritableStore> Engine<S> {
     where
         S: SqlStore,
     {
+        self.ensure_open()?;
         let _span = tracing::info_span!(
             "write_in",
             ops = req.ops.len(),
@@ -490,6 +529,7 @@ impl<S: WritableStore> Engine<S> {
     /// open; [`Error::WriteRolledBack`] if it rolled back, or the write was rolled back to
     /// a savepoint; [`Error::Store`] if the store fails. None on SQLite.
     pub fn resolve(&self, pending: &PendingRevision) -> Result<Revision, Error> {
+        self.ensure_open()?;
         match pending.pending() {
             Pending::Known(r) => Ok(r),
             Pending::Batch { batch, xid } => {
@@ -556,6 +596,7 @@ impl<S: WritableStore> Engine<S> {
         filter: RelationshipFilter,
         limit: Option<usize>,
     ) -> Result<DeleteResult, Error> {
+        self.ensure_open()?;
         let _span = tracing::info_span!("delete_relationships", filter = %filter).entered();
         let max = self.config.max_delete_by_filter;
         let limit = limit.unwrap_or(max);
@@ -592,6 +633,7 @@ impl<S: WritableStore> Engine<S> {
     /// [`Error::InvalidRequest`] if `keep_from` is above head; [`Error::Store`] if the
     /// store fails (the horizon may already be raised; a later GC removes the rest).
     pub fn gc(&self, keep_from: Revision) -> Result<GcStats, Error> {
+        self.ensure_open()?;
         let _span = tracing::info_span!("gc", keep_from = keep_from.0).entered();
         let stats = self.store.gc(keep_from)?;
         tracing::debug!(
@@ -616,6 +658,7 @@ impl<S: WritableStore> Engine<S> {
     ///
     /// [`Error::Store`] if the store fails.
     pub fn head_revision(&self) -> Result<Revision, Error> {
+        self.ensure_open()?;
         Ok(self.store.head_revision()?)
     }
 
@@ -635,6 +678,7 @@ impl<S: WritableStore> Engine<S> {
         &self,
         req: ReadRelationshipsRequest,
     ) -> Result<ReadRelationshipsResponse, Error> {
+        self.ensure_open()?;
         let max = self.config.max_lookup_results;
         let limit = req.limit.unwrap_or(max);
         if limit == 0 || limit > max {
@@ -682,6 +726,7 @@ impl<S: WritableStore> Engine<S> {
         subject: &str,
         consistency: Consistency,
     ) -> Result<bool, Error> {
+        self.ensure_open()?;
         let mut request =
             CheckRequest::new(resource.parse()?, permission.parse()?, subject.parse()?);
         request.consistency = consistency;
@@ -710,6 +755,7 @@ impl<S: WritableStore> Engine<S> {
         reason = "signature fixed by docs/06-api.md §1"
     )]
     pub fn check(&self, req: CheckRequest) -> Result<CheckResponse, Error> {
+        self.ensure_open()?;
         // The hot path keeps its own body rather than sharing `run_check` with
         // `check_with_trace`: the generic version measured 1-2% slower here (T4.1).
         let span = check_span!("check", req);
@@ -758,6 +804,7 @@ impl<S: WritableStore> Engine<S> {
         &self,
         req: CheckRequest,
     ) -> Result<(CheckResponse, CheckTrace), Error> {
+        self.ensure_open()?;
         self.check_with_trace_limit(req, self.config.max_trace_nodes)
     }
 
@@ -777,6 +824,7 @@ impl<S: WritableStore> Engine<S> {
         req: CheckRequest,
         max_trace_nodes: usize,
     ) -> Result<(CheckResponse, CheckTrace), Error> {
+        self.ensure_open()?;
         if max_trace_nodes == 0 {
             return Err(Error::InvalidRequest {
                 message: "max_trace_nodes must be at least 1".to_owned(),
@@ -876,6 +924,7 @@ impl<S: WritableStore> Engine<S> {
         &self,
         req: LookupResourcesRequest,
     ) -> Result<LookupResourcesResponse, Error> {
+        self.ensure_open()?;
         let span = tracing::info_span!(
             "lookup_resources",
             resource_type = %req.resource_type,
@@ -977,6 +1026,7 @@ impl<S: WritableStore> Engine<S> {
         &self,
         req: LookupSubjectsRequest,
     ) -> Result<LookupSubjectsResponse, Error> {
+        self.ensure_open()?;
         let span = tracing::info_span!(
             "lookup_subjects",
             resource = %req.resource,
@@ -1042,6 +1092,7 @@ impl<S: WritableStore> Engine<S> {
         items: Vec<CheckItem>,
         c: Consistency,
     ) -> Result<Vec<Result<bool, Error>>, Error> {
+        self.ensure_open()?;
         let span = tracing::info_span!(
             "check_bulk",
             items = items.len(),

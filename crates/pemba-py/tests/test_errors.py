@@ -24,6 +24,7 @@ EXPECTED: dict[str, type[Exception]] = {
     "BATCH_TOO_LARGE": pemba.InvalidRequestError,
     "REVISION_NOT_YET_AVAILABLE": pemba.ConsistencyError,
     "REVISION_EXPIRED": pemba.ConsistencyError,
+    "ENGINE_CLOSED": pemba.EngineClosedError,
     "REVISION_PENDING": pemba.RevisionPending,
     "WRITE_ROLLED_BACK": pemba.WriteRolledBack,
     "MAX_DEPTH_EXCEEDED": pemba.EvaluationLimitError,
@@ -61,6 +62,7 @@ def test_hierarchy_shape() -> None:
     assert issubclass(pemba.TransactionConflictError, pemba.StorageError)
     subclasses: dict[type[Exception], type[Exception]] = {
         pemba.TransactionConflictError: pemba.StorageError,
+        pemba.EngineClosedError: pemba.StorageError,
         pemba.RevisionPending: pemba.ConsistencyError,
         pemba.WriteRolledBack: pemba.ConsistencyError,
     }

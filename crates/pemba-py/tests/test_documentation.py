@@ -46,7 +46,10 @@ def test_engine_stub_keywords_match_native_signatures() -> None:
     for node in engine.body:
         if not isinstance(node, ast.FunctionDef):
             continue
-        signature = inspect.signature(getattr(pemba.Engine, node.name))
+        native = getattr(pemba.Engine, node.name)
+        if inspect.isgetsetdescriptor(native):
+            continue  # A property has no keywords.
+        signature = inspect.signature(native)
         expected = {p.name for p in signature.parameters.values() if p.kind == p.KEYWORD_ONLY}
         actual = {arg.arg for arg in node.args.kwonlyargs}
         assert expected == actual, node.name

@@ -8,7 +8,7 @@ It runs on Postgres and on SQLite.
 - `documents/services.py`: creating, sharing, deleting, checking and listing documents.
 - `documents/tests.py`: rollback, inheritance, read-after-write, and why not `TestCase`.
 - `documents/migrations/`: creating pemba's schema and tables from Django migrations.
-- `config/test_runner.py`: releases the engine so Django can drop the test database.
+- `config/test_runner.py`: closes the engine so Django can drop the test database.
 
 ## Run it
 

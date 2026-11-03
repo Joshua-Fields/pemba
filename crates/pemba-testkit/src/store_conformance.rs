@@ -60,6 +60,8 @@ const CASES: &[(&str, Case)] = &[
         "concurrent_writer_and_readers",
         concurrent_writer_and_readers,
     ),
+    ("close_fails_every_method", close_fails_every_method),
+    ("close_races_readers", close_races_readers),
 ];
 
 /// Runs every conformance case, each against a fresh store from `factory`, and reports
@@ -1244,4 +1246,91 @@ fn concurrent_writer_and_readers(s: &dyn WritableStore) {
     });
 
     check_rev(head(s));
+}
+
+// ---- close (docs/06-api.md §1.2) ----
+
+#[allow(
+    clippy::needless_pass_by_value,
+    reason = "callers pass each call inline"
+)]
+fn assert_closed<T: std::fmt::Debug>(what: &str, result: Result<T, Error>) {
+    assert!(
+        matches!(result, Err(Error::Store(StoreError::Closed))),
+        "{what}: {result:?}"
+    );
+}
+
+fn close_fails_every_method(s: &dyn WritableStore) {
+    s.write_schema("definition user {}", "h1", &|_| Ok(()))
+        .unwrap();
+    let rev = write(s, &touch(&["doc:1#viewer@user:anne"]));
+
+    s.close().unwrap();
+    s.close().unwrap();
+
+    for (i, result) in every_read(s, rev).into_iter().enumerate() {
+        assert_closed(&format!("read {i}"), result.map_err(Error::Store));
+    }
+    assert_closed("head_revision", s.head_revision().map_err(Error::Store));
+    assert_closed("gc_horizon", s.gc_horizon().map_err(Error::Store));
+    assert_closed("current_schema", s.current_schema().map_err(Error::Store));
+    assert_closed("schema_version", s.schema_version().map_err(Error::Store));
+    assert_closed("snapshot", s.snapshot().map(drop).map_err(Error::Store));
+    assert_closed(
+        "read_batch",
+        s.read_batch(
+            rev,
+            &[BatchRead::SubjectSets {
+                resource: obj("doc:1"),
+                relation: name("viewer"),
+            }],
+        )
+        .map_err(Error::Store),
+    );
+    assert_closed("write", s.write(&touch(&["doc:1#viewer@user:bob"]), None));
+    assert_closed(
+        "write_schema",
+        s.write_schema("definition user {}", "h2", &|_| Ok(())),
+    );
+    assert_closed("delete_matching", s.delete_matching(&filter("doc"), 10));
+    assert_closed("raise_gc_horizon", s.raise_gc_horizon(rev));
+    assert_closed("gc_batch", s.gc_batch(10));
+    assert_closed("gc", s.gc(rev));
+
+    s.close().unwrap();
+}
+
+/// Readers racing `close` see the right answer or `Closed`, never `false` or another error.
+fn close_races_readers(s: &dyn WritableStore) {
+    const READERS: usize = 4;
+
+    let tuple = rel("doc:1#viewer@user:anne");
+    let rev = write(s, &touch(&["doc:1#viewer@user:anne"]));
+    let ready = Barrier::new(READERS + 1);
+    std::thread::scope(|scope| {
+        for reader in 0..READERS {
+            let (tuple, ready) = (&tuple, &ready);
+            scope.spawn(move || {
+                let read = || -> Result<bool, StoreError> {
+                    if reader % 2 == 0 {
+                        s.exists(rev, tuple)
+                    } else {
+                        s.snapshot()?.exists(rev, tuple)
+                    }
+                };
+                assert!(read().unwrap());
+                ready.wait();
+                loop {
+                    match read() {
+                        Ok(true) => {}
+                        Err(StoreError::Closed) => break,
+                        other => panic!("racing close: {other:?}"),
+                    }
+                }
+            });
+        }
+        ready.wait();
+        s.close().unwrap();
+    });
 }

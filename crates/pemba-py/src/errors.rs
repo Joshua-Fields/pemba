@@ -40,6 +40,7 @@ pub(crate) fn class_name(code: &str) -> Option<&'static str> {
         | "STORAGE_VERSION_TOO_NEW"
         | "FOREIGN_CONNECTION_MISMATCH" => "StorageError",
         "TRANSACTION_CONFLICT" => "TransactionConflictError",
+        "ENGINE_CLOSED" => "EngineClosedError",
         _ => return None,
     })
 }

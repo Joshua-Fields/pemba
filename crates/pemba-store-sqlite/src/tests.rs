@@ -309,7 +309,10 @@ fn pragmas_on_every_connection() {
     let store = SqliteStore::open(db.path(), config).unwrap();
     // synchronous: NORMAL = 1, FULL = 2.
     let want = ("wal".to_owned(), 2, 1, 1234);
-    assert_eq!(pragmas(&store.writer.lock().unwrap()), want);
+    assert_eq!(
+        pragmas(store.writer.lock().unwrap().as_ref().unwrap()),
+        want
+    );
     // Nested leases hold all three readers at once, so each is a different connection.
     store
         .readers
@@ -329,7 +332,10 @@ fn pragmas_on_every_connection() {
 
     let store = SqliteStore::open(db.path(), SqliteConfig::default()).unwrap();
     let want = ("wal".to_owned(), 1, 1, 5000);
-    assert_eq!(pragmas(&store.writer.lock().unwrap()), want);
+    assert_eq!(
+        pragmas(store.writer.lock().unwrap().as_ref().unwrap()),
+        want
+    );
     store
         .readers
         .with(|c| {

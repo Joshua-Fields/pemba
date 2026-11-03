@@ -44,6 +44,10 @@ impl<S: WritableStore> Engine<S> {
 
     // ---- maintenance ----
     pub fn gc(&self, keep_from: Revision) -> Result<GcStats, Error>;
+
+    // ---- lifetime (§1.2) ----
+    pub fn close(&self) -> Result<(), Error>;
+    pub fn is_closed(&self) -> bool;
 }
 
 #[non_exhaustive]
@@ -470,7 +474,8 @@ Every variant has a stable machine code (`Error::code() -> &'static str`, e.g.
 `SCHEMA_CHANGE_ORPHANS` (T2.6), `TRANSACTION_CONFLICT` (T3.1: `Store(StoreError::Conflict)`,
 split from `STORE_ERROR` so the code alone tells a caller to retry the whole transaction),
 `AMBIGUOUS_WILDCARD_EXCLUSION` (T3.4b), `REVISION_PENDING` and `WRITE_ROLLED_BACK` (T5.8,
-from `Engine::resolve` on Postgres);
+from `Engine::resolve` on Postgres), `ENGINE_CLOSED` (T10.3: `Store(StoreError::Closed)`,
+§1.2);
 variants added later use their name in SCREAMING_SNAKE case. Runtime codes never carry the
 `E_` prefix, which belongs to schema diagnostics (`ErrorCode`). `Error::CODES` lists every
 code `code()` can return.
@@ -479,6 +484,54 @@ code `code()` can return.
 data as of `r`, not what was allowed at `r` (`04` §1, OQ-030): after `banned` is removed
 from `view = viewer - banned`, a check at an `Exact` revision from before the removal no
 longer subtracts `banned`. It is not an audit log.
+
+### 1.2 Closing an engine (T10.3, 0.4.0)
+
+`close()` releases what the engine's store holds, without waiting for the engine to be
+dropped. Dropping still works; `close` is for when the release has to happen at a known
+moment, such as before dropping a test database, however many references to the engine
+remain (a retained `PendingRevision` or `iter_resources` iterator is one).
+
+- **What it closes.** Every pooled connection: the Postgres pool, and SQLite's readers and
+  writer. A memory store discards its data. A caller's own connections and transactions
+  are never touched, including ones that have written through `write_in`.
+- **Idempotent.** A second or concurrent `close` returns `Ok(())`, once the store is
+  closed. `is_closed()` is true from the moment the first `close` starts.
+- **Use after close.** Every other method returns `Err(Error::Store(StoreError::Closed))`,
+  code `ENGINE_CLOSED`, not retryable. That includes anything the engine could answer
+  without I/O, and the store reached through `Engine::store()`. It is never `Ok(false)`,
+  `Ok(true)`, an empty result or a no-op. An engine does not reopen: open a new one.
+- **Calls in flight.** `close` first stops new calls, then blocks until every connection is
+  closed. A call that already holds a connection finishes normally, and its transaction
+  commits or rolls back as usual. A call that needs a connection it does not yet hold
+  (waiting for a pool slot, or a later step such as the next `gc` batch or lookup page)
+  fails with `ENGINE_CLOSED`. So a running call either gives its normal answer or fails with
+  that code. A batch or transaction already committed stays committed.
+- **No timeout.** `close` waits as long as the calls in flight take, and a Postgres
+  statement can wait on a lock indefinitely. Do not call it from a thread that holds
+  something an in-flight call needs: an open transaction whose locks another thread's
+  engine call is waiting on, or a store snapshot of its own.
+- **When it returns,** pemba has closed all its connections. A Postgres backend exits
+  just after its client disconnects; `DROP DATABASE` allows for that (it waits up to 5 s for
+  exiting sessions), so it succeeds without `WITH (FORCE)` straight after `close`. SQLite
+  releases the database file, deletable on Windows if the app has no connection of its own
+  on it.
+- **Pending revisions.** `close` does not affect a caller's transaction. A
+  `PendingRevision::resolved()` already known stays known, but `Engine::resolve` is a use of
+  the engine, so it fails with `ENGINE_CLOSED`, and an unresolved Postgres write's revision
+  cannot be learned from a closed engine. Resolve before closing.
+- **Errors from `close`.** Only `StoreError::Poisoned`. A connection failing as it closes is
+  not reported: it is being discarded either way. The engine is closed to new calls even
+  then, and `close` may be called again.
+- **Custom stores.** `WritableStore::close` is a provided method that does nothing (`05`
+  §2), so existing stores keep compiling. The engine enforces use-after-close whatever the
+  store does; a store holding connections overrides `close` to release them.
+- **Fork.** An engine is not fork-safe, and neither is closing one in a child process: on
+  Postgres it would end sessions the parent still uses. Open engines after forking.
+- **Async Rust.** `close` is blocking, like every other call on the Postgres store: use
+  `tokio::task::spawn_blocking`, never a runtime thread.
+
+Acceptance criteria: `08` T10.3.
 
 ---
 
@@ -601,6 +654,13 @@ class Engine:
     def head_revision(self) -> Revision: ...
     def gc(self, keep_from: int) -> "GcStats": ...
 
+    def close(self) -> None: ...                  # §1.2; idempotent, blocks for calls in flight
+    @property
+    def closed(self) -> bool: ...
+    def __enter__(self) -> Self: ...              # EngineClosedError if already closed
+    def __exit__(self, exc_type: type[BaseException] | None, exc: BaseException | None,
+                 tb: types.TracebackType | None) -> None: ...  # close(); never swallows exc
+
 class Relationship:                       # frozen; str() is the tuple string
     def __init__(self, resource_type: str, resource_id: str, relation: str,
                  subject_type: str, subject_id: str, subject_relation: str | None = None) -> None: ...
@@ -685,6 +745,15 @@ Rules:
     (`10` §1.6.7).
 - `Engine` is thread-safe; share one instance per process. Not fork-safe: create it after
   forking (document for gunicorn `--preload` users).
+- `close()` and `with pemba.Engine.postgres(...) as engine:` have the Rust semantics of
+  §1.2, raising `EngineClosedError` where Rust returns `ENGINE_CLOSED`. `close()` waits with
+  the GIL released, so in-flight calls can finish. On a SQLite engine it takes its turn among
+  the requests, which run one at a time. Argument mistakes on a closed engine still raise
+  `ValueError` / `TypeError` first; a valid call raises `EngineClosedError`, including
+  `write(conn=)`, which then sends nothing on `conn`. `Engine.validate_schema` is static and
+  needs no open engine. An `iter_resources` iterator raises at its next page.
+  `PendingRevision.revision()` returns a known or cached number without using the engine, and
+  raises `EngineClosedError` if it would have to ask a closed one.
 - Dataclass-like result types (`Relationship`, `Precondition`, `CheckResult`,
   `LookupResult`, `SubjectsResult`, `Diagnostic`, `GcStats`, `DeleteResult`,
   `OrphanReport`) are frozen `#[pyclass]`es with `__repr__`, `__eq__`, `__hash__` where
@@ -709,6 +778,15 @@ and `await aio.resolve(pending)`. Reads forward the synchronous API's arguments,
 return types and exceptions through `asyncio.to_thread`; they use engine-owned
 connections. `resolve` calls `pending.revision()` in a worker, preserving
 `RevisionPending` and `WriteRolledBack`.
+
+`await aio.close(engine)` runs `engine.close()` in a worker (T10.3, §1.2): it can wait for
+calls in flight, so it must not block the event loop, and `engine.close()` called directly on
+a loop can deadlock with a `write_async` whose statements need that loop. It has no
+`async with` form; use `try` / `finally`. Cancelling the await does not stop the close: the
+engine is closed either way, and awaiting `aio.close` again waits for it. A cancelled read's
+worker counts as in flight until it finishes. A `write_async` in flight runs on the caller's
+connection and may still complete, or fail with `EngineClosedError` if it needs the engine's
+own connection; either way the caller still owns commit or rollback.
 
 Cancelling a read does not stop its worker. Cancelling `write_async` stops further
 statements and waits for in-flight work before raising `CancelledError`, so caller
@@ -736,7 +814,8 @@ PembaError(Exception)               .code: str  (Rust Error::code()), .retryable
 ├── WriteConflictError               ALREADY_EXISTS, PRECONDITION_FAILED, DUPLICATE_IN_BATCH
 └── StorageError                     STORE_ERROR, NOT_MIGRATED, STORAGE_VERSION_TOO_NEW,
     │                                FOREIGN_CONNECTION_MISMATCH
-    └── TransactionConflictError     TRANSACTION_CONFLICT: retry the whole transaction
+    ├── TransactionConflictError     TRANSACTION_CONFLICT: retry the whole transaction
+    └── EngineClosedError            ENGINE_CLOSED: the engine was closed (§1.2); open a new one
 ```
 Every `Error::code()` maps to exactly one class (tested by iterating `Error::CODES`).
 Rust `Error::Parse` (`PARSE`) maps to built-in `ValueError`, preserving Python argument

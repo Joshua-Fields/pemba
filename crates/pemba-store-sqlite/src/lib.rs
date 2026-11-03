@@ -54,7 +54,8 @@ const STATEMENT_CACHE: usize = 128;
 /// A relationship store in a SQLite database file.
 #[derive(Debug)]
 pub struct SqliteStore {
-    writer: Mutex<Connection>,
+    /// `None` once closed.
+    writer: Mutex<Option<Connection>>,
     readers: pool::ReaderPool,
     /// The database file, canonicalised, for [`SqlStore::check_same_database`].
     file: PathBuf,
@@ -190,7 +191,7 @@ impl SqliteStore {
             })
             .collect::<Result<Vec<_>, Error>>()?;
         let store = Self {
-            writer: Mutex::new(writer),
+            writer: Mutex::new(Some(writer)),
             readers: pool::ReaderPool::new(readers),
             file,
             cache: Cache::default(),
@@ -217,6 +218,14 @@ impl SqliteStore {
 }
 
 impl WritableStore for SqliteStore {
+    /// Readers first, so the writer closes last and checkpoints the WAL.
+    fn close(&self) -> Result<(), Error> {
+        self.readers.close()?;
+        let writer = self.writer.lock().map_err(poisoned)?.take();
+        drop(writer);
+        Ok(())
+    }
+
     fn write(&self, req: &WriteRequest, schema_version: Option<u64>) -> Result<Revision, Error> {
         let rev = self.with_write_txn(&mut |txn| {
             pemba_core::write::write(txn, &SqliteDialect, req, schema_version)
@@ -276,6 +285,8 @@ impl SqlStore for SqliteStore {
     ) -> Result<T, Error> {
         let mut conn = self.writer.lock().map_err(poisoned)?;
         let tx = conn
+            .as_mut()
+            .ok_or(StoreError::Closed)?
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(db)?;
         // On error (or unwind) dropping `tx` rolls it back.

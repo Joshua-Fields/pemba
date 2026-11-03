@@ -1,8 +1,9 @@
 """Type stubs for pemba (``docs/06-api.md`` §2.2)."""
 
 import os
+import types
 from collections.abc import Callable, Coroutine, Iterable, Iterator, Mapping, Sequence
-from typing import Any, Literal, final, overload
+from typing import Any, Literal, Self, final, overload
 
 __all__ = [
     "MIN_SQLITE_VERSION",
@@ -10,6 +11,7 @@ __all__ = [
     "CheckTrace",
     "ConsistencyError",
     "DeleteResult",
+    "EngineClosedError",
     "Diagnostic",
     "Engine",
     "EvaluationLimitError",
@@ -599,6 +601,24 @@ class Engine:
         """The newest committed revision; 0 for an empty store."""
     def gc(self, keep_from: int) -> GcStats:
         """Removes relationships deleted at or before keep_from; older at_exactly reads then raise ConsistencyError."""
+    def close(self) -> None:
+        """Stops new calls, waits for calls in flight, closes every pooled connection. Idempotent.
+
+        Every later use raises EngineClosedError. The application's own connections are not
+        touched. No timeout: do not call it while holding something a call in flight may wait
+        on. On an event loop, use ``await aio.close(engine)``."""
+    @property
+    def closed(self) -> bool:
+        """Whether close() has been called."""
+    def __enter__(self) -> Self:
+        """Returns the engine; raises EngineClosedError if it is closed."""
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None = None,
+        exc: BaseException | None = None,
+        tb: types.TracebackType | None = None,
+    ) -> None:
+        """Closes the engine; an exception from the ``with`` body propagates."""
 
 # ---- exceptions (06 §2.3) ----
 
@@ -637,5 +657,6 @@ class AmbiguousWildcardExclusionError(PembaError):
 
 class WriteConflictError(PembaError): ...
 class StorageError(PembaError): ...
+class EngineClosedError(StorageError): ...
 class TransactionConflictError(StorageError): ...
 

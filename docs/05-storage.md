@@ -110,6 +110,11 @@ pub trait WritableStore: ReadStore {
     /// Delete-by-filter (`02` §5): at most `limit` live matches, storage order, one revision.
     fn delete_matching(&self, filter: &RelationshipFilter, limit: usize)
         -> Result<DeleteResult, Error>;
+    /// Releases every connection (T10.3, `06` §1.2): stops new use, wakes pool waiters with
+    /// `StoreError::Closed`, blocks until leased connections come back, closes them.
+    /// Idempotent. Afterwards every read and write fails with `StoreError::Closed`.
+    /// Default: nothing, for a store that holds nothing; the engine enforces use-after-close.
+    fn close(&self) -> Result<(), Error> { Ok(()) }
     /// §8 step 1, its own committed transaction. Never lowers; keep_from > head ->
     /// InvalidRequest. Commits no revision. Returns the horizon after.
     fn raise_gc_horizon(&self, keep_from: Revision) -> Result<Revision, Error>;
@@ -612,7 +617,8 @@ suite every store must pass, invoked from each store crate's tests. Covers:
 visibility at revisions, Touch/Create/Delete semantics, duplicates, preconditions,
 monotonic revisions, read_reverse filters, pagination ordering, GC horizon errors,
 schema version storage, concurrent writer + readers (threads) never observing a partial batch,
-reads outside `gc_horizon..=head` failing. Cases drive the store only through
+reads outside `gc_horizon..=head` failing, every method failing with `StoreError::Closed` after
+`close`, and readers racing `close` seeing only the right answer or that error. Cases drive the store only through
 `&dyn WritableStore`; `run` gives each case a fresh store and reports every failing case.
 
 ---

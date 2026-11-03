@@ -60,6 +60,12 @@ async def lookup_subjects(
     )
 
 
+async def close(engine: Engine, /) -> None:
+    """Await ``engine.close`` in a worker: it waits for calls in flight, some of which may
+    need this event loop. Cancelling the await does not stop the close."""
+    await asyncio.to_thread(engine.close)
+
+
 async def resolve(pending: PendingRevision, /) -> Revision:
     """Resolve a foreign write after caller commit, preserving pending/rollback errors."""
     return await asyncio.to_thread(pending.revision)
