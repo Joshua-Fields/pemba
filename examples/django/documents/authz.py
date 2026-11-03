@@ -1,5 +1,4 @@
-import gc
-from functools import lru_cache
+import threading
 from urllib.parse import quote
 
 import pemba
@@ -44,14 +43,17 @@ def _open(location, auto_migrate):
     return pemba.Engine.postgres(location, schema="authz", auto_migrate=auto_migrate)
 
 
-@lru_cache
-def _engine_for(location):
-    return _open(location, auto_migrate=False)
+_engines = {}
+_engines_lock = threading.Lock()
 
 
 def get_engine():
     # Opened on first use, so each gunicorn worker gets its own: Engine isn't fork-safe.
-    return _engine_for(_location())
+    location = _location()
+    with _engines_lock:
+        if location not in _engines:
+            _engines[location] = _open(location, auto_migrate=False)
+        return _engines[location]
 
 
 def write_conn():
@@ -60,11 +62,14 @@ def write_conn():
 
 
 def migrate_store():
-    _open(_location(), auto_migrate=True).write_schema(SCHEMA)
+    with _open(_location(), auto_migrate=True) as engine:
+        engine.write_schema(SCHEMA)
 
 
 def close_engines():
-    # Engine has no close(). Dropping it closes its connections, which the test runner
-    # needs before it can drop the test database.
-    _engine_for.cache_clear()
-    gc.collect()
+    # The test runner needs this before it can drop the test database.
+    with _engines_lock:
+        engines = list(_engines.values())
+        _engines.clear()
+    for engine in engines:
+        engine.close()

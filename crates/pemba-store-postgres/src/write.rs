@@ -144,6 +144,11 @@ impl PostgresStore {
 }
 
 impl WritableStore for PostgresStore {
+    fn close(&self) -> Result<(), Error> {
+        self.pool.close()?;
+        Ok(())
+    }
+
     fn write(&self, req: &WriteRequest, schema_version: Option<u64>) -> Result<Revision, Error> {
         let ((), rev) = self.native(|txn| {
             shared::write(txn, &self.dialect, req, schema_version).map(|a| ((), a))

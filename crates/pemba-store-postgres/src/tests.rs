@@ -146,6 +146,10 @@ impl Drop for TestStore {
 }
 
 impl ReadStore for TestStore {
+    fn snapshot(&self) -> Result<Box<dyn ReadStore + '_>, StoreError> {
+        self.store.snapshot()
+    }
+
     fn head_revision(&self) -> Result<Revision, StoreError> {
         self.read(|s| s.head_revision())
     }
@@ -225,6 +229,10 @@ impl ReadStore for TestStore {
 }
 
 impl WritableStore for TestStore {
+    fn close(&self) -> Result<(), Error> {
+        self.store.close()
+    }
+
     fn write(&self, req: &WriteRequest, schema_version: Option<u64>) -> Result<Revision, Error> {
         self.store.write(req, schema_version)
     }

@@ -95,6 +95,12 @@ def main() -> None:
     stats: pemba.GcStats = engine.gc(head)
     assert stats.horizon == head
 
+    with pemba.Engine.memory() as scoped:
+        same: pemba.Engine = scoped
+        is_closed: bool = same.closed
+        assert not is_closed
+    scoped.close()
+
     try:
         engine.write_schema("definition document { relation reader: nope }")
     except pemba.SchemaError as e:

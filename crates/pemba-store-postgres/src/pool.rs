@@ -34,6 +34,8 @@ struct State {
     idle: Vec<Conn>,
     /// Connections idle, leased or being opened.
     open: usize,
+    /// Set by [`Pool::close`]: no more leases, and connections close as they return.
+    closed: bool,
 }
 
 /// Opens one connection set up as the pool's are.
@@ -77,6 +79,7 @@ impl Pool {
             state: Mutex::new(State {
                 idle: vec![Conn::new(first, Arc::clone(&generation))],
                 open: 1,
+                closed: false,
             }),
             returned: Condvar::new(),
             generation,
@@ -88,6 +91,9 @@ impl Pool {
     pub(crate) fn lease(&self) -> Result<Lease<'_>, StoreError> {
         let mut state = self.state.lock().map_err(poisoned)?;
         loop {
+            if state.closed {
+                return Err(StoreError::Closed);
+            }
             if let Some(conn) = state.idle.pop() {
                 return Ok(Lease {
                     pool: self,
@@ -113,6 +119,26 @@ impl Pool {
         }
     }
 
+    /// Closes every connection, waiting for leased ones to come back, and fails every
+    /// waiting and later lease with [`StoreError::Closed`]. Idempotent. Dropping a
+    /// `postgres::Client` sends `Terminate` and waits for the socket to close.
+    pub(crate) fn close(&self) -> Result<(), StoreError> {
+        let mut state = self.state.lock().map_err(poisoned)?;
+        state.closed = true;
+        let idle = std::mem::take(&mut state.idle);
+        self.returned.notify_all();
+        drop(state);
+        let closing = idle.len();
+        drop(idle);
+        let mut state = self.state.lock().map_err(poisoned)?;
+        state.open = state.open.saturating_sub(closing);
+        self.returned.notify_all();
+        while state.open > 0 {
+            state = self.returned.wait(state).map_err(poisoned)?;
+        }
+        Ok(())
+    }
+
     /// Empties every connection's statement cache, each the next time it is used.
     pub(crate) fn invalidate_statements(&self) {
         self.generation.fetch_add(1, Ordering::AcqRel);
@@ -130,6 +156,13 @@ impl Pool {
         let Ok(mut state) = self.state.lock() else {
             return;
         };
+        if state.closed {
+            // Closed before it is counted out: `close` returning means it really is closed.
+            drop(state);
+            drop(conn);
+            self.forget_one();
+            return;
+        }
         state.idle.push(conn);
         self.returned.notify_one();
     }
@@ -138,7 +171,8 @@ impl Pool {
         if let Ok(mut state) = self.state.lock() {
             state.open = state.open.saturating_sub(1);
         }
-        self.returned.notify_one();
+        // All: `close` may be waiting alongside leases, and any number of closes with it.
+        self.returned.notify_all();
     }
 }
 
@@ -162,7 +196,9 @@ impl Lease<'_> {
     /// Closes the connection instead of returning it, for one whose state cannot be
     /// trusted (e.g. a transaction that would not roll back); its slot is freed.
     pub(crate) fn discard(mut self) {
-        if self.conn.take().is_some() {
+        if let Some(conn) = self.conn.take() {
+            // Before counting it out, for `close`.
+            drop(conn);
             self.pool.forget_one();
         }
     }

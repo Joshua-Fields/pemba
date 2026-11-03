@@ -247,6 +247,7 @@ impl Error {
         "STALE_RELATIONSHIP",
         "AMBIGUOUS_WILDCARD_EXCLUSION",
         "LOOKUP_TOO_LARGE",
+        "ENGINE_CLOSED",
         "NOT_MIGRATED",
         "STORAGE_VERSION_TOO_NEW",
         "FOREIGN_CONNECTION_MISMATCH",
@@ -287,6 +288,7 @@ impl Error {
             Self::StorageVersionTooNew { .. } => "STORAGE_VERSION_TOO_NEW",
             Self::ForeignConnectionMismatch => "FOREIGN_CONNECTION_MISMATCH",
             Self::Store(StoreError::Conflict { .. }) => "TRANSACTION_CONFLICT",
+            Self::Store(StoreError::Closed) => "ENGINE_CLOSED",
             Self::Store(_) => "STORE_ERROR",
         }
     }
@@ -382,6 +384,7 @@ mod tests {
             Error::ForeignConnectionMismatch,
             Error::Store(StoreError::Conflict { message: s() }),
             Error::Store(StoreError::Poisoned),
+            Error::Store(StoreError::Closed),
         ]
     }
 

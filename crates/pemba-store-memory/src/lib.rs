@@ -55,6 +55,8 @@ struct Inner {
     head: Revision,
     horizon: Revision,
     schema_versions: Vec<StoredSchema>,
+    /// Set by `close`, which also empties everything above.
+    closed: bool,
 }
 
 fn subject_key(s: &SubjectRef) -> (TypeName, String) {
@@ -195,15 +197,29 @@ impl MemoryStore {
     }
 
     fn read(&self) -> Result<RwLockReadGuard<'_, Inner>, StoreError> {
-        self.inner.read().map_err(|_| StoreError::Poisoned)
+        let inner = self.inner.read().map_err(|_| StoreError::Poisoned)?;
+        if inner.closed {
+            return Err(StoreError::Closed);
+        }
+        Ok(inner)
     }
 
     fn lock(&self) -> Result<RwLockWriteGuard<'_, Inner>, StoreError> {
-        self.inner.write().map_err(|_| StoreError::Poisoned)
+        let inner = self.inner.write().map_err(|_| StoreError::Poisoned)?;
+        if inner.closed {
+            return Err(StoreError::Closed);
+        }
+        Ok(inner)
     }
 }
 
 impl ReadStore for MemoryStore {
+    /// The store itself, as by default, but refused once closed.
+    fn snapshot(&self) -> Result<Box<dyn ReadStore + '_>, StoreError> {
+        drop(self.read()?);
+        Ok(Box::new(self))
+    }
+
     fn head_revision(&self) -> Result<Revision, StoreError> {
         Ok(self.read()?.head)
     }
@@ -333,6 +349,16 @@ impl ReadStore for MemoryStore {
 }
 
 impl WritableStore for MemoryStore {
+    /// Discards the data: nothing can read it after this.
+    fn close(&self) -> Result<(), Error> {
+        let mut inner = self.inner.write().map_err(|_| StoreError::Poisoned)?;
+        *inner = Inner {
+            closed: true,
+            ..Inner::default()
+        };
+        Ok(())
+    }
+
     fn write(&self, req: &WriteRequest, schema_version: Option<u64>) -> Result<Revision, Error> {
         let mut inner = self.lock()?;
 

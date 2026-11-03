@@ -2,7 +2,7 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Mutex, MutexGuard, PoisonError};
+use std::sync::{Condvar, Mutex, MutexGuard, PoisonError};
 
 use pemba_core::Error;
 use pemba_core::model::{
@@ -28,7 +28,8 @@ const STATEMENT_CACHE: usize = 128;
 /// A relationship store in a SQLite database file, driven through CPython's `sqlite3`.
 #[derive(Debug)]
 pub struct PySqliteStore {
-    writer: Mutex<Py<PyAny>>,
+    /// `None` once closed.
+    writer: Mutex<Option<Py<PyAny>>>,
     readers: Pool,
     /// The database file, canonicalised, for [`SqlStore::check_same_database`].
     file: PathBuf,
@@ -83,10 +84,21 @@ fn backend(message: String) -> Error {
 /// holds the GIL (see the crate docs).
 #[derive(Debug)]
 struct Pool {
-    idle: Mutex<Vec<Py<PyAny>>>,
+    state: Mutex<PoolState>,
+    /// Signalled as connections come back to a closed pool, for [`Pool::close`].
+    returned: Condvar,
     keep: usize,
     path: PathBuf,
     config: PySqliteConfig,
+}
+
+#[derive(Debug, Default)]
+struct PoolState {
+    idle: Vec<Py<PyAny>>,
+    /// Connections leased, including any being opened.
+    leased: usize,
+    /// Set by [`Pool::close`]: no more leases, and connections close as they return.
+    closed: bool,
 }
 
 /// A connection leased from the [`Pool`]; returned (rolled back first if a transaction is
@@ -99,32 +111,64 @@ struct Lease<'a> {
 
 impl Pool {
     fn lease(&self) -> Result<Lease<'_>, StoreError> {
-        let idle = self.idle.lock().map_err(poisoned)?.pop();
-        let conn =
-            match idle {
-                Some(c) => c,
-                None => Python::attach(|py| connect(py, &self.path, &self.config, true)).map_err(
-                    |e| StoreError::Backend {
+        let idle = {
+            let mut state = self.state.lock().map_err(poisoned)?;
+            if state.closed {
+                return Err(StoreError::Closed);
+            }
+            state.leased += 1;
+            state.idle.pop()
+        };
+        let conn = match idle {
+            Some(c) => c,
+            None => {
+                Python::attach(|py| connect(py, &self.path, &self.config, true)).map_err(|e| {
+                    self.count_back();
+                    StoreError::Backend {
                         message: e.to_string(),
-                    },
-                )?,
-            };
+                    }
+                })?
+            }
+        };
         Ok(Lease {
             pool: self,
             conn: Some(conn),
         })
     }
 
-    fn close_all(&self) {
-        let conns = match self.idle.lock() {
-            Ok(mut idle) => std::mem::take(&mut *idle),
-            Err(_) => return,
+    /// One lease is over; its connection, if any, is already back or closed.
+    fn count_back(&self) {
+        if let Ok(mut state) = self.state.lock() {
+            state.leased = state.leased.saturating_sub(1);
+        }
+        self.returned.notify_all();
+    }
+
+    /// Closes the idle connections and fails later leases with [`StoreError::Closed`].
+    /// Does not wait for leased ones, which close as they come back.
+    fn close_idle(&self) -> Result<(), StoreError> {
+        let conns = {
+            let mut state = self.state.lock().map_err(poisoned)?;
+            state.closed = true;
+            std::mem::take(&mut state.idle)
         };
         in_drop(|py| {
             for c in conns {
                 let _ = c.bind(py).call_method0("close");
             }
         });
+        Ok(())
+    }
+
+    /// [`close_idle`](Self::close_idle), then waits for leased connections to come back.
+    /// Must be called without the GIL: a lease's holder needs it to finish.
+    fn close(&self) -> Result<(), StoreError> {
+        self.close_idle()?;
+        let mut state = self.state.lock().map_err(poisoned)?;
+        while state.leased > 0 {
+            state = self.returned.wait(state).map_err(poisoned)?;
+        }
+        Ok(())
     }
 }
 
@@ -153,14 +197,16 @@ impl Drop for Lease<'_> {
                 Err(_) => false,
             };
             if clean
-                && let Ok(mut idle) = self.pool.idle.lock()
-                && idle.len() < self.pool.keep
+                && let Ok(mut state) = self.pool.state.lock()
+                && !state.closed
+                && state.idle.len() < self.pool.keep
             {
-                idle.push(conn);
+                state.idle.push(conn);
                 return;
             }
             let _ = c.call_method0("close");
         });
+        self.pool.count_back();
     }
 }
 
@@ -311,9 +357,10 @@ impl PySqliteStore {
             }
         };
         let store = Self {
-            writer: Mutex::new(writer),
+            writer: Mutex::new(Some(writer)),
             readers: Pool {
-                idle: Mutex::new(Vec::new()),
+                state: Mutex::new(PoolState::default()),
+                returned: Condvar::new(),
                 keep: config.reader_pool,
                 path: path.to_owned(),
                 config,
@@ -335,7 +382,7 @@ impl PySqliteStore {
         Ok((head, horizon))
     }
 
-    fn writer(&self) -> Result<MutexGuard<'_, Py<PyAny>>, StoreError> {
+    fn writer(&self) -> Result<MutexGuard<'_, Option<Py<PyAny>>>, StoreError> {
         self.writer.lock().map_err(poisoned)
     }
 }
@@ -360,8 +407,10 @@ impl Drop for PySqliteStore {
     /// Closes every connection now rather than whenever Python collects them, so the
     /// database file is released (and deletable on Windows) when the store is.
     fn drop(&mut self) {
-        self.readers.close_all();
-        if let Ok(writer) = self.writer.get_mut() {
+        let _ = self.readers.close_idle();
+        if let Ok(writer) = self.writer.get_mut()
+            && let Some(writer) = writer.take()
+        {
             in_drop(|py| {
                 let _ = writer.bind(py).call_method0("close");
             });
@@ -569,6 +618,25 @@ impl ReadStore for Snapshot<'_> {
 // ---- writes ----
 
 impl WritableStore for PySqliteStore {
+    /// Readers first, so the writer closes last and checkpoints the WAL. Both waits happen
+    /// without the GIL: whoever holds a lease or the writer may need it to finish
+    /// (`pemba-py`'s engine runs this inside its one-request-at-a-time lock with the GIL
+    /// held, where nothing is in flight, but the store is `Sync` on its own).
+    fn close(&self) -> Result<(), Error> {
+        let writer = Python::attach(|py| {
+            py.detach(|| -> Result<_, StoreError> {
+                self.readers.close()?;
+                Ok(self.writer()?.take())
+            })
+        })?;
+        if let Some(writer) = writer {
+            in_drop(|py| {
+                let _ = writer.bind(py).call_method0("close");
+            });
+        }
+        Ok(())
+    }
+
     fn write(&self, req: &WriteRequest, schema_version: Option<u64>) -> Result<Revision, Error> {
         let rev = self.with_write_txn(&mut |txn| {
             pemba_core::write::write(txn, &SqliteDialect, req, schema_version)
@@ -631,8 +699,9 @@ impl SqlStore for PySqliteStore {
         &self,
         f: &mut dyn FnMut(&mut dyn WriteTxn) -> Result<T, Error>,
     ) -> Result<T, Error> {
-        let conn = self.writer()?;
-        let mut txn = PyTxn::new(&conn);
+        let guard = self.writer()?;
+        let conn = guard.as_ref().ok_or(StoreError::Closed)?;
+        let mut txn = PyTxn::new(conn);
         txn.execute("BEGIN IMMEDIATE", &[])?;
         let out = match f(&mut txn) {
             Ok(out) => out,

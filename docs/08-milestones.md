@@ -958,6 +958,23 @@ starts, against the spec as it stands then.
 
 ### M10 — User-driven features
 - Chosen from issues and launch feedback, not planned ahead, with one exception.
+- **T10.3 `Engine::close` (0.4.0).** Spec: `06` §1.2, §2.2, §2.2.1; decisions: OQ-068.
+  Acceptance criteria:
+  - `close` on the memory, SQLite, Python SQLite and Postgres stores releases every pooled
+    connection, and a second or concurrent `close` returns `Ok`.
+  - Every other engine method, and every store trait method, fails with `ENGINE_CLOSED`
+    after close; a test covers each one, and `Error::code` and the Python mapping cover the
+    code. No call answers from a cache, or as a no-op, after close.
+  - Racing checks against `close` on each store gives only the correct answer or
+    `ENGINE_CLOSED`, never a wrong answer. A pool waiter gets `ENGINE_CLOSED`; `close` blocks
+    while a connection is leased and returns once it comes back.
+  - A database can be dropped straight after `close` without `WITH (FORCE)`, from Rust and
+    from Python, with a `PendingRevision` and an iterator still held. A SQLite file can be
+    deleted after `close`.
+  - Python: `close`, `closed`, `with`, `aio.close`, stubs and `mypy --strict`. Closing leaves
+    a caller's connection and transaction working, and `write(conn=)` on a closed engine
+    sends nothing on `conn`.
+  - `examples/django` uses `close()` in place of `gc.collect()`.
 - **Top post-release performance item: fewer round trips per check on deep hierarchies**
   (batched arrow reads per level, or a recursive query). On Postgres a check's cost is
   its round trips (OQ-056). With the statement cache and bulk writes, a direct check is

@@ -11,6 +11,19 @@ versions are on the [releases page](https://github.com/Joshua-Fields/pemba/relea
 
 ## [Unreleased]
 
+### Added
+
+- `Engine::close()` in Rust, and `Engine.close()`, `Engine.closed`, `with Engine...` and
+  `aio.close()` in Python. Closes every pooled connection at a known moment, so a database can
+  be dropped straight after it. Idempotent; it waits for calls in flight. Every later use fails
+  with the new code `ENGINE_CLOSED` (Python: `EngineClosedError`, a `StorageError`), never with
+  a silent answer (`docs/06-api.md` §1.2, OQ-068). `WritableStore::close` is a provided method,
+  so custom stores keep compiling. `StoreError` gains `Closed`.
+
+### Changed
+
+- `examples/django` closes its engines with `close()` rather than `gc.collect()`.
+
 ## [0.3.0] - 2026-11-03
 
 Fewer Postgres round trips on deep hierarchies, and a FastAPI helper. No migration is needed

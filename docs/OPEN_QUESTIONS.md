@@ -1765,3 +1765,35 @@ it is resolved.
   and accepted 409 on 2026-11-02. No `Retry-After`: the maintainer asked for it only if trivial. The
   header is trivial, but the helper knows no honest delay, and a bound from another store or a
   forged token never clears, so a number would promise something it cannot know.
+
+## OQ-068 — What `Engine::close` does where the request was open (M10, T10.3)
+- Raised in: T10.3
+- Blocking: no
+- Problem: `close` was asked to be idempotent and to make later use a typed error, with its
+  in-flight behaviour left to the spec (`06` §1.2). These are the choices made, each the most
+  conservative that still lets a test database be dropped straight after `close`.
+- Choices:
+  - **`close` blocks until in-flight calls finish, with no timeout.** Returning early would
+    leave sessions behind and `DROP DATABASE` would fail; cancelling running statements would
+    turn a call that could have finished into an error. The cost: a call stuck on a lock
+    holds `close` up, including a lock the closing thread's own transaction holds. A timeout
+    can be added later as a new parameter without changing this behaviour.
+  - **One error code, as a store error.** `Error::Store(StoreError::Closed)`, code
+    `ENGINE_CLOSED`, the shape of `Conflict` / `TRANSACTION_CONFLICT`. The engine and the
+    store give the same error, so a call racing `close` cannot see two. Python's
+    `EngineClosedError` subclasses `StorageError`, so existing `except StorageError` handlers
+    keep treating it as a failure. `pemba.contrib.fastapi` sends it to a 500, not its
+    retryable 503 (OQ-067): retrying cannot help. Its allowlist needed no change.
+  - **The engine holds its own flag, as well as the store.** `WritableStore::close` must be
+    a provided method so that custom stores keep compiling, and a provided no-op cannot
+    enforce anything.
+  - **`Engine::resolve` always fails after close, even when the number is known;**
+    Python's `PendingRevision.revision()` still returns a known number. The Rust call is a use
+    of the engine. The Python one is reading a value, and on SQLite the number was in it from
+    the start.
+  - **A memory store discards its data on close,** since nothing can read it afterwards.
+  - **Not fork-aware.** An engine inherited across `fork` is already unsupported, and dropping
+    one in a child has the same effect as closing it. `pemba.contrib.django` has to take
+    care of this in its own cache (0.4.0 Task 3).
+  - **No `async with`.** `await aio.close(engine)` in a `finally` covers it with one function.
+- Resolution: Open for maintainer review on the T10.3 PR; these choices are in force until then.

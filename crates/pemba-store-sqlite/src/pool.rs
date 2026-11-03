@@ -22,6 +22,8 @@ struct State {
     idle: Vec<Connection>,
     /// Connections in the pool, idle or leased; drops when a broken one is discarded.
     open: usize,
+    /// Set by [`ReaderPool::close`]: no more leases, and connections close as they return.
+    closed: bool,
 }
 
 impl ReaderPool {
@@ -30,6 +32,7 @@ impl ReaderPool {
             state: Mutex::new(State {
                 open: conns.len(),
                 idle: conns,
+                closed: false,
             }),
             returned: Condvar::new(),
         }
@@ -55,6 +58,9 @@ impl ReaderPool {
     fn take(&self) -> Result<Connection, StoreError> {
         let mut state = self.state.lock().map_err(poisoned)?;
         loop {
+            if state.closed {
+                return Err(StoreError::Closed);
+            }
             if let Some(conn) = state.idle.pop() {
                 return Ok(conn);
             }
@@ -68,6 +74,25 @@ impl ReaderPool {
         }
     }
 
+    /// Closes every connection, waiting for leased ones to come back, and fails every
+    /// waiting and later lease with [`StoreError::Closed`]. Idempotent.
+    pub(crate) fn close(&self) -> Result<(), StoreError> {
+        let mut state = self.state.lock().map_err(poisoned)?;
+        state.closed = true;
+        let idle = std::mem::take(&mut state.idle);
+        self.returned.notify_all();
+        drop(state);
+        let closing = idle.len();
+        drop(idle);
+        let mut state = self.state.lock().map_err(poisoned)?;
+        state.open = state.open.saturating_sub(closing);
+        self.returned.notify_all();
+        while state.open > 0 {
+            state = self.returned.wait(state).map_err(poisoned)?;
+        }
+        Ok(())
+    }
+
     fn give_back(&self, conn: Connection) {
         // A connection left inside a transaction (by an early return or a panic in `f`)
         // would pin an old snapshot for its next user, so end it or discard the connection.
@@ -75,6 +100,16 @@ impl ReaderPool {
         let Ok(mut state) = self.state.lock() else {
             return;
         };
+        if state.closed {
+            // Closed before it is counted out: `close` returning means it really is closed.
+            drop(state);
+            drop(conn);
+            if let Ok(mut state) = self.state.lock() {
+                state.open = state.open.saturating_sub(1);
+            }
+            self.returned.notify_all();
+            return;
+        }
         if usable {
             state.idle.push(conn);
         } else {

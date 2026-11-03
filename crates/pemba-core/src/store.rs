@@ -114,6 +114,10 @@ pub enum StoreError {
         /// What was found and where.
         message: String,
     },
+    /// The engine or store was closed (`docs/06-api.md` §1.2). Not retryable: a closed
+    /// engine does not reopen.
+    #[error("the engine is closed")]
+    Closed,
 }
 
 impl StoreError {
@@ -588,6 +592,23 @@ pub trait WritableStore: ReadStore {
     ///
     /// [`Error::Store`] if the backend fails.
     fn gc_batch(&self, max_rows: usize) -> Result<u64, Error>;
+
+    /// Releases every connection the store holds (`docs/06-api.md` §1.2): stops new use,
+    /// wakes pool waiters with [`StoreError::Closed`], blocks until leased connections come
+    /// back, and closes them. Afterwards every read and write fails with
+    /// [`StoreError::Closed`]. Idempotent.
+    ///
+    /// The default does nothing, for a store that holds nothing; so that a custom store
+    /// keeps compiling, and because [`Engine::close`](crate::Engine::close) enforces
+    /// use-after-close whatever the store does.
+    ///
+    /// # Errors
+    ///
+    /// [`StoreError::Poisoned`] if a panic poisoned the store's lock. A connection failing
+    /// as it closes is not an error: it is being discarded either way.
+    fn close(&self) -> Result<(), Error> {
+        Ok(())
+    }
 
     /// The revision the commit gave `batch`, which transaction `xid` wrote inside a
     /// caller's transaction ([`RevisionStrategy::AssignAtCommit`],

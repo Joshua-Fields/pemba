@@ -262,6 +262,24 @@ impl Engine {
     /// A write inside the app's Postgres transaction (`docs/10-postgres.md` §2.3). Returns
     /// an unresolved `PendingRevision`, or with `allow_autocommit` on a connection without
     /// a transaction, one pemba committed and resolved itself.
+    fn ensure_open(&self, py: Python<'_>) -> PyResult<()> {
+        if self.is_closed() {
+            return Err(errors::to_py(
+                py,
+                &pemba::Error::Store(pemba::store::StoreError::Closed),
+            ));
+        }
+        Ok(())
+    }
+
+    fn is_closed(&self) -> bool {
+        match &*self.inner {
+            Inner::Sqlite(s) => s.engine.is_closed(),
+            Inner::Memory(e) => e.is_closed(),
+            Inner::Postgres(p) => p.engine.is_closed(),
+        }
+    }
+
     fn postgres_write_in<'py>(
         &self,
         py: Python<'py>,
@@ -428,6 +446,39 @@ impl Engine {
         })
     }
 
+    /// Closes the engine: stops new calls, waits for calls in flight, closes every pooled
+    /// connection (`docs/06-api.md` §1.2). Idempotent. Every later use raises
+    /// `EngineClosedError`. The application's own connections are not touched.
+    ///
+    /// No timeout: do not call it while holding something a call in flight may wait on. On
+    /// an event loop use `await aio.close(engine)`.
+    fn close(&self, py: Python<'_>) -> PyResult<()> {
+        run!(py, self.inner, e => e.close()).py(py)
+    }
+
+    /// Whether `close()` has been called.
+    #[getter]
+    fn closed(&self) -> bool {
+        self.is_closed()
+    }
+
+    fn __enter__(slf: Py<Self>, py: Python<'_>) -> PyResult<Py<Self>> {
+        slf.get().ensure_open(py)?;
+        Ok(slf)
+    }
+
+    /// Closes the engine; an exception from the `with` body propagates.
+    #[pyo3(signature = (_exc_type=None, _exc=None, _tb=None))]
+    fn __exit__(
+        &self,
+        py: Python<'_>,
+        _exc_type: Option<&Bound<'_, PyAny>>,
+        _exc: Option<&Bound<'_, PyAny>>,
+        _tb: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<()> {
+        self.close(py)
+    }
+
     /// Compiles and stores a schema; returns its version (unchanged if only formatting,
     /// comments or member order differ).
     ///
@@ -498,6 +549,8 @@ impl Engine {
         conn: Option<&Bound<'py, PyAny>>,
         allow_autocommit: bool,
     ) -> PyResult<Bound<'py, PyAny>> {
+        // Before `conn` is touched: a closed engine sends nothing on it, not even a BEGIN.
+        self.ensure_open(py)?;
         let foreign = match (conn, &*self.inner) {
             (Some(_), Inner::Memory(_)) => {
                 return Err(PyValueError::new_err(
