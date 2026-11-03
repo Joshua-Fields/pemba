@@ -350,3 +350,129 @@ def test_unresolved_pending_revision_rejects_conversions_without_resolving() -> 
     assert pending.revision() == 7
     assert pending.resolved
     assert calls == [True]
+
+
+# ---- delete_relationships(conn=) (05 §10.1) ----
+
+
+README_VIEWERS = ["document:readme#viewer@user:anne", "document:readme#viewer@user:bob"]
+
+
+@pytest.mark.parametrize("commit", [True, False])
+def test_delete_goes_with_the_app_row(
+    engine: pemba.Engine, connect: Callable[..., sqlite3.Connection], db: Path, commit: bool
+) -> None:
+    engine.write(touch=[*README_VIEWERS, "document:other#viewer@user:anne"])
+    conn = connect()
+    conn.execute("INSERT INTO documents VALUES ('readme', 'Readme')")
+    head = engine.head_revision()
+    conn.execute("BEGIN IMMEDIATE")
+    conn.execute("DELETE FROM documents WHERE id = 'readme'")
+    pending = engine.delete_relationships(resource_type="document", resource_id="readme", conn=conn)
+    assert isinstance(pending, pemba.PendingDelete)
+    assert isinstance(pending, pemba.PendingRevision)
+    assert (pending.deleted, pending.more) == (2, False)
+    assert engine.check("document:readme", "view", "user:anne")
+
+    conn.execute("COMMIT" if commit else "ROLLBACK")
+
+    assert app_rows(db) == ([] if commit else ["readme"])
+    if commit:
+        assert not engine.check("document:readme", "view", "user:anne", at_least=pending)
+        assert engine.check("document:readme", "view", "user:anne", at_exactly=head)
+    else:
+        assert engine.check("document:readme", "view", "user:anne")
+        assert engine.head_revision() == head
+    assert engine.check("document:other", "view", "user:anne")
+
+
+def test_delete_in_a_rolled_back_savepoint(
+    engine: pemba.Engine, connect: Callable[..., sqlite3.Connection]
+) -> None:
+    engine.write(touch=README_VIEWERS)
+    conn = connect()
+    conn.execute("BEGIN IMMEDIATE")
+    conn.execute("SAVEPOINT app")
+    engine.delete_relationships(resource_type="document", resource_id="readme", conn=conn)
+    conn.execute("ROLLBACK TO app")
+    conn.execute("COMMIT")
+    assert engine.check("document:readme", "view", "user:anne")
+
+
+def test_delete_limit_and_more_in_one_transaction(
+    engine: pemba.Engine, connect: Callable[..., sqlite3.Connection]
+) -> None:
+    engine.write(touch=README_VIEWERS)
+    conn = connect()
+    conn.execute("BEGIN IMMEDIATE")
+    first = engine.delete_relationships(resource_type="document", conn=conn, limit=1)
+    assert (first.deleted, first.more) == (1, True)
+    second = engine.delete_relationships(resource_type="document", conn=conn, limit=1)
+    assert (second.deleted, second.more) == (1, False)
+    conn.execute("COMMIT")
+    assert second.revision() == first.revision() + 1
+    assert engine.read_relationships(resource_type="document") == []
+
+
+def test_delete_conn_has_the_checks_of_write(
+    engine: pemba.Engine, connect: Callable[..., sqlite3.Connection], tmp_path: Path
+) -> None:
+    engine.write(touch=README_VIEWERS)
+    with pytest.raises(TypeError):
+        engine.delete_relationships(resource_type="document", conn=object())
+    with pytest.raises(ValueError, match="no open transaction"):
+        engine.delete_relationships(resource_type="document", conn=connect())
+    with pytest.raises(ValueError, match="allow_autocommit"):
+        engine.delete_relationships(resource_type="document", allow_autocommit=True)  # type: ignore[call-overload]
+    with pytest.raises(ValueError):
+        pemba.Engine.memory().delete_relationships(resource_type="document", conn=connect())
+    other = connect(tmp_path / "other.db")
+    other.execute("BEGIN IMMEDIATE")
+    with pytest.raises(pemba.StorageError) as mismatch:
+        engine.delete_relationships(resource_type="document", conn=other)
+    assert mismatch.value.code == "FOREIGN_CONNECTION_MISMATCH"
+    other.execute("ROLLBACK")
+    assert engine.check("document:readme", "view", "user:anne")
+
+
+def test_delete_with_allow_autocommit_commits_on_its_own(
+    engine: pemba.Engine, connect: Callable[..., sqlite3.Connection]
+) -> None:
+    engine.write(touch=README_VIEWERS)
+    conn = connect()
+    pending = engine.delete_relationships(
+        resource_type="document", conn=conn, allow_autocommit=True
+    )
+    assert not conn.in_transaction
+    assert not engine.check("document:readme", "view", "user:anne", at_least=pending)
+
+
+def test_refused_delete_leaves_the_app_transaction_usable(
+    engine: pemba.Engine, connect: Callable[..., sqlite3.Connection], db: Path
+) -> None:
+    conn = connect()
+    conn.execute("BEGIN IMMEDIATE")
+    conn.execute("INSERT INTO documents VALUES ('kept', 'Kept')")
+    with pytest.raises(pemba.InvalidRequestError):
+        engine.delete_relationships(resource_type="document", relation="nope", conn=conn)
+    conn.execute("COMMIT")
+    assert app_rows(db) == ["kept"]
+
+
+def test_delete_without_conn_still_returns_a_delete_result(engine: pemba.Engine) -> None:
+    engine.write(touch=README_VIEWERS)
+    result: pemba.DeleteResult = engine.delete_relationships(resource_type="document")
+    assert result.deleted == 2
+    assert isinstance(result.revision, pemba.Revision)
+
+
+def test_pending_delete_rejects_integer_conversions(
+    engine: pemba.Engine, connect: Callable[..., sqlite3.Connection]
+) -> None:
+    conn = connect()
+    conn.execute("BEGIN IMMEDIATE")
+    pending = engine.delete_relationships(resource_type="document", conn=conn)
+    conn.execute("COMMIT")
+    with pytest.raises(TypeError):
+        int(pending)  # type: ignore[call-overload]
+    assert "deleted=0" in repr(pending)

@@ -18,8 +18,8 @@ use crate::model::{
     RelationshipFilter, Revision, SubjectRef, TypeName, WriteRequest,
 };
 use crate::store::{
-    DeleteResult, GcStats, ReadStore, RelationCount, SqlStore, StoreError, StoredSchema,
-    WritableStore, WriteTxn,
+    DeleteResult, GcStats, PendingDelete, ReadStore, RelationCount, SqlStore, StoreError,
+    StoredSchema, WritableStore, WriteTxn,
 };
 use crate::subjects::{self, Gatherer, LookupSubjectsRequest, LookupSubjectsResponse, SubjectSet};
 use crate::time::Instant;
@@ -506,10 +506,7 @@ impl<S: WritableStore> Engine<S> {
         let applied = self.validated(&req, |req, version| {
             crate::write::write(txn, self.store.dialect(), req, Some(version))
         })?;
-        let pending = match applied {
-            crate::write::Applied::At(rev) => PendingRevision::resolved_at(rev),
-            crate::write::Applied::Pending { batch, xid } => PendingRevision::at_commit(batch, xid),
-        };
+        let pending = applied.pending();
         tracing::debug!(%pending, "batch written, pending the caller's commit");
         Ok(pending)
     }
@@ -598,20 +595,7 @@ impl<S: WritableStore> Engine<S> {
     ) -> Result<DeleteResult, Error> {
         self.ensure_open()?;
         let _span = tracing::info_span!("delete_relationships", filter = %filter).entered();
-        let max = self.config.max_delete_by_filter;
-        let limit = limit.unwrap_or(max);
-        if limit == 0 || limit > max {
-            return Err(Error::InvalidRequest {
-                message: format!("limit must be between 1 and {max}, got {limit}"),
-            });
-        }
-        let loaded = self.newest_schema(false)?;
-        if let Err(e) = validate_filter(&loaded.compiled, &filter) {
-            if self.store.schema_version()? == loaded.version {
-                return Err(e);
-            }
-            validate_filter(&self.newest_schema(true)?.compiled, &filter)?;
-        }
+        let limit = self.validated_delete(&filter, limit)?;
         let result = self.store.delete_matching(&filter, limit)?;
         tracing::debug!(
             deleted = result.deleted,
@@ -620,6 +604,71 @@ impl<S: WritableStore> Engine<S> {
             "relationships deleted"
         );
         Ok(result)
+    }
+
+    /// [`delete_relationships`](Self::delete_relationships) inside a transaction the caller
+    /// owns, so deleting an application row and its relationships is one commit
+    /// (`docs/05-storage.md` §10.1). Never commits or rolls back. Call
+    /// [`resolve`](Self::resolve) on the result's `pending` after the commit.
+    ///
+    /// Check the result's `more`: while it is true, matches remain, and the caller should
+    /// call again in the same transaction.
+    ///
+    /// # Errors
+    ///
+    /// As [`delete_relationships`](Self::delete_relationships), and
+    /// [`Error::ForeignConnectionMismatch`] if `txn` is on another database. On error this
+    /// call's statements are undone to a savepoint, but the caller should roll back anyway.
+    /// The retryable [`StoreError::Conflict`] means retry the whole transaction.
+    #[allow(
+        clippy::needless_pass_by_value,
+        reason = "signature fixed by docs/06-api.md §1"
+    )]
+    pub fn delete_in<T: WriteTxn>(
+        &self,
+        txn: &mut T,
+        filter: RelationshipFilter,
+        limit: Option<usize>,
+    ) -> Result<PendingDelete, Error>
+    where
+        S: SqlStore,
+    {
+        self.ensure_open()?;
+        let _span = tracing::info_span!("delete_in", filter = %filter).entered();
+        self.store.check_same_database(txn)?;
+        let limit = self.validated_delete(&filter, limit)?;
+        let deleted = crate::write::delete_matching_in(txn, self.store.dialect(), &filter, limit)?;
+        let pending = deleted.applied.pending();
+        tracing::debug!(deleted = deleted.deleted, more = deleted.more, %pending,
+            "relationships deleted, pending the caller's commit");
+        Ok(PendingDelete {
+            deleted: deleted.deleted,
+            more: deleted.more,
+            pending,
+        })
+    }
+
+    /// The limit to use, after checking it and the filter.
+    fn validated_delete(
+        &self,
+        filter: &RelationshipFilter,
+        limit: Option<usize>,
+    ) -> Result<usize, Error> {
+        let max = self.config.max_delete_by_filter;
+        let limit = limit.unwrap_or(max);
+        if limit == 0 || limit > max {
+            return Err(Error::InvalidRequest {
+                message: format!("limit must be between 1 and {max}, got {limit}"),
+            });
+        }
+        let loaded = self.newest_schema(false)?;
+        if let Err(e) = validate_filter(&loaded.compiled, filter) {
+            if self.store.schema_version()? == loaded.version {
+                return Err(e);
+            }
+            validate_filter(&self.newest_schema(true)?.compiled, filter)?;
+        }
+        Ok(limit)
     }
 
     /// Garbage-collects history below `keep_from` (`docs/05-storage.md` §8): raises the GC

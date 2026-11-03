@@ -820,6 +820,8 @@ pub enum StoreOp {
     /// `WritableStore::gc` at [`StoreOp::gc_revision`]: never above head, and at head
     /// half the time so that recent deletes are collected.
     Gc(u8),
+    /// `WritableStore::delete_matching` with this filter and limit.
+    DeleteMatching(pemba_core::model::RelationshipFilter, usize),
 }
 
 impl StoreOp {
@@ -931,6 +933,7 @@ pub fn store_ops() -> impl Strategy<Value = Vec<StoreOp>> {
         12 => store_write().prop_map(StoreOp::Write),
         1 => any::<u8>().prop_map(StoreOp::Schema),
         3 => any::<u8>().prop_map(StoreOp::Gc),
+        2 => (store_filter(), 1..=8usize).prop_map(|(f, n)| StoreOp::DeleteMatching(f, n)),
     ];
     prop::collection::vec(op, 1..=16)
 }

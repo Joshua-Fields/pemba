@@ -48,6 +48,22 @@ pub(crate) fn unresolved_pending_revision<'py>(
     pending_revision_type(py)?.call((py.None(),), Some(&kwargs))
 }
 
+/// A Python `pemba.PendingDelete`: a `PendingRevision` with the delete's outcome, whose
+/// number is `revision` if known, or else what `resolver` says.
+pub(crate) fn pending_delete<'py>(
+    py: Python<'py>,
+    deleted: u64,
+    more: bool,
+    revision: Option<model::Revision>,
+    resolver: Option<Bound<'py, PyAny>>,
+) -> PyResult<Bound<'py, PyAny>> {
+    let kwargs = pyo3::types::PyDict::new(py);
+    kwargs.set_item("resolver", resolver)?;
+    py.import("pemba._revision")?
+        .getattr("PendingDelete")?
+        .call((deleted, more, revision.map(|r| r.0)), Some(&kwargs))
+}
+
 fn parse<T: std::str::FromStr<Err = model::ParseError>>(s: &str) -> PyResult<T> {
     s.parse().map_err(|e| parse_err(&e))
 }

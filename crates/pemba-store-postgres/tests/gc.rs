@@ -77,6 +77,9 @@ fn gc_and_compaction_never_change_an_answer() {
             for op in &ops {
                 match op {
                     StoreOp::Write(req) => drop(store.write(req, None)),
+                    StoreOp::DeleteMatching(filter, limit) => {
+                        store.delete_matching(filter, *limit).unwrap();
+                    }
                     StoreOp::Schema(n) => {
                         let source = format!("schema {n}");
                         store

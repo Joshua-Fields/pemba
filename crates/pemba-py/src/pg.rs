@@ -66,9 +66,10 @@ fn reject_async(conn: &Bound<'_, PyAny>) -> PyResult<()> {
     if is_async(conn)? {
         let (module, name) = (module_name(conn), type_name(conn));
         return Err(PyTypeError::new_err(format!(
-            "conn is an async connection ({module}.{name}); write(conn=) is synchronous. Use \
-             await engine.write_async(..., conn=conn), a sync connection in a worker thread, \
-             or AsyncSession.run_sync (docs/10-postgres.md §2.4)"
+            "conn is an async connection ({module}.{name}); conn= is synchronous here. Use \
+             await engine.write_async(..., conn=conn) or \
+             engine.delete_relationships_async(..., conn=conn), a sync connection in a worker \
+             thread, or AsyncSession.run_sync (docs/10-postgres.md §2.4)"
         )));
     }
     Ok(())

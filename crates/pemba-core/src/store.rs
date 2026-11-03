@@ -878,6 +878,19 @@ impl StoredSchema {
     }
 }
 
+/// What [`Engine::delete_in`](crate::Engine::delete_in) left in the caller's transaction.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct PendingDelete {
+    /// Live relationships marked deleted, visible once the caller commits.
+    pub deleted: u64,
+    /// Whether live matches remain (the limit cut the delete short): call again in the
+    /// same transaction, or they stay behind.
+    pub more: bool,
+    /// The revision the delete commits at.
+    pub pending: crate::model::PendingRevision,
+}
+
 impl GcStats {
     /// Constructs this store value from all its fields.
     pub fn new(rows_removed: u64, horizon: Revision, batches: u64) -> Self {
