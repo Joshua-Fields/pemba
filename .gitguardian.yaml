@@ -12,6 +12,9 @@ secret:
       match: postgres
     - name: CI Postgres service container URI (fake)
       match: postgres://postgres:postgres@localhost:5432/postgres
+    # Password of the disposable local server in examples/django (README and settings).
+    - name: Django example Postgres password (fake)
+      match: devonly
     # Fake password in crates/pemba-store-postgres/tests/migrate.rs
     # (`bad_configuration_is_an_invalid_request`), which checks that a DSN's password
     # never appears in an error message. The line also carries a ggignore comment.

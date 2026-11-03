@@ -11,6 +11,11 @@ versions are on the [releases page](https://github.com/Joshua-Fields/pemba/relea
 
 ## [Unreleased]
 
+### Added
+
+- `examples/django`, a small Django project on Postgres and SQLite with permissions in
+  `transaction.atomic()`. CI runs its tests on both.
+
 ## [0.3.0] - 2026-11-03
 
 Fewer Postgres round trips on deep hierarchies, and a FastAPI helper. No migration is needed

@@ -390,6 +390,9 @@ Also:
   it acts for: its tool list is a `lookup_resources`, each call is one `check_bulk` of
   delegation, tool grant and the person's own access, and revoking the agent commits in
   the application's transaction. CI runs it.
+- [`examples/django`](https://github.com/Joshua-Fields/pemba/tree/main/examples/django): a
+  Django project on Postgres and SQLite whose per-object permissions commit and roll back
+  with `transaction.atomic()`, including migrations, read-after-write and tests. CI runs it.
 
 ## Design documents
 
