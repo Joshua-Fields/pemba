@@ -29,7 +29,7 @@ In 0.3.0:
 - **Fewer Postgres round trips.** A check on a document 30 folders deep goes from 99 round
   trips to 33 and from 13.3 ms to 6.7 ms (p50), and a lookup over 10,000 documents from 506 to
   8 and from 72 ms to 16 ms ([measurements](benches/RESULTS.md#postgres-rust-linux)). Shallow
-  checks gain less, and some are slower at p99.
+  checks stay about level, and a given run can show them slightly faster or slower.
 - **FastAPI helper.** `pip install pemba[fastapi]` adds a permission check for your routes: a
   configurable 403 on deny, and errors that stay errors rather than turning into a deny
   ([guide](docs/guides/fastapi.md)).
