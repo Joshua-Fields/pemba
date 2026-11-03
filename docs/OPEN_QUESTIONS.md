@@ -1776,8 +1776,8 @@ it is resolved.
   - **`close` blocks until in-flight calls finish, with no timeout.** Returning early would
     leave sessions behind and `DROP DATABASE` would fail; cancelling running statements would
     turn a call that could have finished into an error. The cost: a call stuck on a lock
-    holds `close` up, including a lock the closing thread's own transaction holds. A timeout
-    can be added later as a new parameter without changing this behaviour.
+    holds `close` up, including a lock the closing thread's own transaction holds. An optional
+    timeout can be added later as a new parameter without changing this behaviour.
   - **One error code, as a store error.** `Error::Store(StoreError::Closed)`, code
     `ENGINE_CLOSED`, the shape of `Conflict` / `TRANSACTION_CONFLICT`. The engine and the
     store give the same error, so a call racing `close` cannot see two. Python's
@@ -1794,6 +1794,10 @@ it is resolved.
   - **A memory store discards its data on close,** since nothing can read it afterwards.
   - **Not fork-aware.** An engine inherited across `fork` is already unsupported, and dropping
     one in a child has the same effect as closing it. `pemba.contrib.django` has to take
-    care of this in its own cache (0.4.0 Task 3).
+    care of this in its own cache (0.4.0 Task 3). Maintainer requirement for that spec: key
+    cached engines by PID; in a child, never close or drop an engine inherited from the parent
+    (keep a reference so `Drop` never runs) and open a fresh one; test by forking or simulating
+    gunicorn `--preload`, using the engine in the child, then asserting the parent's engine
+    still works on Postgres. First verify what `Drop` actually does to the shared sockets.
   - **No `async with`.** `await aio.close(engine)` in a `finally` covers it with one function.
-- Resolution: Open for maintainer review on the T10.3 PR; these choices are in force until then.
+- Resolution: Accepted by the maintainer, 2026-11-03.

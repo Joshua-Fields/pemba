@@ -942,7 +942,8 @@ Outlines only. Detailed tasks and acceptance criteria get written when each mile
 starts, against the spec as it stands then.
 
 ### M8 — Authorised queries
-- Intended headline of 0.4.0 (maintainer decision, 2026-11-01). Nothing is implemented.
+- Intended headline of 0.5.0 (maintainer decision, 2026-11-03; 0.4.0 is the Django release).
+  Nothing is implemented.
 - Filter application queries by permission inside the database (SQL predicates or a
   join against `lookup_resources`) instead of filtering rows in application code.
 - Must agree with `lookup_resources` under the reference evaluator; SQLite first.
