@@ -4,19 +4,15 @@ Internal release and process state. The visitor-facing page is
 [`ROADMAP.md`](../ROADMAP.md); keep task IDs, gates and approval language here or in
 [`08-milestones.md`](08-milestones.md), not there.
 
-## Current state (2026-11-02)
+## Current state (2026-11-03)
 
-- **Latest published release: 0.2.0.** Tag, GitHub Release and registry versions are recorded
-  in [`RELEASE-0.2.0.md`](RELEASE-0.2.0.md#publication-record), with the human-only items
-  still open.
-- **0.3.0 is on `main`, not tagged or published.** The scope is complete: public docs cleanup;
-  fewer Postgres round trips on deep hierarchies (T10.1, OQ-056); FastAPI helper (T10.2, `06`
-  §2.4). PR #102 merged `841b5f1` as `73b08d2`. Tag, publication, deployment and announcement
-  remain human steps, and a version in this tree establishes none of them. See
-  [`RELEASE-0.3.0.md`](RELEASE-0.3.0.md) for what was verified and the decisions still open.
+- **Latest published release: 0.3.0**, tagged on `7d0b3c6` and published 2026-11-03: public docs
+  cleanup; fewer Postgres round trips on deep hierarchies (T10.1, OQ-056); FastAPI helper (T10.2,
+  `06` §2.4). Tag, GitHub Release, registry versions and post-publication checks are recorded in
+  [`RELEASE-0.3.0.md`](RELEASE-0.3.0.md#publication-record), with the human-only items still open.
+  Announcement remains a human step.
 - **OQ-066 is accepted** (2026-11-02): no consistent regression across three benchmark runs. Watch
-  `wide_groups_10k_below_head` in future runs. Explicit approval of the exact SHA to tag is still
-  open.
+  `wide_groups_10k_below_head` in future runs.
 - **M7 remains open.** T7.17 (announcement, private reporting, labels, triage ownership) is
   human work. Neither a merge nor a publication establishes it.
 - **M8 authorised queries** is the intended 0.4.0 headline. Nothing is implemented, and its
