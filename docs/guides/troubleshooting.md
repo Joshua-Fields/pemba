@@ -18,7 +18,11 @@ or unrepresentable unsigned limits can raise `OverflowError` before engine valid
 | `WriteRolledBack` | Discard the Postgres pending token; SQLite rollback cannot be detected from its known number |
 | `REVISION_EXPIRED` | GC passed your revision; restart pagination from a fresh snapshot if appropriate |
 | `NotMigrated` / `StorageVersionTooNew` | Run the matching migration as deploy role; do not downgrade metadata or mutate internal tables |
-| TLS handshake failure | Platform CA trust and DSN sslmode; foreign driver's TLS is configured separately |
+| TLS handshake failure | Platform CA trust and DSN sslmode; foreign driver's TLS is configured separately. A server the platform cannot verify (`UnknownIssuer`, `CaUsedAsEndEntity`, certificate not valid for name) needs [a pinned certificate](postgres-certificates.md), not `sslmode=disable` |
+| `not the pinned certificate` | The server's certificate changed, or something else answered. Compare fingerprints and update the pin: [when the certificate changes](postgres-certificates.md#when-the-certificate-changes) |
+| `BadSignature` with a pin | The server presented the pinned certificate without proving it holds the key: treat as an attack until explained |
+| `server does not support TLS` with a pin | The server, or something on the way to it, refused TLS. A pin never falls back to plaintext |
+| `pinned_certificate_pem` `InvalidRequestError` | The value must be PEM text holding one certificate and no key, with real newlines; it cannot be combined with `sslmode=disable` |
 | Other commits stall / `PembaWarning` | Long transaction, early constraints or prepared 2PC transaction holding the revision lock |
 | Transaction conflict | Roll back and retry the complete app transaction with bounded backoff; also handle driver COMMIT errors |
 | Schema change rejected | Remove orphaning live relationships before changing the schema |

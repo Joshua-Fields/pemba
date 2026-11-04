@@ -19,6 +19,14 @@ versions are on the [releases page](https://github.com/Joshua-Fields/pemba/relea
   with the new code `ENGINE_CLOSED` (Python: `EngineClosedError`, a `StorageError`), never with
   a silent answer (`docs/06-api.md` §1.2, OQ-068). `WritableStore::close` is a provided method,
   so custom stores keep compiling. `StoreError` gains `Closed`.
+- `PostgresConfig::pinned_certificate_pem` in Rust and `Engine.postgres(pinned_certificate_pem=...)`
+  in Python, for managed Postgres servers whose certificate the platform cannot verify. The value
+  is PEM text. The server must present exactly that certificate and prove it holds the key; its
+  issuer, name, CA flag and expiry are not checked (ADR-017). TLS becomes mandatory: `sslmode=prefer`
+  acts as `require`, and `sslmode=disable` is an error at open. **A pinned certificate stops
+  connections when the provider replaces it**, until you update the pin
+  (`docs/guides/postgres-certificates.md`). Without the option nothing changes. Not yet tested
+  against a real Railway database, only against Railway's public image run locally.
 
 ### Changed
 

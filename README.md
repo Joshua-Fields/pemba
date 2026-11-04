@@ -135,6 +135,7 @@ User guides: [schema](https://github.com/Joshua-Fields/pemba/blob/main/docs/guid
 [consistency and history](https://github.com/Joshua-Fields/pemba/blob/main/docs/guides/consistency.md),
 [transactions and Postgres operations](https://github.com/Joshua-Fields/pemba/blob/main/docs/guides/transactions.md),
 [transactional-write tutorial](https://github.com/Joshua-Fields/pemba/blob/main/docs/guides/transactional-tutorial.md),
+[Postgres certificates](https://github.com/Joshua-Fields/pemba/blob/main/docs/guides/postgres-certificates.md),
 [FastAPI](https://github.com/Joshua-Fields/pemba/blob/main/docs/guides/fastapi.md),
 [troubleshooting and limits](https://github.com/Joshua-Fields/pemba/blob/main/docs/guides/troubleshooting.md).
 The [API contract](https://github.com/Joshua-Fields/pemba/blob/main/docs/06-api.md) is the

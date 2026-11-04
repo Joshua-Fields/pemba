@@ -396,8 +396,12 @@ impl Engine {
     /// `schema=None` takes the connection's `current_schema()`. With `auto_migrate=False`
     /// (the default, OQ-047) the tables must already exist: migrate as a deploy step, or
     /// pass `auto_migrate=True` where the role may run DDL.
+    ///
+    /// `pinned_certificate_pem` is the PEM text of the one certificate to trust instead of
+    /// the platform trust store; it makes TLS mandatory, and connections stop when the
+    /// server's certificate changes (`docs/guides/postgres-certificates.md`).
     #[staticmethod]
-    #[pyo3(signature = (dsn, *, schema=None, pool_size=8, auto_migrate=false, max_depth=50))]
+    #[pyo3(signature = (dsn, *, schema=None, pool_size=8, auto_migrate=false, max_depth=50, pinned_certificate_pem=None))]
     fn postgres(
         py: Python<'_>,
         dsn: &str,
@@ -405,6 +409,7 @@ impl Engine {
         pool_size: usize,
         auto_migrate: bool,
         max_depth: u32,
+        pinned_certificate_pem: Option<String>,
     ) -> PyResult<Self> {
         let engine = py
             .detach(|| {
@@ -413,6 +418,9 @@ impl Engine {
                     .with_auto_migrate(auto_migrate);
                 if let Some(s) = schema {
                     cfg = cfg.with_schema(s);
+                }
+                if let Some(pem) = pinned_certificate_pem {
+                    cfg = cfg.with_pinned_certificate_pem(pem);
                 }
                 PostgresStore::open(dsn, cfg).and_then(|store| {
                     pemba::Engine::builder()

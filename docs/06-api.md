@@ -418,7 +418,8 @@ Postgres (`pemba-store-postgres`, M5): open / migrate (T5.3) and `ReadStore` wit
 let config = PostgresConfig::default()    // #[non_exhaustive]; pub fields + with_* setters
     .with_schema("authz")                 // Option<String>; None = current_schema() at open
     .with_pool_size(8)                    // most connections, opened on demand; >= 1
-    .with_auto_migrate(false);            // default false (deploy step migrates)
+    .with_auto_migrate(false)             // default false (deploy step migrates)
+    .with_pinned_certificate_pem(pem);    // Option<String>, PEM text; default None (ADR-017)
 PostgresStore::migrate("postgres://app@db/app", &config)?;   // deploy step: one transaction,
                                           // concurrent callers serialise; schema must exist
 let store = PostgresStore::open("postgres://app@db/app", config)?;
@@ -431,6 +432,14 @@ The store is blocking. From async Rust, call it (and an engine over it) inside
 is running a tokio runtime (pinned by a test). The `tls` feature (default on) connects
 through rustls, verifying the server against the platform trust store; the DSN's
 `sslmode` (`disable`, `prefer`, `require`) decides whether TLS is used.
+
+`pinned_certificate_pem` replaces the trust store with one exact certificate (ADR-017,
+[guide](guides/postgres-certificates.md)). The server must present those bytes and prove it
+holds the key; issuer, name, CA flag and expiry are not checked. TLS becomes mandatory:
+`sslmode=prefer` acts as `require`, and `sslmode=disable` is `Error::InvalidRequest`. So is
+text that does not hold exactly one certificate, or a build without the `tls` feature. The
+check happens at open, and messages never quote the PEM or the DSN. Connections stop when the
+server's certificate changes, until the option is updated.
 
 ### 1.1 Error type
 
@@ -596,7 +605,8 @@ class Engine:
                max_depth: int = 50) -> "Engine": ...
     @staticmethod
     def postgres(dsn: str, *, schema: str | None = None, pool_size: int = 8,
-                 auto_migrate: bool = False, max_depth: int = 50) -> "Engine": ...  # T5.9
+                 auto_migrate: bool = False, max_depth: int = 50,
+                 pinned_certificate_pem: str | None = None) -> "Engine": ...  # T5.9, ADR-017
     @staticmethod
     def memory(*, max_depth: int = 50) -> "Engine": ...
 

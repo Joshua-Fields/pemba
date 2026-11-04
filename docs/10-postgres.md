@@ -908,7 +908,9 @@ Consequences:
   and `rustls-native-certs` roots; `webpki-roots` is not used because its licence
   (CDLA-Permissive-2.0) is not on the `deny.toml` list. The server certificate is always
   verified; the DSN's `sslmode` decides whether TLS is used. A server with a certificate
-  the platform does not trust needs `sslmode=disable` until a CA option is added.
+  the platform does not trust needs `PostgresConfig::pinned_certificate_pem` (T10.5,
+  ADR-017), which requires TLS and accepts exactly that certificate; there is still no CA
+  option, so a private CA goes in the platform trust store.
   - Pro: no OpenSSL in manylinux wheels, which avoids the system-library problem
     ADR-014's packaging has.
   - Con: it is third-party; `postgres-native-tls` and `postgres-openssl` 0.5.3 are
@@ -920,6 +922,10 @@ Consequences:
     "error performing TLS handshake: … certificate …", and `sslmode=disable` must connect.
     Driver errors other than database errors now carry their cause chain, which is how
     the certificate reason reaches the message (the chain never quotes the DSN).
+  - **T10.5:** `tests/pinned_certificate.rs` covers certificate shapes and attacks with a
+    local TLS server, and real servers with `PEMBA_PG_TLS_URL` (snakeoil) and
+    `PEMBA_PG_TLS_CA_LEAF_URL` (Railway's public image, not a Railway service). Each has a
+    `*_CERT_FILE` holding its certificate, and the Python tests use the same variables.
 
 ### 2.2 Python: native engine
 

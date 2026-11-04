@@ -311,6 +311,7 @@ jobs:
     env:
       PEMBA_PG_URL: postgres://postgres@localhost:5432/postgres
       PEMBA_PG_TLS_URL: postgres://postgres@localhost:5433/postgres
+      PEMBA_PG_TLS_CA_LEAF_URL: postgres://postgres:pemba-test@localhost:5434/postgres # ggignore: disposable CI server's password
       PEMBA_PG_REQUIRED: "1"
       PEMBA_FASTAPI_REQUIRED: "1"
     steps:
@@ -327,6 +328,26 @@ jobs:
             -c ssl_key_file=/etc/ssl/private/ssl-cert-snakeoil.key
           for i in $(seq 1 30); do docker exec pg-tls pg_isready -U postgres && break; sleep 1; done
           docker exec pg-tls psql -U postgres -tAc 'SHOW ssl' | grep -qx on
+          # The certificate as a file, for the pinned_certificate_pem tests (ADR-017).
+          docker exec pg-tls cat /etc/ssl/certs/ssl-cert-snakeoil.pem > "$RUNNER_TEMP/pg-tls.pem"
+          echo "PEMBA_PG_TLS_CERT_FILE=$RUNNER_TEMP/pg-tls.pem" >> "$GITHUB_ENV"
+      # Railway's public image, not a real Railway service: a CA:TRUE certificate issued by a
+      # private root, which webpki refuses whoever is trusted (ADR-017), over SCRAM.
+      - name: a Postgres with a CA:TRUE certificate
+        run: |
+          docker run -d --name pg-tls-ca-leaf -e POSTGRES_PASSWORD=pemba-test \
+            -e PGDATA=/var/lib/postgresql/data/pgdata -p 5434:5432 \
+            ghcr.io/railwayapp-templates/postgres-ssl:${{ matrix.pg }}
+          # The image restarts Postgres during setup, so wait until TLS is really on.
+          for i in $(seq 1 60); do
+            [ "$(docker exec pg-tls-ca-leaf psql -U postgres -tAc 'SHOW ssl' 2>/dev/null)" = on ] \
+              && docker exec pg-tls-ca-leaf pg_isready -U postgres && break
+            sleep 1
+          done
+          cert="$(docker exec pg-tls-ca-leaf psql -U postgres -tAc 'SHOW ssl_cert_file')"
+          docker exec pg-tls-ca-leaf cat "$cert" > "$RUNNER_TEMP/pg-tls-ca-leaf.pem"
+          grep -q 'BEGIN CERTIFICATE' "$RUNNER_TEMP/pg-tls-ca-leaf.pem"
+          echo "PEMBA_PG_TLS_CA_LEAF_CERT_FILE=$RUNNER_TEMP/pg-tls-ca-leaf.pem" >> "$GITHUB_ENV"
       - run: cargo test -p pemba-store-postgres --all-features
       # The permanent revision-order test (docs/10-postgres.md §4.4, T5.6), about 20 s.
       # --nocapture so each variant's 40001 rate, writer wait and visibility lag are in

@@ -477,6 +477,129 @@ def test_tls_verifies_the_server_certificate() -> None:
     pemba.Engine.postgres(tls_url + sep + "sslmode=disable", auto_migrate=True)
 
 
+# ---- pinned_certificate_pem (ADR-017, docs/guides/postgres-certificates.md) ----
+
+# A public certificate for `localhost`, as the TLS servers' are, with another key. Its private
+# key was discarded when it was generated.
+OTHER_CERTIFICATE = """-----BEGIN CERTIFICATE-----
+MIIBkTCCATigAwIBAgIUPFOpirP+FwOTPBNB+pUNBJlCK4IwCgYIKoZIzj0EAwIw
+FDESMBAGA1UEAwwJbG9jYWxob3N0MCAXDTI2MTEwNDExMzkwMloYDzIxMjYxMDEx
+MTEzOTAyWjAUMRIwEAYDVQQDDAlsb2NhbGhvc3QwWTATBgcqhkjOPQIBBggqhkjO
+PQMBBwNCAAS8NdYSiWHTzg4Eb15dlQlkIEjtq6FZNnJYc/xg1IMSbph3ZnrR8vpY
+YHwbdcGnRMjdJyY2bINa9DYzzIvcE1cMo2YwZDAdBgNVHQ4EFgQU4iHlRzFyMR8M
+6c8C6uNR7YylkgEwHwYDVR0jBBgwFoAU4iHlRzFyMR8M6c8C6uNR7YylkgEwFAYD
+VR0RBA0wC4IJbG9jYWxob3N0MAwGA1UdEwEB/wQCMAAwCgYIKoZIzj0EAwIDRwAw
+RAIgQa4LojC5G8zBoKojvLOdC3vZ5p+pSl5rOuYl3oaMdMsCIHKHABQOfU8PHQGd
+fMuX2UPAyM7eopq5TZLnMxGRqQ4n
+-----END CERTIFICATE-----
+"""
+
+
+def tls_server(url_var: str, cert_var: str) -> tuple[str, str]:
+    """The server's URL and the PEM of its certificate, or "not run" without them."""
+    url = os.environ.get(url_var)
+    cert_file = os.environ.get(cert_var)
+    if not url or not cert_file:
+        pytest.skip(f"not run: set {url_var} and {cert_var}")
+    with open(cert_file, encoding="ascii") as f:
+        return url, f.read()
+
+
+def with_param(url: str, param: str) -> str:
+    return url + ("&" if "?" in url else "?") + param
+
+
+@pytest.mark.parametrize(
+    ("url_var", "cert_var", "at_ip"),
+    [
+        ("PEMBA_PG_TLS_URL", "PEMBA_PG_TLS_CERT_FILE", False),
+        # The certificates name localhost, so here the name differs: the pin must still connect.
+        ("PEMBA_PG_TLS_URL", "PEMBA_PG_TLS_CERT_FILE", True),
+        # Railway's image: CA:TRUE, issued by a private root, over SCRAM.
+        ("PEMBA_PG_TLS_CA_LEAF_URL", "PEMBA_PG_TLS_CA_LEAF_CERT_FILE", True),
+    ],
+)
+def test_pinned_certificate_works_end_to_end(url_var: str, cert_var: str, at_ip: bool) -> None:
+    url, pem = tls_server(url_var, cert_var)
+    if at_ip:
+        url = url.replace("@localhost:", "@127.0.0.1:")
+    name = f"pemba_pin_{uuid.uuid4().hex[:12]}"
+    with psycopg.connect(url, autocommit=True) as c:
+        c.execute(f'CREATE SCHEMA "{name}"')
+    try:
+        engine = pemba.Engine.postgres(
+            url, schema=name, auto_migrate=True, pinned_certificate_pem=pem
+        )
+        engine.write_schema(SCHEMA)
+        engine.write(touch=[ANNE])
+        assert engine.check("document:readme", "view", "user:anne")
+        assert not engine.check("document:readme", "view", "user:bob")
+
+        # A foreign write runs on the app's own connection, with the app's own TLS settings.
+        with psycopg.connect(url) as app:
+            pending = engine.write(touch=[BOB], conn=app)
+            app.commit()
+        assert engine.check("document:readme", "view", "user:bob", at_least=pending)
+        engine.close()
+    finally:
+        with psycopg.connect(url, autocommit=True) as c:
+            c.execute(f'DROP SCHEMA "{name}" CASCADE')
+
+
+def test_pinned_certificate_refuses_a_different_certificate() -> None:
+    url, _ = tls_server("PEMBA_PG_TLS_URL", "PEMBA_PG_TLS_CERT_FILE")
+    with pytest.raises(pemba.StorageError) as exc:
+        pemba.Engine.postgres(url, pinned_certificate_pem=OTHER_CERTIFICATE)
+    assert "TLS handshake" in str(exc.value), exc.value
+    assert "not the pinned certificate" in str(exc.value), exc.value
+
+
+def test_pinned_certificate_none_is_the_platform_trust_store() -> None:
+    url, _ = tls_server("PEMBA_PG_TLS_URL", "PEMBA_PG_TLS_CERT_FILE")
+    with pytest.raises(pemba.StorageError) as exc:
+        pemba.Engine.postgres(url, pinned_certificate_pem=None)
+    assert "TLS handshake" in str(exc.value) and "certificate" in str(exc.value), exc.value
+
+
+@pytest.mark.parametrize(
+    ("pem", "expected"),
+    [
+        ("", "holds no certificate"),
+        ("not a certificate", "holds no certificate"),
+        ("-----BEGIN CERTIFICATE-----\nnot*base64\n-----END CERTIFICATE-----\n", "not valid PEM"),
+        ("-----BEGIN CERTIFICATE-----\naGVsbG8=\n-----END CERTIFICATE-----\n", "X.509"),
+        (OTHER_CERTIFICATE + OTHER_CERTIFICATE, "more than one"),
+    ],
+)
+def test_pinned_certificate_bad_pem_fails_at_open(pem: str, expected: str) -> None:
+    # Nothing listens on the port, so an attempt to connect would be a StorageError.
+    dsn = "host=127.0.0.1 port=1 user=u password=dsn-password-value"  # ggignore: fake password; the test checks it never reaches an error message
+    with pytest.raises(pemba.InvalidRequestError, match=expected) as exc:
+        pemba.Engine.postgres(dsn, pinned_certificate_pem=pem)
+    assert "dsn-password-value" not in str(exc.value)
+    assert "BEGIN" not in str(exc.value) and "aGVsbG8" not in str(exc.value)
+
+
+def test_pinned_certificate_with_sslmode_disable_is_refused() -> None:
+    with pytest.raises(pemba.InvalidRequestError, match="sslmode=disable"):
+        pemba.Engine.postgres(
+            "host=127.0.0.1 port=1 user=u sslmode=disable",
+            pinned_certificate_pem=OTHER_CERTIFICATE,
+        )
+
+
+def test_pinned_certificate_sslmode_require_connects() -> None:
+    url, pem = tls_server("PEMBA_PG_TLS_URL", "PEMBA_PG_TLS_CERT_FILE")
+    pemba.Engine.postgres(
+        with_param(url, "sslmode=require"), auto_migrate=True, pinned_certificate_pem=pem
+    ).close()
+
+
+def test_pinned_certificate_is_keyword_only() -> None:
+    with pytest.raises(TypeError):
+        pemba.Engine.postgres("host=127.0.0.1", None, 8, False, 50, OTHER_CERTIFICATE)  # type: ignore[call-arg]
+
+
 def test_other_objects_are_refused(engine: pemba.Engine) -> None:
     with pytest.raises(TypeError, match="psycopg"):
         engine.write(touch=[ANNE], conn=object())
