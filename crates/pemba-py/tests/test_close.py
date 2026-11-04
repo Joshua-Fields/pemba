@@ -10,6 +10,7 @@ import sqlite3
 import threading
 from collections.abc import Callable
 from pathlib import Path
+from typing import cast
 
 import pytest
 
@@ -243,13 +244,28 @@ def test_aio_close(engine: pemba.Engine) -> None:
 
 
 def test_cancelling_aio_close_still_closes(engine: pemba.Engine) -> None:
+    # The close is held until the cancel has landed. A real one can finish first, which on
+    # Python 3.14 it usually does on the memory store, and then there is nothing to cancel.
+    started = threading.Event()
+    release = threading.Event()
+    closed = threading.Event()
+
+    class HeldClose:
+        def close(self) -> None:
+            started.set()
+            release.wait(10)
+            engine.close()
+            closed.set()
+
     async def exercise() -> None:
-        task = asyncio.create_task(aio.close(engine))
-        await asyncio.sleep(0)
+        task = asyncio.create_task(aio.close(cast(pemba.Engine, HeldClose())))
+        assert await asyncio.to_thread(started.wait, 10)
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
             await task
-        await aio.close(engine)
+        assert not engine.closed, "the await ended, and the close is still running"
+        release.set()
+        assert await asyncio.to_thread(closed.wait, 10)
         assert engine.closed
 
     asyncio.run(exercise())
