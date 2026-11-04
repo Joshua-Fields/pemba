@@ -28,7 +28,7 @@ from pemba._errors import (
     WriteConflictError,
     WriteRolledBack,
 )
-from pemba._revision import PendingRevision, Revision
+from pemba._revision import PendingDelete, PendingRevision, Revision
 from pemba._pemba import (
     MIN_SQLITE_VERSION,
     CheckResult,
@@ -61,6 +61,7 @@ __all__ = [
     "LookupResult",
     "NoSchemaError",
     "OrphanReport",
+    "PendingDelete",
     "PendingRevision",
     "Precondition",
     "Relationship",

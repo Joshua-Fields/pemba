@@ -47,7 +47,7 @@ def test_uses_covers_every_public_method() -> None:
     exempt = {
         "close", "closed",  # the subject of this file
         "sqlite", "postgres", "memory", "validate_schema",  # static: no engine to be closed
-        "write_async",  # below, for it needs Postgres
+        "write_async", "delete_relationships_async",  # in test_postgres.py: they need Postgres
     }
     assert public - exempt == set(uses(pemba.Engine.memory()))
 

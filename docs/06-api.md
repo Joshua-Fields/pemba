@@ -27,6 +27,8 @@ impl<S: WritableStore> Engine<S> {
     pub fn resolve(&self, pending: &PendingRevision) -> Result<Revision, Error>; // ADR-015
     pub fn delete_relationships(&self, filter: RelationshipFilter, limit: Option<usize>)
         -> Result<DeleteResult, Error>;                      // T2.6, 02 §5
+    pub fn delete_in<T: WriteTxn>(&self, txn: &mut T, filter: RelationshipFilter, limit: Option<usize>)
+        -> Result<PendingDelete, Error> where S: SqlStore;   // T10.4, 05 §10.1
 
     // ---- reads ----
     pub fn check(&self, req: CheckRequest) -> Result<CheckResponse, Error>;
@@ -253,12 +255,19 @@ pub struct OrphanReport {           // one group of live tuples the new schema r
 #[non_exhaustive]
 pub struct DeleteResult { pub deleted: u64, pub more: bool, pub revision: Revision }
 #[non_exhaustive]
+pub struct PendingDelete { pub deleted: u64, pub more: bool, pub pending: PendingRevision }
+#[non_exhaustive]
 pub struct GcStats { pub rows_removed: u64, pub horizon: Revision, pub batches: u64 }
 ```
 
 `delete_relationships(filter, limit)`: `limit` `None` = `max_delete_by_filter` (also the
 maximum; 0 or above → `InvalidRequest`); the filter is validated like `read_relationships`'.
 One atomic revision; loop while `more`.
+
+`delete_in(txn, filter, limit)` (T10.4) is the same delete inside a transaction the caller
+owns, as `write_in` is to `write`: same limit and filter rules, same statements, and it
+never commits or rolls back. `resolve(&result.pending)` gives the revision after the commit.
+`05` §10.1 has the semantics.
 
 `gc(keep_from)` raises the GC horizon first (its own transaction), then deletes collected
 rows in batches of 10 000 (`05` §8). From the moment the horizon moves, `Exact(r)` with
@@ -625,7 +634,9 @@ class Engine:
                              relation: str | None = None, subject_type: str | None = None,
                              subject_id: str | None = None,
                              subject_relation: str | None = None,
-                             limit: int | None = None) -> "DeleteResult": ...
+                             limit: int | None = None, conn: Any | None = None,
+                             allow_autocommit: bool = False
+                             ) -> "DeleteResult" | "PendingDelete": ...  # PendingDelete iff conn= (05 §10.1)
 
     @overload
     def check(self, tuple_str: str, /, *, at_least: int | PendingRevision | None = None,
@@ -670,6 +681,10 @@ class Engine:
     def __enter__(self) -> Self: ...              # EngineClosedError if already closed
     def __exit__(self, exc_type: type[BaseException] | None, exc: BaseException | None,
                  tb: types.TracebackType | None) -> None: ...  # close(); never swallows exc
+
+class PendingDelete(PendingRevision):     # what delete_relationships(..., conn=) returns
+    deleted: int                         # rows this call marked, visible once committed
+    more: bool                           # the limit cut it short: call again in the transaction
 
 class Relationship:                       # frozen; str() is the tuple string
     def __init__(self, resource_type: str, resource_id: str, relation: str,
@@ -755,6 +770,10 @@ Rules:
     (`10` §1.6.7).
 - `Engine` is thread-safe; share one instance per process. Not fork-safe: create it after
   forking (document for gunicorn `--preload` users).
+- `delete_relationships(..., conn=c)` (T10.4, `05` §10.1) takes the same `c` as `write`, with
+  the same checks and errors, and returns a `PendingDelete`: a `PendingRevision` that also has
+  `deleted` and `more`. Pass it as `at_least=` or call `.revision()` after commit. **Check
+  `more`**, or a delete over `limit` leaves relationships behind: loop in the same transaction.
 - `close()` and `with pemba.Engine.postgres(...) as engine:` have the Rust semantics of
   §1.2, raising `EngineClosedError` where Rust returns `ENGINE_CLOSED`. `close()` waits with
   the GIL released, so in-flight calls can finish. On a SQLite engine it takes its turn among
@@ -781,6 +800,12 @@ the transaction and must commit before resolving. SQLAlchemy/asyncpg require an
 explicit transaction; only raw psycopg supports the existing autocommit opt-in.
 Same validation, preconditions, database identity checks and error mapping as `write`.
 Synchronous `write` still rejects raw async connections.
+
+`Engine.delete_relationships_async(*, resource_type, resource_id=None, relation=None,
+subject_type=None, subject_id=None, subject_relation=None, limit=None, conn,
+allow_autocommit=False)` (T10.4) returns a coroutine yielding `PendingDelete`. Same engines,
+connections, transaction rules and cancellation as `write_async`; same filter rules as
+`delete_relationships`. Synchronous `delete_relationships` rejects raw async connections.
 
 `from pemba import aio` exposes `await aio.check(engine, ...)`,
 `await aio.lookup_resources(engine, ...)`, `await aio.lookup_subjects(engine, ...)`

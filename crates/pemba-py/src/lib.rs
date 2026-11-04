@@ -37,8 +37,8 @@ use pyo3::types::{PyInt, PyString, PyTuple};
 use crate::errors::{IntoPy, parse_err};
 use crate::types::{
     CheckResult, CheckTrace, DeleteResult, Diagnostic, GcStats, LookupResult, OrphanReport,
-    Precondition, Relationship, SubjectsResult, TraceNode, filter, pending_revision,
-    pending_revision_type, revision, unresolved_pending_revision,
+    Precondition, Relationship, SubjectsResult, TraceNode, filter, pending_delete,
+    pending_revision, pending_revision_type, revision, unresolved_pending_revision,
 };
 
 /// The engine over whichever store it was opened with.
@@ -75,6 +75,14 @@ impl PgEngine {
         }
         Ok(())
     }
+}
+
+/// How Python gets the revision of a write in the app's Postgres transaction.
+enum Joined<'py> {
+    /// Known: pemba committed the transaction itself (`allow_autocommit`).
+    Known(Revision),
+    /// A `_PendingHandle`, to call after the app commits.
+    Resolver(Bound<'py, PyAny>),
 }
 
 /// Resolves a Postgres `PendingRevision` on the engine's own connection: the native half
@@ -288,37 +296,88 @@ impl Engine {
         allow_autocommit: bool,
         req: WriteRequest,
     ) -> PyResult<Bound<'py, PyAny>> {
-        let f = pg::foreign(conn, allow_autocommit)?;
-        let mut txn = pg::PgPyTxn::new(py, &f.raw)?;
-        if f.own_transaction {
+        let (_, joined) = self.postgres_in(
+            py,
+            p,
+            conn,
+            allow_autocommit,
+            |txn| p.engine.write_in(txn, req),
+            |pending| pending,
+        )?;
+        match joined {
+            Joined::Known(rev) => pending_revision(py, rev),
+            Joined::Resolver(handle) => unresolved_pending_revision(py, handle),
+        }
+    }
+
+    /// Runs `f` in the app's Postgres transaction (`docs/10-postgres.md` §2.3), opening and
+    /// committing one only for `allow_autocommit`. Returns what `f` returned, and how
+    /// Python gets the revision of the `PendingRevision` that `pending` picks out of it.
+    fn postgres_in<'py, R: Send>(
+        &self,
+        py: Python<'py>,
+        p: &PgEngine,
+        conn: &Bound<'py, PyAny>,
+        allow_autocommit: bool,
+        f: impl FnOnce(&mut pg::PgPyTxn) -> Result<R, pemba::Error> + Send,
+        pending: impl Fn(&R) -> &pemba::model::PendingRevision,
+    ) -> PyResult<(R, Joined<'py>)> {
+        let foreign = pg::foreign(conn, allow_autocommit)?;
+        let mut txn = pg::PgPyTxn::new(py, &foreign.raw)?;
+        if foreign.own_transaction {
             txn.simple(py, "BEGIN")?;
         }
         // Each statement takes the GIL back to call the driver.
-        let written = py.detach(|| p.engine.write_in(&mut txn, req));
-        let pending = match written {
-            Ok(pending) => pending,
+        let done = match py.detach(|| f(&mut txn)) {
+            Ok(done) => done,
             Err(e) => {
-                if f.own_transaction {
+                if foreign.own_transaction {
                     // The original error is the one to report.
                     let _ = txn.simple(py, "ROLLBACK");
                 }
                 return Err(errors::to_py(py, &e));
             }
         };
-        if f.own_transaction {
+        if foreign.own_transaction {
             txn.simple(py, "COMMIT")?;
-            let rev = py.detach(|| p.engine.resolve(&pending)).py(py)?;
+            let handle = pending(&done).clone();
+            let rev = py.detach(|| p.engine.resolve(&handle)).py(py)?;
             p.warn_if_early(py)?;
-            return pending_revision(py, rev);
+            return Ok((done, Joined::Known(rev)));
         }
         let handle = Py::new(
             py,
             PendingHandle {
                 inner: Arc::clone(&self.inner),
-                pending,
+                pending: pending(&done).clone(),
             },
         )?;
-        unresolved_pending_revision(py, handle.into_bound(py).into_any())
+        Ok((done, Joined::Resolver(handle.into_bound(py).into_any())))
+    }
+
+    /// The `sqlite3` connection for a foreign write or delete, after the checks every
+    /// `conn=` argument gets; `None` if there is none, or if a Postgres one is to be checked
+    /// by [`postgres_in`](Self::postgres_in).
+    fn foreign_arg(
+        &self,
+        conn: Option<&Bound<'_, PyAny>>,
+        allow_autocommit: bool,
+    ) -> PyResult<Option<Py<PyAny>>> {
+        // Before `conn` is touched: a closed engine sends nothing on it, not even a BEGIN.
+        if let Some(c) = conn {
+            self.ensure_open(c.py())?;
+        }
+        match (conn, &*self.inner) {
+            (Some(_), Inner::Memory(_)) => Err(PyValueError::new_err(
+                "conn= needs an Engine.sqlite() engine on the same database file, or an \
+                 Engine.postgres() engine on the same database",
+            )),
+            (Some(c), Inner::Sqlite(_)) => Ok(Some(Self::foreign_conn(c, allow_autocommit)?)),
+            (None, _) if allow_autocommit => Err(PyValueError::new_err(
+                "allow_autocommit applies only with conn=",
+            )),
+            (Some(_), Inner::Postgres(_)) | (None, _) => Ok(None),
+        }
     }
 
     fn check_request(
@@ -557,24 +616,7 @@ impl Engine {
         conn: Option<&Bound<'py, PyAny>>,
         allow_autocommit: bool,
     ) -> PyResult<Bound<'py, PyAny>> {
-        // Before `conn` is touched: a closed engine sends nothing on it, not even a BEGIN.
-        self.ensure_open(py)?;
-        let foreign = match (conn, &*self.inner) {
-            (Some(_), Inner::Memory(_)) => {
-                return Err(PyValueError::new_err(
-                    "conn= needs an Engine.sqlite() engine on the same database file, or an \
-                     Engine.postgres() engine on the same database",
-                ));
-            }
-            (Some(c), Inner::Sqlite(_)) => Some(Self::foreign_conn(c, allow_autocommit)?),
-            (None, _) if allow_autocommit => {
-                return Err(PyValueError::new_err(
-                    "allow_autocommit applies only to a write with conn=",
-                ));
-            }
-            // A Postgres `conn` is checked by `postgres_write_in`, once the request is built.
-            (Some(_), Inner::Postgres(_)) | (None, _) => None,
-        };
+        let foreign = self.foreign_arg(conn, allow_autocommit)?;
         let mut req = WriteRequest::default();
         if let Some(t) = touch {
             ops(&mut req.ops, t, WriteOp::Touch)?;
@@ -658,11 +700,19 @@ impl Engine {
     /// `InvalidRequestError`. Negative or unrepresentable integers raise `OverflowError`
     /// during argument conversion. Filter names must exist in the schema; permissions are
     /// not relations. Malformed names raise `ValueError`.
-    #[pyo3(signature = (*, resource_type, resource_id=None, relation=None, subject_type=None, subject_id=None, subject_relation=None, limit=None))]
+    ///
+    /// With `conn`, returns a `PendingDelete` and joins the caller's transaction on the same
+    /// database, so an application row and its relationships go in one commit. `conn` is as
+    /// for `write`, with the same checks and errors. The caller commits or rolls back. A
+    /// `PendingDelete` is a `PendingRevision` that also has `deleted` and `more`: **check
+    /// `more`**, and while it is true call again in the same transaction, or relationships
+    /// stay behind. Each call has its own revision. Relationships another transaction has
+    /// inserted but not committed are not deleted (`docs/05-storage.md` §10.1).
+    #[pyo3(signature = (*, resource_type, resource_id=None, relation=None, subject_type=None, subject_id=None, subject_relation=None, limit=None, conn=None, allow_autocommit=false))]
     #[allow(clippy::too_many_arguments)]
-    fn delete_relationships(
+    fn delete_relationships<'py>(
         &self,
-        py: Python<'_>,
+        py: Python<'py>,
         resource_type: &str,
         resource_id: Option<&str>,
         relation: Option<&str>,
@@ -670,7 +720,9 @@ impl Engine {
         subject_id: Option<&str>,
         subject_relation: Option<&str>,
         limit: Option<usize>,
-    ) -> PyResult<DeleteResult> {
+        conn: Option<&Bound<'py, PyAny>>,
+        allow_autocommit: bool,
+    ) -> PyResult<Bound<'py, PyAny>> {
         let f = filter(
             resource_type,
             resource_id,
@@ -679,9 +731,84 @@ impl Engine {
             subject_id,
             subject_relation,
         )?;
-        run!(py, self.inner, e => e.delete_relationships(f, limit))
-            .py(py)
-            .map(DeleteResult::from)
+        let foreign = self.foreign_arg(conn, allow_autocommit)?;
+        match (&foreign, &*self.inner, conn) {
+            (_, Inner::Postgres(p), Some(conn)) => {
+                let (done, joined) = self.postgres_in(
+                    py,
+                    p,
+                    conn,
+                    allow_autocommit,
+                    |txn| p.engine.delete_in(txn, f, limit),
+                    |done| &done.pending,
+                )?;
+                match joined {
+                    Joined::Known(rev) => {
+                        pending_delete(py, done.deleted, done.more, Some(rev), None)
+                    }
+                    Joined::Resolver(handle) => {
+                        pending_delete(py, done.deleted, done.more, None, Some(handle))
+                    }
+                }
+            }
+            (Some(conn), Inner::Sqlite(s), _) => {
+                let (done, rev) = py
+                    .detach(|| {
+                        let _one = s.serial.lock().unwrap_or_else(PoisonError::into_inner);
+                        Python::attach(|_| {
+                            let done = s.engine.delete_in(&mut PyTxn::foreign(conn), f, limit)?;
+                            let rev = s.engine.resolve(&done.pending)?;
+                            Ok::<_, pemba::Error>((done, rev))
+                        })
+                    })
+                    .py(py)?;
+                pending_delete(py, done.deleted, done.more, Some(rev), None)
+            }
+            _ => {
+                let result = run!(py, self.inner, e => e.delete_relationships(f, limit)).py(py)?;
+                Ok(Bound::new(py, DeleteResult::from(result))?.into_any())
+            }
+        }
+    }
+
+    /// Awaits a `delete_relationships` in the caller's transaction on psycopg
+    /// `AsyncConnection`, asyncpg `Connection` or `SQLAlchemy`
+    /// `AsyncSession`/`AsyncConnection`. Returns `PendingDelete`; check its `more`. The caller
+    /// commits or rolls back. Cancellation and errors are as for `write_async`.
+    #[pyo3(signature = (*, resource_type, resource_id=None, relation=None, subject_type=None, subject_id=None, subject_relation=None, limit=None, conn, allow_autocommit=false))]
+    #[allow(clippy::too_many_arguments)]
+    fn delete_relationships_async<'py>(
+        slf: PyRef<'py, Self>,
+        py: Python<'py>,
+        resource_type: &str,
+        resource_id: Option<&str>,
+        relation: Option<&str>,
+        subject_type: Option<&str>,
+        subject_id: Option<&str>,
+        subject_relation: Option<&str>,
+        limit: Option<usize>,
+        conn: &Bound<'py, PyAny>,
+        allow_autocommit: bool,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        if !matches!(&*slf.inner, Inner::Postgres(_)) {
+            return Err(PyValueError::new_err(
+                "delete_relationships_async requires Engine.postgres()",
+            ));
+        }
+        let args = pyo3::types::PyDict::new(py);
+        args.set_item("resource_type", resource_type)?;
+        args.set_item("resource_id", resource_id)?;
+        args.set_item("relation", relation)?;
+        args.set_item("subject_type", subject_type)?;
+        args.set_item("subject_id", subject_id)?;
+        args.set_item("subject_relation", subject_relation)?;
+        args.set_item("limit", limit)?;
+        py.import("pemba._async")?.getattr("delete_async")?.call1((
+            slf,
+            args,
+            conn,
+            allow_autocommit,
+        ))
     }
 
     /// Whether `subject` has `permission` on `resource`.

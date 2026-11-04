@@ -28,6 +28,12 @@ versions are on the [releases page](https://github.com/Joshua-Fields/pemba/relea
   (`docs/guides/postgres-certificates.md`). Without the option nothing changes. Not yet tested
   against a real Railway database, only against Railway's public image run locally.
 
+- `Engine::delete_in` in Rust, and `delete_relationships(..., conn=)` and
+  `delete_relationships_async` in Python: a delete by filter inside the caller's transaction, so
+  an application row and its relationships go in one commit, on SQLite and Postgres. Python
+  returns `PendingDelete`, a `PendingRevision` with `deleted` and `more`
+  (`docs/05-storage.md` §10.1, OQ-069). No storage format change.
+
 ### Changed
 
 - `examples/django` closes its engines with `close()` rather than `gc.collect()`.

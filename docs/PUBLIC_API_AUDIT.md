@@ -107,6 +107,7 @@ constructors remain public so third-party store implementations can produce them
 | `store::RelationCount` | Non-exhaustive (T7.2) | Store count/group metadata may grow. | new(resource_type, relation, subject_type, subject_relation, wildcard, count). |
 | `store::StoredSchema` | Non-exhaustive (T7.2) | Stored-schema result metadata may grow without changing the storage format. | new(version, source, hash, created_rev). |
 | `store::GcStats` | Non-exhaustive (T7.2) | Collection outcome counters may grow. | new(rows_removed, horizon, batches). |
+| `store::PendingDelete` | Non-exhaustive (T10.4) | Delete outcome metadata may grow. | Produced by Engine::delete_in; fields are public. |
 | `store::DeleteResult` | Non-exhaustive (T7.2) | Delete outcome metadata may grow. | new(deleted, more, revision). |
 | `store::SqlValue` | Exhaustive | Fixed portable SQL subset is null, i64 and text; changing it requires deliberate driver/API revision. | Public Null / Integer / Text variants. |
 | `store::RevisionStrategy` | Non-exhaustive (existing) | Other store revision-assignment strategies may be added. | Public variants; match with wildcard. |

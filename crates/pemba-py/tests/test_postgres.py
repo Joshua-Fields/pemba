@@ -679,6 +679,90 @@ def test_transactional_postgres_tutorial(schema: str) -> None:
     assert e.check("document:rolled_back", "view", "user:anne") is False
 
 
+# ---- delete_relationships(conn=), every driver (05 §10.1) ----
+
+
+@pytest.mark.parametrize("commit", [True, False])
+def test_delete_goes_with_the_app_row(
+    engine: pemba.Engine, schema: str, driver: Driver, commit: bool
+) -> None:
+    with admin() as c:
+        c.execute(f"""INSERT INTO "{schema}".documents VALUES ('readme')""")
+    engine.write(touch=[ANNE, BOB])
+    head = engine.head_revision()
+    driver.execute(f"""DELETE FROM "{schema}".documents WHERE id = 'readme'""")
+    pending = engine.delete_relationships(
+        resource_type="document", resource_id="readme", conn=driver.conn()
+    )
+    assert isinstance(pending, pemba.PendingDelete)
+    assert (pending.deleted, pending.more) == (2, False)
+    assert not pending.resolved
+    assert engine.check("document:readme", "view", "user:anne")
+    with pytest.raises(pemba.RevisionPending):
+        pending.revision()
+
+    if commit:
+        driver.commit()
+        revision = pending.revision()
+        assert revision > head
+        assert not engine.check("document:readme", "view", "user:anne", at_least=pending)
+        assert not engine.check("document:readme", "view", "user:bob", at_least=revision)
+        assert engine.check("document:readme", "view", "user:anne", at_exactly=head)
+        assert documents(schema) == []
+    else:
+        driver.rollback()
+        with pytest.raises(pemba.WriteRolledBack):
+            pending.revision()
+        assert engine.check("document:readme", "view", "user:anne")
+        assert engine.check("document:readme", "view", "user:bob")
+        assert engine.head_revision() == head
+        assert documents(schema) == ["readme"]
+
+
+def test_delete_limit_and_more_in_one_transaction(engine: pemba.Engine, driver: Driver) -> None:
+    engine.write(touch=[ANNE, BOB])
+    first = engine.delete_relationships(resource_type="document", limit=1, conn=driver.conn())
+    assert (first.deleted, first.more) == (1, True)
+    second = engine.delete_relationships(resource_type="document", limit=1, conn=driver.conn())
+    assert (second.deleted, second.more) == (1, False)
+    driver.commit()
+    assert second.revision() == first.revision() + 1
+
+
+def test_delete_with_allow_autocommit_on_a_raw_connection(engine: pemba.Engine) -> None:
+    engine.write(touch=[ANNE])
+    with psycopg.connect(URL, autocommit=True) as app:
+        pending = engine.delete_relationships(
+            resource_type="document", conn=app, allow_autocommit=True
+        )
+        assert pending.resolved
+        assert app.info.transaction_status == psycopg.pq.TransactionStatus.IDLE
+    assert not engine.check("document:readme", "view", "user:anne", at_least=pending)
+
+
+def test_delete_refuses_what_write_refuses(engine: pemba.Engine) -> None:
+    with psycopg.connect(URL, autocommit=True) as app:
+        with pytest.raises(ValueError, match="no open transaction"):
+            engine.delete_relationships(resource_type="document", conn=app)
+    with pytest.raises(TypeError):
+        engine.delete_relationships(resource_type="document", conn=object())
+
+
+def test_delete_inside_a_django_savepoint(engine: pemba.Engine) -> None:
+    connection, transaction = django_setup()
+    engine.write(touch=[ANNE])
+    with transaction.atomic():
+        try:
+            with transaction.atomic():
+                undone = engine.delete_relationships(resource_type="document", conn=connection)
+                raise LookupError
+        except LookupError:
+            pass
+    with pytest.raises(pemba.WriteRolledBack):
+        undone.revision()
+    assert engine.check("document:readme", "view", "user:anne")
+
+
 # ---- close (06 §1.2) ----
 
 
@@ -785,6 +869,8 @@ def test_write_async_and_aio_close(engine: pemba.Engine, schema: str) -> None:
             await aio.close(engine)
             with pytest.raises(pemba.EngineClosedError):
                 await engine.write_async(touch=[BOB], conn=app)
+            with pytest.raises(pemba.EngineClosedError):
+                await engine.delete_relationships_async(resource_type="document", conn=app)
             with pytest.raises(pemba.EngineClosedError):
                 await aio.resolve(pending)
             # Still the application's transaction, and it commits as this block ends.
