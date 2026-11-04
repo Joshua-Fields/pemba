@@ -942,7 +942,8 @@ Outlines only. Detailed tasks and acceptance criteria get written when each mile
 starts, against the spec as it stands then.
 
 ### M8 — Authorised queries
-- Intended headline of 0.4.0 (maintainer decision, 2026-11-01). Nothing is implemented.
+- Intended headline of 0.5.0 (maintainer decision, 2026-11-03; 0.4.0 is the Django release).
+  Nothing is implemented.
 - Filter application queries by permission inside the database (SQL predicates or a
   join against `lookup_resources`) instead of filtering rows in application code.
 - Must agree with `lookup_resources` under the reference evaluator; SQLite first.
@@ -975,6 +976,23 @@ starts, against the spec as it stands then.
     a caller's connection and transaction working, and `write(conn=)` on a closed engine
     sends nothing on `conn`.
   - `examples/django` uses `close()` in place of `gc.collect()`.
+- **T10.4 Delete by filter in the caller's transaction (0.4.0).** Spec: `05` §10.1, `06` §1,
+  §2.2, §2.2.1; decisions: OQ-069. No on-disk format change. Acceptance criteria:
+  - Rust `delete_in` on SQLite and Postgres; Python `delete_relationships(conn=)` on `sqlite3`,
+    psycopg 3, psycopg2, SQLAlchemy and Django, and `delete_relationships_async` on async psycopg,
+    asyncpg and SQLAlchemy's async API. Each returns a `PendingRevision`, plus `deleted` and `more`.
+  - `delete_in` leaves the same state as the native delete on every store and filter shape
+    (store equivalence), and the store conformance suite still passes.
+  - Rollback: application row and relationships are both kept; commit: both gone, with
+    `at_least=` reading the delete. Rolling back to a savepoint covering the delete restores the
+    rows; rolling back an inner one leaves it in place. A failed delete leaves the transaction usable.
+  - `limit` and `more` across several calls in one transaction, each at its own revision in order;
+    rows written earlier in the transaction are matched.
+  - Concurrency on Postgres, in the style of the existing tests: two deletes of the same rows,
+    with the first committing or rolling back; other isolation levels; a concurrent uncommitted
+    insert survives, as specified; checks during the transaction see the old state.
+  - GC during an open delete loses nothing, whether it commits or rolls back.
+  - `revision_order.rs` still passes unchanged.
 - **Top post-release performance item: fewer round trips per check on deep hierarchies**
   (batched arrow reads per level, or a recursive query). On Postgres a check's cost is
   its round trips (OQ-056). With the statement cache and bulk writes, a direct check is

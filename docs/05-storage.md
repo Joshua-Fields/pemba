@@ -661,3 +661,58 @@ Guard rails:
 
 Postgres later: same pattern with psycopg (`%s` placeholders via dialect) and revision order
 needing a transaction-level advisory lock or an `xid8`-snapshot scheme — open question.
+
+### 10.1 Delete by filter in the caller's transaction (T10.4, OQ-069)
+
+`Engine::delete_in(txn, filter, limit)` and Python's `delete_relationships(..., conn=)` delete
+an application row and its relationships in one commit, with no second step to crash between.
+They run `delete_matching` on the caller's transaction, inside `SAVEPOINT pemba_write`, on
+every store with a `WriteTxn`: Rust SQLite and Postgres, and from Python, SQLite through
+`sqlite3` and Postgres through psycopg 3, psycopg2, SQLAlchemy, Django, and asyncpg and async
+psycopg (`delete_relationships_async`). A memory engine has no transaction to join:
+`conn=` is a `ValueError`. **No on-disk format change:** the rows, the `delete_filter` revision
+kind and the commit trigger are as they were.
+
+Same as `write_in`:
+- The store checks the transaction is on its database, on every call
+  (`ForeignConnectionMismatch`). Python's connection checks, and `allow_autocommit`, are
+  `write(conn=)`'s (§10, `10` §2.3).
+- The caller owns the outcome. Nothing is visible on the engine's connections until commit.
+  After a rollback, or a rollback to a savepoint covering the delete, the rows are live again and the
+  revision is void: Postgres `resolve` raises `WriteRolledBack`; on SQLite the number may be
+  reused (§10). On failure the delete's own statements are undone to its savepoint, and the
+  caller should roll back anyway.
+- One call is one revision. On Postgres the commit assigns it (`10` §1.6.1), in the same order as
+  the transaction's other batches, so revision order equals commit order as before.
+
+Same as `delete_matching`:
+- At most `limit` rows, default and maximum `max_delete_by_filter`; the result's `more` says
+  whether matches remain. **Nothing loops for the caller:** call again in the same transaction
+  while `more`, each call at its own revision. Rows the caller's own transaction wrote are matched, since its statements see them.
+- A revision is allocated even when nothing matches (OQ-030 (g)).
+- The filter is validated as for `read_relationships`, against the engine's newest schema.
+- No schema lock and no schema-version check: deleting cannot create a stale tuple (OQ-030 (g)),
+  so it does not fail against a newer schema, unlike a checked `write_in` (OQ-049).
+
+Concurrency, on Postgres (SQLite has one writer, so a second delete waits or gets a retryable
+`Conflict` at `BEGIN IMMEDIATE`):
+- **Two deletes of the same rows:** the second waits for the first's transaction. If that
+  commits, the second skips those rows and does not count them, and they keep the first's
+  revision; if it rolls back, the second deletes them. This holds because the `UPDATE` matches on
+  `ctid`: when Postgres re-checks a row it waited for, the new version's `ctid` no longer matches.
+- **A live row rewritten during the wait is skipped too,** for the same reason: GC's rebase of
+  old rows gives a live row a new `ctid` (`10` §1.6.5). The row stays live and `deleted` is lower,
+  and `more` is true, as its statement sees the new version. This is one more reason to loop
+  while `more`, and `more` can be true below `limit`.
+- **Isolation:** REPEATABLE READ and SERIALIZABLE get the retryable `TRANSACTION_CONFLICT` in that
+  case, and a deadlock is the same; retry the whole transaction.
+- **It is not a predicate lock.** Like SQL `DELETE`, it matches the rows its statement can see.
+  A relationship another transaction has inserted but not committed is **not** deleted, and
+  stays live after both commit. If new relationships can be written for a row being deleted,
+  serialise them in the app, for example by locking the application row in both transactions.
+
+GC: rows deleted in an open transaction are not collectable, because the delete has no revision. A
+GC running meanwhile moves the horizon and collects what is committed. On Postgres its rewriting of
+rows the delete has locked waits for that transaction, like any write to the same row. On SQLite GC
+needs the write lock the transaction holds: it waits for `busy_timeout`, then fails with
+the retryable `Conflict`.

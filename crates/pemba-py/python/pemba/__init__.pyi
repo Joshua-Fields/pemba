@@ -21,6 +21,7 @@ __all__ = [
     "LookupResult",
     "NoSchemaError",
     "OrphanReport",
+    "PendingDelete",
     "PendingRevision",
     "Precondition",
     "Relationship",
@@ -280,6 +281,18 @@ class GcStats:
     def __eq__(self, other: object) -> bool: ...
 
 @final
+class PendingDelete(PendingRevision):
+    deleted: int
+    more: bool
+    def __init__(
+        self,
+        deleted: int,
+        more: bool,
+        revision: int | None = None,
+        *,
+        resolver: Callable[[], int] | None = None,
+    ) -> None: ...
+
 class DeleteResult:
     @property
     def deleted(self) -> int: ...
@@ -437,6 +450,7 @@ class Engine:
         or SQLAlchemy AsyncSession/AsyncConnection. Caller owns commit/rollback.
         Cancellation drains the worker before raising CancelledError; roll back then.
         Raw psycopg alone supports allow_autocommit opt-in. Same errors as write."""
+    @overload
     def delete_relationships(
         self,
         *,
@@ -447,6 +461,8 @@ class Engine:
         subject_id: str | None = None,
         subject_relation: str | None = None,
         limit: int | None = None,
+        conn: None = None,
+        allow_autocommit: Literal[False] = False,
     ) -> DeleteResult:
         """Deletes up to `limit` live relationships matching the filter, at one new revision.
 
@@ -456,6 +472,43 @@ class Engine:
         `InvalidRequestError`. Negative or unrepresentable integers raise `OverflowError`
         during argument conversion. Filter names must exist in the schema; permissions are
         not relations. Malformed names raise `ValueError`."""
+    @overload
+    def delete_relationships(
+        self,
+        *,
+        resource_type: str,
+        resource_id: str | None = None,
+        relation: str | None = None,
+        subject_type: str | None = None,
+        subject_id: str | None = None,
+        subject_relation: str | None = None,
+        limit: int | None = None,
+        conn: Any,
+        allow_autocommit: bool = False,
+    ) -> PendingDelete:
+        """The same delete in the caller's transaction, so an application row and its
+        relationships go in one commit. `conn` is as for `write`, with the same checks and
+        errors. The caller commits or rolls back.
+
+        Check `more`: while it is true call again in the same transaction, or relationships
+        stay behind. Each call has its own revision. Relationships another transaction has
+        inserted but not committed are not deleted."""
+    def delete_relationships_async(
+        self,
+        *,
+        resource_type: str,
+        resource_id: str | None = None,
+        relation: str | None = None,
+        subject_type: str | None = None,
+        subject_id: str | None = None,
+        subject_relation: str | None = None,
+        limit: int | None = None,
+        conn: object,
+        allow_autocommit: bool = False,
+    ) -> Coroutine[Any, Any, PendingDelete]:
+        """Await a delete in the caller's Postgres transaction on psycopg AsyncConnection,
+        asyncpg Connection or SQLAlchemy AsyncSession/AsyncConnection. Check `more`.
+        Cancellation and errors are as for write_async."""
     @overload
     def check(
         self, tuple_str: str, /, *, at_least: int | PendingRevision | None = None, at_exactly: int | None = None

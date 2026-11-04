@@ -60,6 +60,14 @@ pub enum Applied {
 }
 
 impl Applied {
+    /// The caller's handle on this revision (ADR-015).
+    pub(crate) fn pending(self) -> crate::model::PendingRevision {
+        match self {
+            Self::At(rev) => crate::model::PendingRevision::resolved_at(rev),
+            Self::Pending { batch, xid } => crate::model::PendingRevision::at_commit(batch, xid),
+        }
+    }
+
     /// The revision, for callers that drive only [`RevisionStrategy::AllocateNow`] stores.
     ///
     /// # Errors
@@ -353,6 +361,25 @@ where
         more,
         applied: finish(txn, dialect, mark, value, "delete_filter")?,
     })
+}
+
+/// [`delete_matching`] inside a transaction the caller owns (`docs/05-storage.md` §10.1):
+/// on error its statements are rolled back to a savepoint and the transaction stays open.
+///
+/// # Errors
+///
+/// [`Error::Store`] if a statement fails.
+pub fn delete_matching_in<T, D>(
+    txn: &mut T,
+    dialect: &D,
+    filter: &RelationshipFilter,
+    limit: usize,
+) -> Result<Deleted, Error>
+where
+    T: WriteTxn + ?Sized,
+    D: SqlDialect + ?Sized,
+{
+    in_savepoint(txn, |txn| delete_matching(txn, dialect, filter, limit))
 }
 
 /// Stores a new schema version at a new revision (kind `'schema'`) inside `txn`, after

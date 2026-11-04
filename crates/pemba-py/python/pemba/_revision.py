@@ -62,3 +62,31 @@ class PendingRevision:
         if self._revision is None:
             return "PendingRevision(<unresolved>)"
         return f"PendingRevision({int(self._revision)})"
+
+
+class PendingDelete(PendingRevision):
+    """What ``delete_relationships(..., conn=)`` returns: a ``PendingRevision`` with the
+    delete's outcome.
+
+    ``deleted`` is how many relationships this call marked, visible once the caller
+    commits. While ``more`` is true matches remain: call again in the same transaction, or
+    they stay behind.
+    """
+
+    __slots__ = ("deleted", "more")
+
+    def __init__(
+        self,
+        deleted: int,
+        more: bool,
+        revision: int | None = None,
+        *,
+        resolver: Callable[[], int] | None = None,
+    ) -> None:
+        super().__init__(revision, resolver=resolver)
+        self.deleted = deleted
+        self.more = more
+
+    def __repr__(self) -> str:
+        number = "<unresolved>" if self._revision is None else int(self._revision)
+        return f"PendingDelete(deleted={self.deleted}, more={self.more}, revision={number})"

@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import threading
-from collections.abc import Iterable
-from typing import Any
+from collections.abc import Callable, Iterable
+from typing import Any, TypeVar
 
-from pemba import Engine, PendingRevision, Precondition, Relationship
+from pemba import Engine, PendingDelete, PendingRevision, Precondition, Relationship
+
+T = TypeVar("T")
 
 
 class _ConnectionBridge:
@@ -88,7 +90,7 @@ async def _connection(conn: Any, allow_autocommit: bool) -> _ConnectionBridge:
         if not open_transaction and not allow_autocommit:
             raise ValueError("conn has no open transaction; open one first or pass allow_autocommit=True")
         return _ConnectionBridge(conn, False, not open_transaction)
-    raise TypeError("write_async conn must be a psycopg AsyncConnection, asyncpg Connection, or SQLAlchemy AsyncSession/AsyncConnection on one")
+    raise TypeError("write_async and delete_relationships_async conn must be a psycopg AsyncConnection, asyncpg Connection, or SQLAlchemy AsyncSession/AsyncConnection on one")
 
 
 async def write_async(
@@ -111,7 +113,25 @@ async def write_async(
             conn=bridge, allow_autocommit=allow_autocommit,
         )
 
-    worker = asyncio.create_task(asyncio.to_thread(write))
+    return await _in_worker(bridge, write)
+
+
+async def delete_async(
+    engine: Engine, filter_: dict[str, Any], conn: Any, allow_autocommit: bool,
+) -> PendingDelete:
+    """The same, for a delete by filter (``docs/05-storage.md`` §10.1)."""
+    bridge = await _connection(conn, allow_autocommit)
+    def delete() -> PendingDelete:
+        return engine.delete_relationships(
+            **filter_, conn=bridge, allow_autocommit=allow_autocommit,
+        )
+
+    return await _in_worker(bridge, delete)
+
+
+async def _in_worker(bridge: _ConnectionBridge, call: Callable[[], T]) -> T:
+    """Runs ``call`` in a worker, draining it on cancellation before the caller rolls back."""
+    worker = asyncio.create_task(asyncio.to_thread(call))
     try:
         return await asyncio.shield(worker)
     except asyncio.CancelledError:

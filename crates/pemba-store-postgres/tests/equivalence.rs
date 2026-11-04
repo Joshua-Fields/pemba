@@ -13,8 +13,10 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use common::{TestSchema, admin, pg_url};
+use pemba_core::store::WritableStore;
+use pemba_core::write::Applied;
 use pemba_store_memory::MemoryStore;
-use pemba_store_postgres::{PostgresConfig, PostgresStore};
+use pemba_store_postgres::{PgTxn, PostgresConfig, PostgresStore};
 use pemba_store_sqlite::{SqliteConfig, SqliteStore};
 use pemba_testkit::{generate, store_equivalence};
 use proptest::prelude::*;
@@ -62,6 +64,53 @@ fn config() -> ProptestConfig {
         failure_persistence: None,
         ..ProptestConfig::default()
     }
+}
+
+/// Filter deletes on the second store go through the caller's-transaction path, on a
+/// connection of the test's own; the state must match the native path's at every revision
+/// (T10.4).
+#[test]
+fn a_delete_in_the_callers_transaction_leaves_what_a_native_delete_leaves() {
+    let Some(url) = pg_url() else { return };
+    let mut runner = TestRunner::new(config());
+    runner
+        .run(&generate::store_ops(), |ops| {
+            let open = |schema: &TestSchema| {
+                PostgresStore::open(
+                    &url,
+                    PostgresConfig::default()
+                        .with_schema(&schema.name)
+                        .with_pool_size(2)
+                        .with_auto_migrate(true),
+                )
+                .unwrap()
+            };
+            let (native_schema, foreign_schema) = (TestSchema::new(&url), TestSchema::new(&url));
+            let (native, foreign) = (open(&native_schema), open(&foreign_schema));
+            let app = std::cell::RefCell::new(admin(&url));
+            let stores: [&dyn WritableStore; 2] = [&native, &foreign];
+            store_equivalence::equivalent_deleting(&stores, &ops, &|i, filter, limit| {
+                if i == 0 {
+                    return native.delete_matching(filter, limit);
+                }
+                let mut app = app.borrow_mut();
+                let mut tx = app.transaction().unwrap();
+                let deleted = pemba_core::write::delete_matching_in(
+                    &mut PgTxn::new(&mut tx),
+                    foreign.dialect(),
+                    filter,
+                    limit,
+                )?;
+                tx.commit().unwrap();
+                match deleted.applied {
+                    Applied::Pending { batch, xid } => {
+                        Ok(deleted.at(foreign.resolve_batch(batch, xid)?))
+                    }
+                    _ => panic!("Postgres assigns revisions at commit"),
+                }
+            })
+        })
+        .unwrap();
 }
 
 #[test]

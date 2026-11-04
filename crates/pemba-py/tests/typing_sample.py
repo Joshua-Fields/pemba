@@ -95,6 +95,9 @@ def main() -> None:
     stats: pemba.GcStats = engine.gc(head)
     assert stats.horizon == head
 
+    gone: pemba.DeleteResult = engine.delete_relationships(resource_type="document", limit=1)
+    assert gone.deleted >= 0
+
     with pemba.Engine.memory() as scoped:
         same: pemba.Engine = scoped
         is_closed: bool = same.closed

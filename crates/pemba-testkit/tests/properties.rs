@@ -445,6 +445,40 @@ mod prop5 {
 
     use super::config;
 
+    /// Filter deletes on a second SQLite store go through the caller's-transaction path, on
+    /// a connection of the test's own; the state must match the native path's at every
+    /// revision (T10.4).
+    fn foreign_delete_equivalent(ops: &[StoreOp]) -> Result<(), TestCaseError> {
+        use pemba_core::store::SqlStore;
+        use pemba_store_sqlite::SqliteTxn;
+        use pemba_store_sqlite::rusqlite::{Connection, TransactionBehavior};
+
+        let native = TempSqlite::new();
+        let foreign = TempSqlite::new();
+        let conn = std::cell::RefCell::new(Connection::open(foreign.dir.join("p5.db")).unwrap());
+        let stores: [&dyn WritableStore; 2] = [
+            native.store.as_ref().unwrap(),
+            foreign.store.as_ref().unwrap(),
+        ];
+        pemba_testkit::store_equivalence::equivalent_deleting(&stores, ops, &|i, filter, limit| {
+            if i == 0 {
+                return stores[0].delete_matching(filter, limit);
+            }
+            let mut conn = conn.borrow_mut();
+            let tx = conn
+                .transaction_with_behavior(TransactionBehavior::Immediate)
+                .unwrap();
+            let deleted = pemba_core::write::delete_matching_in(
+                &mut SqliteTxn::new(&tx),
+                foreign.store.as_ref().unwrap().dialect(),
+                filter,
+                limit,
+            )?;
+            tx.commit().unwrap();
+            deleted.into_result()
+        })
+    }
+
     fn equivalent(ops: &[StoreOp]) -> Result<(), TestCaseError> {
         let memory = MemoryStore::new();
         let sqlite = TempSqlite::new();
@@ -500,6 +534,12 @@ mod prop5 {
                         Err(e) => e.code().to_owned(),
                     },
                     StoreOp::Schema(_) => continue,
+                    StoreOp::DeleteMatching(filter, limit) => {
+                        match s.delete_matching(filter, *limit) {
+                            Ok(d) if d.deleted > 0 => "filter delete removed rows".to_owned(),
+                            _ => continue,
+                        }
+                    }
                     StoreOp::Gc(f) => {
                         let head = s.head_revision().unwrap();
                         match s.gc(StoreOp::gc_revision(*f, head)) {
@@ -529,6 +569,12 @@ mod prop5 {
         #[test]
         fn prop5_memory_and_sqlite_agree(ops in generate::store_ops()) {
             equivalent(&ops)?;
+        }
+
+        /// A delete in the caller's transaction leaves what a native delete leaves.
+        #[test]
+        fn prop5_foreign_delete_agrees_on_sqlite(ops in generate::store_ops()) {
+            foreign_delete_equivalent(&ops)?;
         }
     }
 
