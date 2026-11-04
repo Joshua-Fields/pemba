@@ -92,7 +92,7 @@ pub use txn::PgTxn;
 pub const PEMBA_LOCK_CLASS: i32 = 0x7065_6D62;
 
 /// How a Postgres store connects and what it checks. `Default` gives the spec defaults.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct PostgresConfig {
     /// The schema holding the store's tables, unquoted (e.g. `app`, or `My Schema`).
@@ -106,6 +106,34 @@ pub struct PostgresConfig {
     /// needs `CREATE` on the schema, and app instances starting together would all run
     /// DDL. Run [`PostgresStore::migrate`] as a deploy step instead.
     pub auto_migrate: bool,
+    /// The one certificate to trust for this server, as PEM text (not a file path). `None`
+    /// (the default) verifies against the platform trust store.
+    ///
+    /// When set, the platform trust store is not used. The server must present exactly
+    /// this certificate and prove it holds its key; its issuer, name, CA flag and expiry
+    /// are not checked, because these bytes are the whole trust decision. Give the server's
+    /// own certificate: a CA's certificate does not trust what that CA issues.
+    ///
+    /// TLS becomes mandatory: `sslmode=prefer` acts as `require`, and `sslmode=disable` is
+    /// an [`Error::InvalidRequest`] at open, as is PEM that does not hold exactly one
+    /// certificate. **Connections stop when the server's certificate changes**, until
+    /// this is updated. See `docs/guides/postgres-certificates.md` and ADR-017.
+    pub pinned_certificate_pem: Option<String>,
+}
+
+impl fmt::Debug for PostgresConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // Not the PEM's contents, which must stay out of logs: only whether there is one.
+        f.debug_struct("PostgresConfig")
+            .field("schema", &self.schema)
+            .field("pool_size", &self.pool_size)
+            .field("auto_migrate", &self.auto_migrate)
+            .field(
+                "pinned_certificate_pem",
+                &self.pinned_certificate_pem.as_ref().map(|_| "<set>"),
+            )
+            .finish()
+    }
 }
 
 impl Default for PostgresConfig {
@@ -114,6 +142,7 @@ impl Default for PostgresConfig {
             schema: None,
             pool_size: 8,
             auto_migrate: false,
+            pinned_certificate_pem: None,
         }
     }
 }
@@ -137,6 +166,13 @@ impl PostgresConfig {
     #[must_use]
     pub fn with_auto_migrate(mut self, auto_migrate: bool) -> Self {
         self.auto_migrate = auto_migrate;
+        self
+    }
+
+    /// Sets [`pinned_certificate_pem`](Self::pinned_certificate_pem).
+    #[must_use]
+    pub fn with_pinned_certificate_pem(mut self, pem: impl Into<String>) -> Self {
+        self.pinned_certificate_pem = Some(pem.into());
         self
     }
 }
@@ -215,7 +251,8 @@ impl PostgresStore {
     /// # Errors
     ///
     /// - [`Error::InvalidRequest`] if `dsn` does not parse, `pool_size` is 0, the schema
-    ///   name is unusable ([`check_schema_name`]) or the schema does not exist.
+    ///   name is unusable ([`check_schema_name`]), the schema does not exist, or
+    ///   [`PostgresConfig::pinned_certificate_pem`] is unusable.
     /// - [`Error::NotMigrated`] if `auto_migrate` is off and the tables are missing or older.
     /// - [`Error::StorageVersionTooNew`] if a newer library migrated them.
     /// - [`Error::Store`] if connecting or a query fails, the server is older than
@@ -319,10 +356,15 @@ impl First {
             check_schema_name(s)?;
         }
         // The parser's messages name the bad option, never echo the DSN (or its password).
-        let pg_config = postgres::Config::from_str(dsn).map_err(|e| Error::InvalidRequest {
+        let mut pg_config = postgres::Config::from_str(dsn).map_err(|e| Error::InvalidRequest {
             message: format!("invalid Postgres connection string: {e}"),
         })?;
-        let connector = tls::Connector::new()?;
+        let pinned = config.pinned_certificate_pem.as_deref();
+        if pinned.is_some() {
+            // In the config the pool keeps, so every later connection requires TLS too.
+            tls::require_tls_for_pin(&mut pg_config)?;
+        }
+        let connector = tls::Connector::new(pinned)?;
         let mut client = pool::connect_raw(&pg_config, &connector)?;
         migrate::check_server(&mut client)?;
         let schema = if let Some(s) = &config.schema {

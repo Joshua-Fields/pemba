@@ -993,6 +993,16 @@ starts, against the spec as it stands then.
     insert survives, as specified; checks during the transaction see the old state.
   - GC during an open delete loses nothing, whether it commits or rolls back.
   - `revision_order.rs` still passes unchanged.
+- **T10.5 Pin a Postgres server's certificate.** Spec: `06` §1, `10` §2.1; decisions: ADR-017,
+  OQ-070. No on-disk format change. Acceptance criteria:
+  - Rust `PostgresConfig::pinned_certificate_pem` and Python `Engine.postgres(pinned_certificate_pem=)`
+    take PEM text. Without them, verification is unchanged.
+  - The correct certificate connects and works, including foreign writes, for a self-signed
+    non-CA leaf and a `CA:TRUE` certificate from a private root, whatever the name.
+  - A different certificate, a certificate issued by a pinned CA and the pinned certificate
+    without its key are all refused.
+  - Unusable PEM fails at open, without quoting the PEM or the DSN. No path falls back to the
+    platform store or plaintext, and none skips verification.
 - **Top post-release performance item: fewer round trips per check on deep hierarchies**
   (batched arrow reads per level, or a recursive query). On Postgres a check's cost is
   its round trips (OQ-056). With the statement cache and bulk writes, a direct check is

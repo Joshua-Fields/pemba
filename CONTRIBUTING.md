@@ -195,14 +195,20 @@ export PEMBA_PG_REQUIRED=1
 cargo test -p pemba-store-postgres --all-features
 cargo test -p pemba-store-postgres --no-default-features
 # On a separate disposable server with an untrusted TLS certificate, as in ci.yml:
-# export PEMBA_PG_TLS_URL=postgres://postgres@127.0.0.1:5433/postgres
+# export PEMBA_PG_TLS_URL=postgres://postgres@localhost:5433/postgres
+# export PEMBA_PG_TLS_CERT_FILE=path/to/that-servers-certificate.pem
+# And for the CA:TRUE certificate tests, Railway's image, as in ci.yml:
+# export PEMBA_PG_TLS_CA_LEAF_URL=postgres://postgres:pemba-test@localhost:5434/postgres
+# export PEMBA_PG_TLS_CA_LEAF_CERT_FILE=path/to/that-servers-certificate.pem
 ```
 
 PowerShell environment syntax is `$env:PEMBA_PG_REQUIRED = '1'` and
 `$env:PEMBA_PG_URL = 'postgres://postgres@127.0.0.1:5432/postgres'`.
 `PEMBA_PG_TLS_URL` must point to the separate TLS-enabled server: the rejection test
 expects its certificate to be untrusted. Copy the TLS container setup from `ci.yml`'s
-Postgres job; do not weaken verification to make it pass.
+Postgres job; do not weaken verification to make it pass. Use `localhost` in these URLs: the
+pinned-certificate tests swap it for `127.0.0.1` to connect under a name the certificate lacks.
+Publish the containers on `::1` as well as `127.0.0.1`, or a driver trying `::1` first can stall.
 
 Keep the tool-only venv above intact. In a **second**, fresh Python 3.12 venv, activate
 it, set the PyO3 variables as above and install the same CI tools plus CI's drivers:

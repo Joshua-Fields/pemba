@@ -1837,3 +1837,34 @@ it is resolved.
   - **Async adapters are included,** as `delete_relationships_async`: the `write_async` bridge works
     for any statement sequence, so there was no reason to defer them.
 - Resolution: Open for maintainer review on the T10.4 PR; these choices are in force until then.
+
+## OQ-070 — Trusting a managed Postgres server's certificate (M10, T10.5)
+- Raised in: T10.5
+- Blocking: no
+- Problem: Needle's Railway Postgres was expected to fail with `UnknownIssuer`. Would adding the
+  certificate to the rustls root store be enough, and what happens when the name differs?
+- Evidence, 2026-11-04: rustls 0.23.46 and webpki 0.103.16 with the certificate as trust anchor:
+
+  | Certificate | Result |
+  |---|---|
+  | Self-signed non-CA, name matches | Accepted |
+  | Self-signed `CA:TRUE`, the `openssl req -x509` default | `CaUsedAsEndEntity` |
+  | Railway's `postgres-ssl:18` image, run locally, any host | `CaUsedAsEndEntity` |
+  | Self-signed non-CA, name differs | `NotValidForName` |
+  | Private CA trusted, name differs | `NotValidForName` |
+  | Issued leaf trusted, CA not | `UnknownIssuer` |
+  | Non-CA leaf trusted, another certificate signed by its key | Accepted |
+
+  The last row shows a trust anchor trusts a key, not one certificate. So the root store cannot
+  accept this server, and would accept more than was asked when it can.
+- Choices, confirmed by the maintainer: pin exact bytes with a custom verifier and no CA mode; `prefer`
+  acts as `require`, and `disable` is an error; an expired pin is still accepted; exactly one
+  certificate. Reasoning: ADR-017.
+- A test showed `prefer` sending the user and database names in clear after a server answered
+  `N`, which is why a pin requires TLS. Without a pin `prefer` still behaves that way, as
+  documented.
+- Confirmed in production, 2026-11-04: Needle's Railway service logged `invalid peer certificate:
+  Other(OtherError(CaUsedAsEndEntity))` without a pin, the same error as the image run locally.
+- Not verified: a pinned connection to a real Railway service. The image's scripts can change, and
+  a service can run another image. Check the certificate with the command in
+  `docs/guides/postgres-certificates.md`.

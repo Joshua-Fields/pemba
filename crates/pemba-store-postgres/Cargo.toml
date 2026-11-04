@@ -34,6 +34,8 @@ pemba-testkit.workspace = true
 pemba-store-memory.workspace = true
 pemba-store-sqlite.workspace = true
 proptest.workspace = true
+# Generates the certificate shapes the pinned-certificate tests need, so no private key is committed.
+rcgen = { version = "0.14.10", default-features = false, features = ["pem", "ring"] }
 # Only for the test that pins how the blocking client behaves inside a runtime.
 tokio = { version = "1.54.1", default-features = false, features = ["rt-multi-thread", "macros"] }
 

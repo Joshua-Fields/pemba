@@ -189,6 +189,9 @@ jobs:
             -c ssl_key_file=/etc/ssl/private/ssl-cert-snakeoil.key
           for i in $(seq 1 30); do docker exec pg-tls pg_isready -U postgres && break; sleep 1; done
           docker exec pg-tls psql -U postgres -tAc 'SHOW ssl' | grep -qx on
+          # The certificate as a file, for the pinned_certificate_pem tests (ADR-017).
+          docker exec pg-tls cat /etc/ssl/certs/ssl-cert-snakeoil.pem > "$RUNNER_TEMP/pg-tls.pem"
+          echo "PEMBA_PG_TLS_CERT_FILE=$RUNNER_TEMP/pg-tls.pem" >> "$GITHUB_ENV"
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"

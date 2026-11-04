@@ -20,5 +20,13 @@ secret:
     # never appears in an error message. The line also carries a ggignore comment.
     - name: Test fixture DSN password (fake)
       match: hunter2secret
+    # Fake password in the pinned-certificate tests, which check that it never appears in an
+    # error message, and the password of a disposable CI server.
+    - name: Pinned-certificate test DSN password (fake)
+      match: dsn-password-value
+    - name: Disposable CI server password (fake)
+      match: pemba-test
+    - name: Disposable CI server URI (fake)
+      match: postgres://postgres:pemba-test@localhost:5434/postgres
     - name: Test fixture DSN URI (fake)
       match: postgres://u:hunter2secret@127.0.0.1/db?sslmode=sometimes

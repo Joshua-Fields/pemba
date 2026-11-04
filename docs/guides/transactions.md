@@ -76,9 +76,11 @@ Rust Postgres defaults enable the `tls` feature. Python includes Postgres with r
 there is no OpenSSL dependency in the extension. Certificate validation uses platform
 trust roots and the DSN's `sslmode`. Use `sslmode=require` when transport encryption is
 required; an untrusted certificate fails the handshake. There is no exposed custom-CA
-option. Install the appropriate CA in the platform trust store; `sslmode=disable` is
-only appropriate for an explicitly trusted local/test transport, not a workaround for
-production certificate validation. Foreign application drivers configure their own TLS.
+option: install a private CA in the platform trust store. For a managed server whose
+certificate cannot be verified that way, [pin the exact certificate](postgres-certificates.md)
+with `pinned_certificate_pem`. `sslmode=disable` is only appropriate for an explicitly trusted
+local/test transport, not a workaround for production certificate validation. Foreign
+application drivers configure their own TLS, and a pin does not cover them.
 
 The engine owns a connection pool (default 8) and caches prepared statements per
 connection. PgBouncer session pooling works; transaction pooling requires PgBouncer

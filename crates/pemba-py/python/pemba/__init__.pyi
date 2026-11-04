@@ -352,8 +352,13 @@ class Engine:
         pool_size: int = 8,
         auto_migrate: bool = False,
         max_depth: int = 50,
+        pinned_certificate_pem: str | None = None,
     ) -> Engine:
-        """Opens the Postgres store in schema (default: the connection's current_schema()); calls release the GIL."""
+        """Opens the Postgres store in schema (default: the connection's current_schema()); calls release the GIL.
+
+        `pinned_certificate_pem` is the PEM text of the one certificate to trust instead of
+        the platform trust store. It makes TLS mandatory, and connections stop when the
+        server's certificate changes (docs/guides/postgres-certificates.md)."""
     @staticmethod
     def memory(*, max_depth: int = 50) -> Engine:
         """An engine over a fresh in-memory store. Calls release the GIL.

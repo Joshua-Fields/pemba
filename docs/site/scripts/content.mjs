@@ -28,13 +28,15 @@ export function prepare(source, out, info) {
   const roadmap = complete && fs.existsSync(path.join(source, 'ROADMAP.md'));
   const triage = complete && fs.existsSync(path.join(source, 'docs/TRIAGE.md'));
   const fastapi = complete && fs.existsSync(path.join(source, 'docs/guides/fastapi.md'));
+  const postgresCertificates = complete && fs.existsSync(path.join(source, 'docs/guides/postgres-certificates.md'));
   const sourcePages = new Map(pages);
   if (contributing) sourcePages.set('CONTRIBUTING.md', 'contributing');
   if (security) sourcePages.set('SECURITY.md', 'security');
   if (roadmap) sourcePages.set('ROADMAP.md', 'roadmap');
   if (triage) sourcePages.set('docs/TRIAGE.md', 'triage');
   if (fastapi) sourcePages.set('docs/guides/fastapi.md', 'guides/fastapi');
-  const metadata = { ...info, label, complete, contributing, security, roadmap, triage, fastapi };
+  if (postgresCertificates) sourcePages.set('docs/guides/postgres-certificates.md', 'guides/postgres-certificates');
+  const metadata = { ...info, label, complete, contributing, security, roadmap, triage, fastapi, postgresCertificates };
   fs.writeFileSync(path.join(out, 'build-info.json'), JSON.stringify(metadata));
   const next = '[Development documentation](https://joshua-fields.github.io/pemba/docs/next/)';
   if (!complete) {

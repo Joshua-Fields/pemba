@@ -296,6 +296,13 @@ jobs:
       fail-fast: false
       matrix:
         pg: ["15", "18"]
+        # Third-party images, pinned by digest so a change on their side cannot break this
+        # job. Update them deliberately, to check a new image's certificate shape.
+        include:
+          - pg: "15"
+            ca_leaf_image: ghcr.io/railwayapp-templates/postgres-ssl:15@sha256:c0a2dcc92c80c635b39c92028470f3f2b525f11432567ae2fdd04f90fb5a8dd5
+          - pg: "18"
+            ca_leaf_image: ghcr.io/railwayapp-templates/postgres-ssl:18@sha256:4fc833b43d2aaf6ecc9b18615f5533602b723a32d0e2efe2dae8ca0f7217c863
     services:
       postgres:
         image: postgres:${{ matrix.pg }}
@@ -311,6 +318,7 @@ jobs:
     env:
       PEMBA_PG_URL: postgres://postgres@localhost:5432/postgres
       PEMBA_PG_TLS_URL: postgres://postgres@localhost:5433/postgres
+      PEMBA_PG_TLS_CA_LEAF_URL: postgres://postgres:pemba-test@localhost:5434/postgres # ggignore: disposable CI server's password
       PEMBA_PG_REQUIRED: "1"
       PEMBA_FASTAPI_REQUIRED: "1"
     steps:
@@ -327,11 +335,44 @@ jobs:
             -c ssl_key_file=/etc/ssl/private/ssl-cert-snakeoil.key
           for i in $(seq 1 30); do docker exec pg-tls pg_isready -U postgres && break; sleep 1; done
           docker exec pg-tls psql -U postgres -tAc 'SHOW ssl' | grep -qx on
+          # The certificate as a file, for the pinned_certificate_pem tests (ADR-017).
+          docker exec pg-tls cat /etc/ssl/certs/ssl-cert-snakeoil.pem > "$RUNNER_TEMP/pg-tls.pem"
+          echo "PEMBA_PG_TLS_CERT_FILE=$RUNNER_TEMP/pg-tls.pem" >> "$GITHUB_ENV"
+      # Railway's public image, not a real Railway service: a CA:TRUE certificate issued by a
+      # private root, which webpki refuses whoever is trusted (ADR-017), over SCRAM.
+      - name: a Postgres with a CA:TRUE certificate
+        run: |
+          docker run -d --name pg-tls-ca-leaf -e POSTGRES_PASSWORD=pemba-test \
+            -e PGDATA=/var/lib/postgresql/data/pgdata -p 5434:5432 \
+            ${{ matrix.ca_leaf_image }}
+          # The image restarts Postgres during setup, so wait until TLS is really on.
+          for i in $(seq 1 60); do
+            [ "$(docker exec pg-tls-ca-leaf psql -U postgres -tAc 'SHOW ssl' 2>/dev/null)" = on ] \
+              && docker exec pg-tls-ca-leaf pg_isready -U postgres && break
+            sleep 1
+          done
+          cert="$(docker exec pg-tls-ca-leaf psql -U postgres -tAc 'SHOW ssl_cert_file')"
+          docker exec pg-tls-ca-leaf cat "$cert" > "$RUNNER_TEMP/pg-tls-ca-leaf.pem"
+          grep -q 'BEGIN CERTIFICATE' "$RUNNER_TEMP/pg-tls-ca-leaf.pem"
+          echo "PEMBA_PG_TLS_CA_LEAF_CERT_FILE=$RUNNER_TEMP/pg-tls-ca-leaf.pem" >> "$GITHUB_ENV"
       - run: cargo test -p pemba-store-postgres --all-features
+      # revision_order fails on wall-clock limits, and with this server running it went past
+      # them far more often. Nothing in that test uses it. The Python tests below do.
+      - name: stop the CA:TRUE Postgres for the timed test
+        run: docker stop pg-tls-ca-leaf
       # The permanent revision-order test (docs/10-postgres.md §4.4, T5.6), about 20 s.
       # --nocapture so each variant's 40001 rate, writer wait and visibility lag are in
       # the log.
       - run: cargo test -p pemba-store-postgres --all-features --test revision_order -- --ignored --nocapture
+      - name: start the CA:TRUE Postgres again
+        run: |
+          docker start pg-tls-ca-leaf
+          for i in $(seq 1 60); do
+            [ "$(docker exec pg-tls-ca-leaf psql -U postgres -tAc 'SHOW ssl' 2>/dev/null)" = on ] \
+              && docker exec pg-tls-ca-leaf pg_isready -U postgres && exit 0
+            sleep 1
+          done
+          exit 1
       # Engine.postgres and foreign mode with every supported driver (docs/10-postgres.md
       # §2.3, §4 item 6), against the same server. 3.12, not the 3.11 floor: Django 6
       # needs it; the other Python jobs cover 3.11.

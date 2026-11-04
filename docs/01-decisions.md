@@ -198,3 +198,33 @@ milestone M5 in `docs/08-milestones.md`.
 - Shareable links carry the pemba version, and old links reproduce at `/v/<version>/`.
 - Full design and tasks: `docs/11-playground.md`, milestone M6 in
   `docs/08-milestones.md`.
+
+## ADR-017 — Trust a Postgres server by pinning its exact certificate
+
+**Context.** Needle's managed Postgres (Railway) cannot be verified through a trust store. Railway's
+public `postgres-ssl` image serves a `CA:TRUE` certificate issued by a private root, naming
+`localhost` and the private domain. webpki refuses it as `CaUsedAsEndEntity` whichever
+certificate is trusted, and refuses a name mismatch even for a private CA. The only workaround
+was `sslmode=disable`. Evidence: OQ-070.
+**Decision.** (maintainer, 2026-11-04)
+- `pinned_certificate_pem` holds PEM text of exactly one certificate and replaces the trust
+  store. A custom rustls verifier accepts a server only if the presented certificate has
+  exactly those bytes and the handshake signature verifies with its key.
+- Issuer, name, CA flag and expiry are not checked: the bytes are the whole trust decision, as
+  in DANE-EE (RFC 7671 §5.1). Anyone can present a public certificate, so the signature is
+  what authenticates the server.
+- There is no CA mode. A pinned CA matches only a server presenting that CA's own certificate,
+  so a certificate it issued is refused. Trusting a CA without a name check would let it vouch
+  for any host, which is not equivalent. A CA option that checks names can be added separately.
+- TLS is mandatory with a pin: `prefer` acts as `require`, because the driver otherwise
+  continues in plaintext when anything answers "no TLS". `sslmode=disable`, and a build without
+  the `tls` feature, are errors at open.
+- There is no mode that skips verification, and no fallback to the platform store or plaintext.
+**Consequences.**
+- Connections stop when the server's certificate changes, until the pin is updated. One
+  certificate at a time means no overlap during a rotation; accepting several later would not
+  break anyone.
+- An expired pinned certificate keeps working, so nothing warns of its expiry.
+- The pin covers only the engine's own connections. Foreign writes use the app's connection,
+  with the app's TLS settings.
+- Default behaviour is unchanged: without the option the code path is the platform trust store.
