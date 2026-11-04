@@ -1801,3 +1801,39 @@ it is resolved.
     still works on Postgres. First verify what `Drop` actually does to the shared sockets.
   - **No `async with`.** `await aio.close(engine)` in a `finally` covers it with one function.
 - Resolution: Accepted by the maintainer, 2026-11-03.
+
+## OQ-069 — Delete by filter in the caller's transaction (M10, T10.4)
+- Raised in: T10.4 (`docs/05-storage.md` §10.1, `docs/06-api.md` §1, §2.2, §2.2.1)
+- Blocking: no
+- Problem: `delete_relationships` ran only on the engine's connection, so deleting a row and its
+  relationships took two commits, and a crash in between left orphaned relationships. The
+  `delete_matching` algorithm already ran on any `WriteTxn`, so no format change is needed. These
+  are the choices the API and semantics needed.
+- Choices:
+  - **Python returns `PendingDelete`, a subclass of `PendingRevision` with `deleted` and `more`.**
+    The request was to return a `PendingRevision`, as `write(conn=)` does, and this is one: it works
+    as `at_least=` and has `.revision()`. A bare one would hide `more`, so a delete over `limit`
+    would silently leave relationships behind, which is the bug this feature removes. Rust returns
+    `PendingDelete { deleted, more, pending }`, as `PendingRevision` is a concrete type there.
+  - **`limit` and `more` are unchanged, and nothing loops for the caller.** An automatic loop would
+    make one call unbounded inside a transaction the caller is holding open. `contrib.django` will
+    loop in its helper (0.4.0 Task 3).
+  - **No schema lock or version check,** as for the native delete (OQ-030 (g)). A foreign delete
+    therefore does not get the OQ-049 conflict in an old snapshot, and it needs no `FOR SHARE`.
+  - **A revision is allocated even when nothing matches** (OQ-030 (g)), so the behaviour matches the
+    native delete and `at_least=` always has something to wait for. The cost, one revision per empty
+    delete, may matter to a delete-signal helper, which Task 3 should look at.
+  - **The savepoint is on the foreign path only.** The native path rolls its whole transaction back
+    on error; a savepoint there would add two round trips for nothing.
+  - **`delete_matching`'s SQL is unchanged.** A delete that waits on another delete of the same
+    rows might have overwritten its batch, as the outer `UPDATE` has no `deleted_batch IS NULL`. It
+    does not: it matches on `ctid`, and the updated row's new version has another one, so Postgres
+    skips it. Tests now pin this for the native and foreign paths. The same mechanism skips a live
+    row that GC's rebase rewrites during the wait: it stays live, and `more` reports it.
+  - **Not a predicate lock.** A relationship another transaction has inserted but not committed
+    survives the delete, as with SQL `DELETE`. Documented in `05` §10.1 rather than solved: closing
+    it would need a lock on every write, against ADR-006's point of using the app's own transaction.
+    The app can serialise on its own row.
+  - **Async adapters are included,** as `delete_relationships_async`: the `write_async` bridge works
+    for any statement sequence, so there was no reason to defer them.
+- Resolution: Open for maintainer review on the T10.4 PR; these choices are in force until then.

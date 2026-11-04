@@ -218,7 +218,7 @@ def test_async_sqlstate_errors(engine: pemba.Engine, schema: str, kind: str, cod
 def test_async_rejects_sync_connection(engine: pemba.Engine) -> None:
     async def exercise() -> None:
         with admin() as conn:
-            with pytest.raises(TypeError, match="write_async conn"):
+            with pytest.raises(TypeError, match="delete_relationships_async conn"):
                 await engine.write_async(touch=[ANNE], conn=conn)
 
     run_async(exercise())
@@ -265,3 +265,64 @@ def test_async_database_identity(engine: pemba.Engine, kind: str) -> None:
     finally:
         with admin() as c:
             c.execute(f'DROP DATABASE "{name}"')
+
+
+# ---- delete_relationships_async (05 §10.1) ----
+
+
+@pytest.mark.parametrize("kind", KINDS)
+@pytest.mark.parametrize("commit", [True, False])
+def test_async_delete_atomicity(engine: pemba.Engine, schema: str, kind: str, commit: bool) -> None:
+    engine.write(touch=[ANNE])
+
+    async def exercise() -> None:
+        async with connection(kind) as conn:
+            tx = await begin(conn, kind)
+            await app_insert(conn, kind, schema)
+            pending = await engine.delete_relationships_async(
+                resource_type="document", resource_id="readme", conn=conn
+            )
+            assert isinstance(pending, pemba.PendingDelete)
+            assert (pending.deleted, pending.more) == (1, False)
+            assert await aio.check(engine, "document:readme#view@user:anne")
+            with pytest.raises(pemba.RevisionPending):
+                await aio.resolve(pending)
+            await (tx.commit() if commit else tx.rollback())
+            if commit:
+                assert not await aio.check(engine, "document:readme#view@user:anne", at_least=pending)
+            else:
+                with pytest.raises(pemba.WriteRolledBack):
+                    await aio.resolve(pending)
+                assert await aio.check(engine, "document:readme#view@user:anne")
+
+    run_async(exercise())
+
+
+def test_async_delete_guards(engine: pemba.Engine) -> None:
+    async def exercise() -> None:
+        async with connection("asyncpg") as conn:
+            with pytest.raises(ValueError, match="no open transaction"):
+                await engine.delete_relationships_async(resource_type="document", conn=conn)
+        with admin() as sync:
+            with pytest.raises(TypeError, match="delete_relationships_async conn"):
+                await engine.delete_relationships_async(resource_type="document", conn=sync)
+        async with connection("psycopg") as raw:
+            await raw.set_autocommit(True)
+            done = await engine.delete_relationships_async(
+                resource_type="document", conn=raw, allow_autocommit=True
+            )
+            assert done.resolved
+
+    run_async(exercise())
+    with pytest.raises(ValueError, match="requires Engine.postgres"):
+        refused = pemba.Engine.memory().delete_relationships_async(resource_type="document", conn=object())
+        refused.close()
+
+
+def test_sync_delete_rejects_async_connections(engine: pemba.Engine) -> None:
+    async def exercise() -> None:
+        async with connection("asyncpg") as conn:
+            with pytest.raises(TypeError, match="delete_relationships_async"):
+                engine.delete_relationships(resource_type="document", conn=conn)
+
+    run_async(exercise())

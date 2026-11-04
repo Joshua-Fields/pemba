@@ -6,8 +6,11 @@
 // Test-support code: a failed expectation must panic so the test fails.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use pemba_core::model::Revision;
-use pemba_core::store::{BatchRead, ReadStore, ReverseFilter, SubjectRelMatch, WritableStore};
+use pemba_core::Error;
+use pemba_core::model::{RelationshipFilter, Revision};
+use pemba_core::store::{
+    BatchRead, DeleteResult, ReadStore, ReverseFilter, SubjectRelMatch, WritableStore,
+};
 use proptest::prelude::*;
 
 use crate::generate::{self, StoreOp};
@@ -115,11 +118,33 @@ pub fn reads(s: &dyn WritableStore, rev: Revision) -> Vec<String> {
 ///
 /// If `stores` is empty, or a store cannot report its head revision, horizon or schema.
 pub fn equivalent(stores: &[&dyn WritableStore], ops: &[StoreOp]) -> Result<(), TestCaseError> {
+    equivalent_deleting(stores, ops, &|i, filter, limit| {
+        stores[i].delete_matching(filter, limit)
+    })
+}
+
+/// [`equivalent`], with `delete(i, filter, limit)` running each filter delete on store `i`,
+/// so one store can take the caller's-transaction path and must leave the same state.
+///
+/// # Errors
+///
+/// As [`equivalent`].
+///
+/// # Panics
+///
+/// As [`equivalent`].
+pub fn equivalent_deleting(
+    stores: &[&dyn WritableStore],
+    ops: &[StoreOp],
+    delete: &dyn Fn(usize, &RelationshipFilter, usize) -> Result<DeleteResult, Error>,
+) -> Result<(), TestCaseError> {
     assert!(!stores.is_empty(), "no stores to compare");
     for (step, op) in ops.iter().enumerate() {
         let results: Vec<String> = stores
             .iter()
-            .map(|s| match op {
+            .enumerate()
+            .map(|(i, s)| match op {
+                StoreOp::DeleteMatching(filter, limit) => outcome(delete(i, filter, *limit)),
                 StoreOp::Write(req) => outcome(s.write(req, None)),
                 StoreOp::Schema(n) => {
                     outcome(
