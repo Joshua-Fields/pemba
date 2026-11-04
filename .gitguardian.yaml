@@ -26,5 +26,7 @@ secret:
       match: dsn-password-value
     - name: Disposable CI server password (fake)
       match: pemba-test
+    - name: Disposable CI server URI (fake)
+      match: postgres://postgres:pemba-test@localhost:5434/postgres
     - name: Test fixture DSN URI (fake)
       match: postgres://u:hunter2secret@127.0.0.1/db?sslmode=sometimes

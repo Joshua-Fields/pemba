@@ -296,6 +296,13 @@ jobs:
       fail-fast: false
       matrix:
         pg: ["15", "18"]
+        # Third-party images, pinned by digest so a change on their side cannot break this
+        # job. Update them deliberately, to check a new image's certificate shape.
+        include:
+          - pg: "15"
+            ca_leaf_image: ghcr.io/railwayapp-templates/postgres-ssl:15@sha256:c0a2dcc92c80c635b39c92028470f3f2b525f11432567ae2fdd04f90fb5a8dd5
+          - pg: "18"
+            ca_leaf_image: ghcr.io/railwayapp-templates/postgres-ssl:18@sha256:4fc833b43d2aaf6ecc9b18615f5533602b723a32d0e2efe2dae8ca0f7217c863
     services:
       postgres:
         image: postgres:${{ matrix.pg }}
@@ -337,7 +344,7 @@ jobs:
         run: |
           docker run -d --name pg-tls-ca-leaf -e POSTGRES_PASSWORD=pemba-test \
             -e PGDATA=/var/lib/postgresql/data/pgdata -p 5434:5432 \
-            ghcr.io/railwayapp-templates/postgres-ssl:${{ matrix.pg }}
+            ${{ matrix.ca_leaf_image }}
           # The image restarts Postgres during setup, so wait until TLS is really on.
           for i in $(seq 1 60); do
             [ "$(docker exec pg-tls-ca-leaf psql -U postgres -tAc 'SHOW ssl' 2>/dev/null)" = on ] \
