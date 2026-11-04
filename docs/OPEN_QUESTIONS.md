@@ -1836,7 +1836,7 @@ it is resolved.
     The app can serialise on its own row.
   - **Async adapters are included,** as `delete_relationships_async`: the `write_async` bridge works
     for any statement sequence, so there was no reason to defer them.
-- Resolution: Open for maintainer review on the T10.4 PR; these choices are in force until then.
+- Resolution: Accepted by the maintainer, 2026-11-04. Ships in 0.4.0.
 
 ## OQ-070 — Trusting a managed Postgres server's certificate (M10, T10.5)
 - Raised in: T10.5

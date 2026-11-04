@@ -1,21 +1,22 @@
 # 0.4.0 release record
 
-**0.4.0 is a release candidate. It is not merged, tagged or published.** This document
-supplies no approval. Published 0.3.0 and its [record](RELEASE-0.3.0.md) remain unchanged.
+**0.4.0 is a release candidate. It is merged to `main` (#110, `dcb01f4`), but not tagged or
+published.** This document supplies no approval. Published 0.3.0 and its [record](RELEASE-0.3.0.md) remain unchanged.
 When 0.4.0 is published, add a publication record here, as 0.3.0 did, and keep the text below
 as evidence.
 
 ## Decisions for the maintainer
 
-None of these has been made by this record or by green CI.
+Ticked items are the maintainer's decisions of 2026-11-04. Neither this record nor green CI makes
+any of them.
 
-- [ ] **Delete-in-transaction is in this release.** The maintainer chose 0.4.0 without it, and it reached
-  `main` when #107 merged. This candidate is built from `main`, so it ships unless it is reverted
-  here. Needle does not need it. OQ-069 also still reads "open for maintainer review".
-- [ ] **What the next versions are called.** M8 had 0.5.0, and the Django helper had 0.4.0. Here,
-  neither has a version. `docs/08-milestones.md` and `ROADMAP.md` say so.
-- [ ] **The release date.** `CHANGELOG.md` has `## [0.4.0] - YYYY-MM-DD` for the maintainer to
-  fill before tagging. The release notes are extracted from that section.
+- [x] **Delete-in-transaction is in this release.** Accepted by the maintainer. It reached `main`
+  when #107 merged, and OQ-069 is accepted. Needle does not need it.
+- [x] **What the next versions are called.** 0.5.0 is the Django helper (`pemba.contrib.django`,
+  Tasks 3 and 4 of its plan). 0.6.0 is authorised queries (M8). `docs/08-milestones.md` says so.
+- [x] **The release date.** The day the maintainer tags. `CHANGELOG.md` keeps
+  `## [0.4.0] - YYYY-MM-DD` until the maintainer confirms the Railway test, and it must be filled
+  before tagging. The release notes are extracted from that section.
 - [ ] **Explicit approval of the exact candidate SHA** before merge, tag and publication.
 - [ ] **Text on `main` between merge and publication.** `README.md` and the guides name 0.4.0
   and point to the releases page for what is published, and `ROADMAP.md` lists 0.4.0 under
@@ -32,7 +33,7 @@ Still open, for the maintainer alone:
 
 - **In:** `pinned_certificate_pem` (T10.5, ADR-017, OQ-070), `Engine::close` (T10.3, OQ-068) and
   delete-in-transaction (T10.4, OQ-069).
-- **Out:** authorised queries (M8) and the Django helper.
+- **Out:** the Django helper (0.5.0) and authorised queries (M8, 0.6.0).
 - **Compatibility:** additive. `PostgresConfig` is `#[non_exhaustive]`, `WritableStore::close` is
   a provided method, and storage formats and migrations are unchanged from 0.3.0.
 - **Behaviour without the new options:** unchanged, including verification against the platform

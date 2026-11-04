@@ -942,8 +942,8 @@ Outlines only. Detailed tasks and acceptance criteria get written when each mile
 starts, against the spec as it stands then.
 
 ### M8 — Authorised queries
-- Intended headline of a later release; 0.4.0 does not include it (maintainer decision,
-  2026-11-04). The version is not set. Nothing is implemented.
+- Intended headline of 0.6.0 (maintainer decision, 2026-11-04; 0.5.0 is the Django helper, see
+  M10). Nothing is implemented.
 - Filter application queries by permission inside the database (SQL predicates or a
   join against `lookup_resources`) instead of filtering rows in application code.
 - Must agree with `lookup_resources` under the reference evaluator; SQLite first.
@@ -1007,6 +1007,9 @@ starts, against the spec as it stands then.
     without its key are all refused.
   - Unusable PEM fails at open, without quoting the PEM or the DSN. No path falls back to the
     platform store or plaintext, and none skips verification.
+- **Django helper (0.5.0).** `pemba.contrib.django`, Tasks 3 and 4 of its plan (maintainer
+  decision, 2026-11-04). Nothing is implemented. Delete-in-transaction ships in 0.4.0 (accepted
+  the same day), and the helper builds on it (OQ-069).
 - **Top post-release performance item: fewer round trips per check on deep hierarchies**
   (batched arrow reads per level, or a recursive query). On Postgres a check's cost is
   its round trips (OQ-056). With the statement cache and bulk writes, a direct check is
