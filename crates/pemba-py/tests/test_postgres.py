@@ -509,6 +509,17 @@ def with_param(url: str, param: str) -> str:
     return url + ("&" if "?" in url else "?") + param
 
 
+def test_ca_true_certificate_without_a_pin_raises_what_needle_logged() -> None:
+    url, pem = tls_server("PEMBA_PG_TLS_CA_LEAF_URL", "PEMBA_PG_TLS_CA_LEAF_CERT_FILE")
+    with pytest.raises(pemba.StorageError) as refused:
+        pemba.Engine.postgres(url)
+    assert str(refused.value) == (
+        "database error: error performing TLS handshake: invalid peer certificate: "
+        "Other(OtherError(CaUsedAsEndEntity))"
+    )
+    assert pem not in str(refused.value)
+
+
 @pytest.mark.parametrize(
     ("url_var", "cert_var", "at_ip"),
     [

@@ -188,7 +188,13 @@ fn an_expired_certificate_is_accepted_when_pinned() {
 
 #[test]
 fn without_a_pin_those_certificates_are_refused() {
-    for cert in [leaf("db.test"), ca_true_issued_by_private_root("db.test")] {
+    for (cert, reason) in [
+        (leaf("db.test"), "UnknownIssuer"),
+        (
+            ca_true_issued_by_private_root("db.test"),
+            "CaUsedAsEndEntity",
+        ),
+    ] {
         let (handshake, err) = open_against(
             &cert,
             &cert.key_der,
@@ -199,6 +205,7 @@ fn without_a_pin_those_certificates_are_refused() {
         assert!(!handshake, "{err}");
         assert!(err.contains("TLS handshake"), "{err}");
         assert!(err.contains("invalid peer certificate"), "{err}");
+        assert!(err.contains(reason), "{reason}: {err}");
     }
 }
 
@@ -538,6 +545,32 @@ fn a_ca_true_certificate_connects_and_works_over_scram() {
     engine.write_schema(SCHEMA).unwrap();
     engine.write(viewer("anne")).unwrap();
     assert!(can_view(&engine, "anne"));
+}
+
+/// The error Railway's image gives without a pin, which is the one Needle logged in
+/// production, whatever name the client connects to.
+#[test]
+fn a_ca_true_certificate_without_a_pin_fails_with_ca_used_as_end_entity() {
+    let Some(s) = ca_leaf() else { return };
+    for url in [s.url.clone(), at_ip(&s.url)] {
+        for mode in ["prefer", "require"] {
+            let err = PostgresStore::open(
+                &with_param(&url, "sslmode", mode),
+                PostgresConfig::default(),
+            )
+            .err()
+            .unwrap();
+            let Error::Store(StoreError::Backend { message }) = err else {
+                panic!("{err:?}");
+            };
+            assert_eq!(
+                message,
+                "error performing TLS handshake: invalid peer certificate: \
+                 Other(OtherError(CaUsedAsEndEntity))",
+                "{mode}"
+            );
+        }
+    }
 }
 
 #[test]
