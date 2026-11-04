@@ -112,6 +112,43 @@ the image can change, so check your own certificate with the commands above.
 
 - Its certificate has `CA:TRUE`, is issued by a private root, and names `localhost` and the private
   domain. The platform trust store refuses it on any host, including the private domain.
-- It lasts 820 days by default. At container start, the image generates a new one if fewer than 30
-  days remain, or if the certificate is missing. A routine restart near expiry can therefore
-  replace it without notice, and the pin stops working until you update it.
+- Without a pin, the connection fails with `invalid peer certificate:
+  Other(OtherError(CaUsedAsEndEntity))`.
+- It lasts 820 days by default, and is stored on the service's volume, in
+  `/var/lib/postgresql/data/certs`.
+
+The image only considers replacing the certificate when the container starts, so a replacement
+fails every new connection at once: the restart has already dropped the old ones.
+
+| When the container starts | Certificate | Evidence |
+|---|---|---|
+| Restart or redeploy, same volume | Kept | Run locally |
+| Fewer than 30 days left | **Replaced** | Run locally |
+| The volume is new or empty, as in a new environment or service | **A different one** | Run locally |
+| The certificate file is missing | **Replaced** | Run locally |
+| Restored from a pgBackRest backup, which does not include certificates | **Replaced** | Image source only |
+| Major version upgrade | Kept | Image source only |
+
+So the routine case is the 820-day expiry: the first restart or redeploy after about day 790 breaks
+the pin, even if nobody meant to change anything. If the service does not restart, the old
+certificate stays in place past its expiry, and pinned connections keep working.
+
+Each environment has its own certificate, so give each one its own pin.
+
+To replace it on your own schedule:
+
+1. Note the expiry from the [commands above](#get-the-certificate), and set a reminder for 30 days
+   before it. The image does not renew any earlier.
+2. Inside those 30 days, in a quiet period, restart the database service. New connections fail
+   from here until step 4 is done.
+3. Read the new certificate from a shell on the database service:
+
+   ```sh
+   openssl x509 -in /var/lib/postgresql/data/certs/server.crt
+   ```
+
+4. Put the output in the application's variable, such as `PG_SERVER_CERT`, and redeploy the
+   application.
+
+After an unplanned replacement, follow steps 3 and 4, but first work out why it changed. If none of
+the causes in the table applies, treat it as a possible attack.
