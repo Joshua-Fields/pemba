@@ -49,6 +49,11 @@ In 0.3.0:
 
 This is the intended order, with no promised dates.
 
+**Django helper**
+
+`pemba.contrib.django`, a helper for Django applications. It builds on writes and deletes inside
+your own transaction.
+
 **Authorised queries**
 
 Filter your application's queries by permission inside the database, instead of filtering
