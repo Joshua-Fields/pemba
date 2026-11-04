@@ -11,8 +11,8 @@ Internal release and process state. The visitor-facing page is
   `06` §2.4). Tag, GitHub Release, registry versions and post-publication checks are recorded in
   [`RELEASE-0.3.0.md`](RELEASE-0.3.0.md#publication-record), with the human-only items still open.
   Announcement remains a human step.
-- **0.4.0 is a candidate, not merged, tagged or published:** the certificate pin (T10.5) and
-  `Engine::close` (T10.3), without delete-in-transaction (maintainer decision, 2026-11-04).
+- **0.4.0 is a candidate, not merged, tagged or published:** the certificate pin (T10.5),
+  `Engine::close` (T10.3) and delete-in-transaction (T10.4), which is on `main`.
   Open decisions are in [`RELEASE-0.4.0.md`](RELEASE-0.4.0.md).
 - **OQ-066 is accepted** (2026-11-02): no consistent regression across three benchmark runs. Watch
   `wide_groups_10k_below_head` in future runs.

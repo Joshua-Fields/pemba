@@ -13,8 +13,8 @@ versions are on the [releases page](https://github.com/Joshua-Fields/pemba/relea
 
 ## [0.4.0] - YYYY-MM-DD
 
-Connect to a managed Postgres server the platform trust store cannot verify, and close an
-engine at a known moment. No migration is needed from 0.3.0: public APIs keep working and storage
+Connect to a managed Postgres server the platform trust store cannot verify, close an engine at
+a known moment, and delete relationships inside your own transaction. No migration is needed from 0.3.0: public APIs keep working and storage
 formats are unchanged. A custom store keeps compiling, because `WritableStore::close` is provided.
 
 ### Added
@@ -31,9 +31,8 @@ formats are unchanged. A custom store keeps compiling, because `WritableStore::c
   issuer, name, CA flag and expiry are not checked (ADR-017). TLS becomes mandatory: `sslmode=prefer`
   acts as `require`, and `sslmode=disable` is an error at open. **A pinned certificate stops
   connections when the provider replaces it**, until you update the pin
-  (`docs/guides/postgres-certificates.md`). Without the option nothing changes. Not yet tested
-  against a real Railway database, only against Railway's public image run locally.
-
+  (`docs/guides/postgres-certificates.md`). Without the option nothing changes. A pinned connection is
+  not yet tested against a real Railway database, only against Railway's public image.
 - `Engine::delete_in` in Rust, and `delete_relationships(..., conn=)` and
   `delete_relationships_async` in Python: a delete by filter inside the caller's transaction, so
   an application row and its relationships go in one commit, on SQLite and Postgres. Python
