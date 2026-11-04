@@ -12,6 +12,7 @@ together. If you have one application and one database, that is the reason to pi
 
 | Release | What it added |
 |---|---|
+| 0.4.0 | Pin a Postgres server's certificate, and `Engine.close` |
 | 0.3.0 | Fewer Postgres round trips on deep hierarchies, and a FastAPI helper |
 | 0.2.0 | Async Python: `write_async` for psycopg, asyncpg and SQLAlchemy async transactions, and `pemba.aio` read helpers |
 | 0.1.0 | First stable API: audited Rust constructors, `check_str`, user guides and the documentation site |
@@ -23,6 +24,14 @@ together. If you have one application and one database, that is the reason to pi
 Migration notes are in the [changelog](CHANGELOG.md). A version is available once it is on
 the [releases page](https://github.com/Joshua-Fields/pemba/releases), with its packages and
 release notes.
+
+In 0.4.0:
+
+- **Pin a Postgres server's certificate.** For managed servers the platform trust store cannot
+  verify, without turning TLS off. A pinned certificate stops new connections when the provider
+  replaces it, until you update the pin ([guide](docs/guides/postgres-certificates.md)).
+- **`Engine.close`.** Close every pooled connection at a known moment, so a database can be
+  dropped straight after it.
 
 In 0.3.0:
 
@@ -38,7 +47,7 @@ In 0.3.0:
 
 This is the intended order, with no promised dates.
 
-**0.4.0: authorised queries**
+**Authorised queries**
 
 Filter your application's queries by permission inside the database, instead of filtering
 rows in application code. SQLite comes first. Results must agree with `lookup_resources`,

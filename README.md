@@ -13,7 +13,7 @@ job. When an answer surprises you, **explain traces** show which relationship gr
 denied it. **[Try it in the browser](https://joshua-fields.github.io/pemba/)**: the
 playground runs the real engine locally, and nothing you type leaves your machine.
 
-`pip install pemba` (Python 3.11 or newer) or `cargo add pemba`. This is version 0.3.0; see
+`pip install pemba` (Python 3.11 or newer) or `cargo add pemba`. This is version 0.4.0; see
 the [releases](https://github.com/Joshua-Fields/pemba/releases) for what is published and the
 [roadmap](https://github.com/Joshua-Fields/pemba/blob/main/ROADMAP.md) for what's next.
 
@@ -90,7 +90,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-This is a complete `src/main.rs` for `pemba = "0.3.0"`, and the same example is a doctest on
+This is a complete `src/main.rs` for `pemba = "0.4.0"`, and the same example is a doctest on
 the `pemba` crate. For persistence, use `SqliteStore::open("app.db", SqliteConfig::default())`
 in place of `MemoryStore::new()`.
 
@@ -119,10 +119,10 @@ and answers differ for cyclic data and for wildcards against subject sets.
 ## Install
 
 ```bash
-python -m pip install pemba==0.3.0                  # Python 3.11 or newer; includes Postgres
-cargo add pemba@0.3.0                              # Rust library
-cargo add pemba-store-postgres@0.3.0                 # Rust: the Postgres store
-cargo install pemba-cli@0.3.0 --locked              # `pemba` command-line tool
+python -m pip install pemba==0.4.0                  # Python 3.11 or newer; includes Postgres
+cargo add pemba@0.4.0                              # Rust library
+cargo add pemba-store-postgres@0.4.0                 # Rust: the Postgres store
+cargo install pemba-cli@0.4.0 --locked              # `pemba` command-line tool
 ```
 
 Published versions are on the

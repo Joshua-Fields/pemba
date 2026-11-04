@@ -6,10 +6,16 @@ All notable changes to pemba are recorded here. The format is based on
 0.1.0 is frozen as specified in `docs/06-api.md`; documented non-exhaustive extension
 points remain. Earlier alpha releases could break the API.
 
-The Rust crates and the Python package share one version, `0.3.0` in this tree. Published
+The Rust crates and the Python package share one version, `0.4.0` in this tree. Published
 versions are on the [releases page](https://github.com/Joshua-Fields/pemba/releases).
 
 ## [Unreleased]
+
+## [0.4.0] - YYYY-MM-DD
+
+Connect to a managed Postgres server the platform trust store cannot verify, and close an
+engine at a known moment. No migration is needed from 0.3.0: public APIs keep working and storage
+formats are unchanged. A custom store keeps compiling, because `WritableStore::close` is provided.
 
 ### Added
 
@@ -349,7 +355,8 @@ First public pre-release.
 - The `pemba` CLI (`pemba-cli`): `schema validate`, `schema fmt` (experimental; keeps
   comments) and `test`, which runs YAML fixture files.
 
-[Unreleased]: https://github.com/Joshua-Fields/pemba/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/Joshua-Fields/pemba/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/Joshua-Fields/pemba/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/Joshua-Fields/pemba/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/Joshua-Fields/pemba/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/Joshua-Fields/pemba/compare/v0.1.0-alpha.4...v0.1.0

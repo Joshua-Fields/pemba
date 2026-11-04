@@ -11,12 +11,15 @@ Internal release and process state. The visitor-facing page is
   `06` §2.4). Tag, GitHub Release, registry versions and post-publication checks are recorded in
   [`RELEASE-0.3.0.md`](RELEASE-0.3.0.md#publication-record), with the human-only items still open.
   Announcement remains a human step.
+- **0.4.0 is a candidate, not merged, tagged or published:** the certificate pin (T10.5) and
+  `Engine::close` (T10.3), without delete-in-transaction (maintainer decision, 2026-11-04).
+  Open decisions are in [`RELEASE-0.4.0.md`](RELEASE-0.4.0.md).
 - **OQ-066 is accepted** (2026-11-02): no consistent regression across three benchmark runs. Watch
   `wide_groups_10k_below_head` in future runs.
 - **M7 remains open.** T7.17 (announcement, private reporting, labels, triage ownership) is
   human work. Neither a merge nor a publication establishes it.
-- **M8 authorised queries** is the intended 0.4.0 headline. Nothing is implemented, and its
-  task breakdown is drafted only on request.
+- **M8 authorised queries** is the intended headline of a later release, with no version set.
+  Nothing is implemented, and its task breakdown is drafted only on request.
 - **M9 SpiceDB import/export is deprioritised:** SpiceDB service users are unlikely to
   migrate to an embedded library.
 

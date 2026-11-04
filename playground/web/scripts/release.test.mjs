@@ -91,6 +91,13 @@ describe('changelogSection', () => {
     expect(changelogSection(text, '0.1.0-alpha.4')).toMatch(/\S/);
   });
 
+  it('extracts the 0.4.0 release notes without including the 0.3.0 notes', () => {
+    const text = readFileSync(new URL('../../../CHANGELOG.md', import.meta.url), 'utf8');
+    const notes = changelogSection(text, '0.4.0');
+    expect(notes).toContain('pinned_certificate_pem');
+    expect(notes).not.toContain('Fewer Postgres round trips');
+    expect(isPrerelease('0.4.0')).toBe(false);
+  });
   it('extracts the 0.3.0 release notes without including the 0.2.0 notes', () => {
     const text = fs.readFileSync(new URL('../../../CHANGELOG.md', import.meta.url), 'utf8');
     const notes = changelogSection(text, '0.3.0');

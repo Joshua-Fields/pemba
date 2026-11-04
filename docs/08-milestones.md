@@ -942,8 +942,8 @@ Outlines only. Detailed tasks and acceptance criteria get written when each mile
 starts, against the spec as it stands then.
 
 ### M8 — Authorised queries
-- Intended headline of 0.5.0 (maintainer decision, 2026-11-03; 0.4.0 is the Django release).
-  Nothing is implemented.
+- Intended headline of a later release; 0.4.0 does not include it (maintainer decision,
+  2026-11-04). The version is not set. Nothing is implemented.
 - Filter application queries by permission inside the database (SQL predicates or a
   join against `lookup_resources`) instead of filtering rows in application code.
 - Must agree with `lookup_resources` under the reference evaluator; SQLite first.
@@ -993,7 +993,11 @@ starts, against the spec as it stands then.
     insert survives, as specified; checks during the transaction see the old state.
   - GC during an open delete loses nothing, whether it commits or rolls back.
   - `revision_order.rs` still passes unchanged.
-- **T10.5 Pin a Postgres server's certificate.** Spec: `06` §1, `10` §2.1; decisions: ADR-017,
+- **0.4.0 release preparation.** The maintainer chose 0.4.0 from `main` on 2026-11-04, for the
+  certificate pin. It also carries `Engine::close` and delete-in-transaction, which were already
+  on `main`. [Release preparation](RELEASE-0.4.0.md) follows `09` §4.1; it authorises no merge,
+  tag or publication.
+- **T10.5 Pin a Postgres server's certificate (0.4.0).** Spec: `06` §1, `10` §2.1; decisions: ADR-017,
   OQ-070. No on-disk format change. Acceptance criteria:
   - Rust `PostgresConfig::pinned_certificate_pem` and Python `Engine.postgres(pinned_certificate_pem=)`
     take PEM text. Without them, verification is unchanged.

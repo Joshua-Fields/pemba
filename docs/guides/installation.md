@@ -1,6 +1,6 @@
 # Installation and quick starts
 
-These guides describe 0.3.0, including the [FastAPI helper](fastapi.md). Check the
+These guides describe 0.4.0, including the [FastAPI helper](fastapi.md). Check the
 [releases page](https://github.com/Joshua-Fields/pemba/releases) for what is on PyPI and
 crates.io; checkout recipes are available below. Earlier versions keep their documentation
 at their own tags.
@@ -33,10 +33,10 @@ application drivers have their own installation requirements.
 python -m venv .venv
 # POSIX: . .venv/bin/activate
 # PowerShell: .venv\Scripts\Activate.ps1
-python -m pip install pemba==0.3.0
-cargo add pemba@0.3.0
-cargo add pemba-store-postgres@0.3.0
-cargo install pemba-cli@0.3.0 --locked
+python -m pip install pemba==0.4.0
+cargo add pemba@0.4.0
+cargo add pemba-store-postgres@0.4.0
+cargo install pemba-cli@0.4.0 --locked
 pemba --help
 ```
 
@@ -120,4 +120,5 @@ assert engine.check("document:readme#view@user:anne", at_least=rev)
 
 Next: [schema](schema.md), [consistency](consistency.md),
 [transactions and Postgres](transactions.md), [troubleshooting and limits](troubleshooting.md).
-The [FastAPI helper](fastapi.md) needs 0.3.0 or newer.
+The [FastAPI helper](fastapi.md) needs 0.3.0 or newer, and
+[`pinned_certificate_pem`](postgres-certificates.md) and `Engine.close` need 0.4.0 or newer.
