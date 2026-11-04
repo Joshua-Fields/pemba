@@ -52,8 +52,8 @@ Still open, for the maintainer alone:
 
 ## Verification record
 
-Run locally on Windows on 2026-11-04, on candidate `14087ca` plus a one-line fix to a new
-release-notes test, against disposable Postgres 18 containers: plain, snakeoil and Railway's image
+Run locally on Windows on 2026-11-04, on an earlier commit of this candidate (`14087ca`, before
+the test fixes described here and a one-line fix to a new release-notes test), against disposable Postgres 18 containers: plain, snakeoil and Railway's image
 by digest.
 
 | Check | Result |
@@ -72,13 +72,14 @@ by digest.
 | Playground `wasm`, `test`, `build`, `size`, `e2e` | Pass; 585.4 KB of a 700 KB budget; 72 e2e passed |
 | `release.mjs notes 0.4.0` and `prerelease 0.4.0` | Extracts the section; `false` |
 
-### Known blocker
+### Python 3.14 smoke test
 
-`wheels.yml` fails on Python 3.14, on all four platforms that ran it on #109:
-`test_cancelling_aio_close_still_closes[memory]` races. On 3.14 the close finished before the
+`wheels.yml` failed on Python 3.14, on all four platforms that ran it on #109:
+`test_cancelling_aio_close_still_closes[memory]` raced. On 3.14 the close finished before the
 cancel in 232 of 300 runs, against 0 of 300 on 3.11, and the engine closed in all 600. The test
-is wrong, not `close`, and it is already on `main`. PyPI publishing waits for every smoke job, so
-it must be fixed before tagging.
+was wrong, not `close`. #109 fixes the test, which passed 50 of 50 repeats on 3.14 and 3.11 with
+CI's wheel from before the fix. PyPI publishing waits for every smoke job, so check `wheels.yml`
+is green on this candidate before tagging.
 
 ### Only remote CI can prove
 
