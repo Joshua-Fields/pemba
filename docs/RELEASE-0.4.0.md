@@ -52,4 +52,40 @@ Still open, for the maintainer alone:
 
 ## Verification record
 
-VERIFICATION_PLACEHOLDER
+Run locally on Windows on 2026-11-04, on candidate `14087ca` plus a one-line fix to a new
+release-notes test, against disposable Postgres 18 containers: plain, snakeoil and Railway's image
+by digest.
+
+| Check | Result |
+|---|---|
+| `cargo fmt`, clippy, `cargo doc`, `cargo deny`, fuzz fmt and check | Pass |
+| `cargo test --workspace --all-features` with services | Pass |
+| `pemba-store-postgres` without TLS; `revision_order -- --ignored` | Pass |
+| pytest with CI drivers and services | 552 passed, 8 skipped |
+| pytest in a tool-only venv, no services | 197 passed, 4 skipped |
+| `mypy --strict tests`, both venvs | Pass |
+| `examples/django`, Postgres and SQLite | Pass |
+| Docs site tests and build | Pass |
+| `cargo publish --workspace --dry-run --locked` | Pass, nothing uploaded |
+| `playground/conformance/run.sh` | Native and WASM transcripts identical (45,323 lines) |
+| Playground `npm audit --omit=dev` | 0 vulnerabilities |
+| Playground `wasm`, `test`, `build`, `size`, `e2e` | Pass; 585.4 KB of a 700 KB budget; 72 e2e passed |
+| `release.mjs notes 0.4.0` and `prerelease 0.4.0` | Extracts the section; `false` |
+
+### Known blocker
+
+`wheels.yml` fails on Python 3.14, on all four platforms that ran it on #109:
+`test_cancelling_aio_close_still_closes[memory]` races. On 3.14 the close finished before the
+cancel in 232 of 300 runs, against 0 of 300 on 3.11, and the engine closed in all 600. The test
+is wrong, not `close`, and it is already on `main`. PyPI publishing waits for every smoke job, so
+it must be fixed before tagging.
+
+### Only remote CI can prove
+
+- `wheels.yml` on this candidate's own `Cargo.lock`, on every platform.
+- The Postgres job on 15 and 18, including Railway's image by digest.
+
+### Not run
+
+- A real Railway database.
+- The wider `--ignored` suite beyond `revision_order`.

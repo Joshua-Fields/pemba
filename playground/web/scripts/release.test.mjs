@@ -92,7 +92,7 @@ describe('changelogSection', () => {
   });
 
   it('extracts the 0.4.0 release notes without including the 0.3.0 notes', () => {
-    const text = readFileSync(new URL('../../../CHANGELOG.md', import.meta.url), 'utf8');
+    const text = fs.readFileSync(new URL('../../../CHANGELOG.md', import.meta.url), 'utf8');
     const notes = changelogSection(text, '0.4.0');
     expect(notes).toContain('pinned_certificate_pem');
     expect(notes).not.toContain('Fewer Postgres round trips');
