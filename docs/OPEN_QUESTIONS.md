@@ -1794,7 +1794,7 @@ it is resolved.
   - **A memory store discards its data on close,** since nothing can read it afterwards.
   - **Not fork-aware.** An engine inherited across `fork` is already unsupported, and dropping
     one in a child has the same effect as closing it. `pemba.contrib.django` has to take
-    care of this in its own cache (0.4.0 Task 3). Maintainer requirement for that spec: key
+    care of this in its own cache (Task 3 of that helper's plan, then aimed at 0.4.0). Maintainer requirement for that spec: key
     cached engines by PID; in a child, never close or drop an engine inherited from the parent
     (keep a reference so `Drop` never runs) and open a fresh one; test by forking or simulating
     gunicorn `--preload`, using the engine in the child, then asserting the parent's engine
@@ -1817,7 +1817,7 @@ it is resolved.
     `PendingDelete { deleted, more, pending }`, as `PendingRevision` is a concrete type there.
   - **`limit` and `more` are unchanged, and nothing loops for the caller.** An automatic loop would
     make one call unbounded inside a transaction the caller is holding open. `contrib.django` will
-    loop in its helper (0.4.0 Task 3).
+    loop in its helper (Task 3 of that plan).
   - **No schema lock or version check,** as for the native delete (OQ-030 (g)). A foreign delete
     therefore does not get the OQ-049 conflict in an old snapshot, and it needs no `FOR SHARE`.
   - **A revision is allocated even when nothing matches** (OQ-030 (g)), so the behaviour matches the

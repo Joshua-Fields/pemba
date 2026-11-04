@@ -15,7 +15,7 @@
 //! This crate re-exports `pemba-core` and the stores enabled by its features:
 //! `sqlite` (`SqliteStore`, default) and `memory` (`MemoryStore`, default).
 //!
-//! With `pemba = { version = "0.3.0", default-features = false, features = ["memory"] }`:
+//! With `pemba = { version = "0.4.0", default-features = false, features = ["memory"] }`:
 //!
 //! ```
 //! # #[cfg(feature = "memory")]

@@ -6,10 +6,16 @@ All notable changes to pemba are recorded here. The format is based on
 0.1.0 is frozen as specified in `docs/06-api.md`; documented non-exhaustive extension
 points remain. Earlier alpha releases could break the API.
 
-The Rust crates and the Python package share one version, `0.3.0` in this tree. Published
+The Rust crates and the Python package share one version, `0.4.0` in this tree. Published
 versions are on the [releases page](https://github.com/Joshua-Fields/pemba/releases).
 
 ## [Unreleased]
+
+## [0.4.0] - YYYY-MM-DD
+
+Connect to a managed Postgres server the platform trust store cannot verify, close an engine at
+a known moment, and delete relationships inside your own transaction. No migration is needed from 0.3.0: public APIs keep working and storage
+formats are unchanged. A custom store keeps compiling, because `WritableStore::close` is provided.
 
 ### Added
 
@@ -25,9 +31,8 @@ versions are on the [releases page](https://github.com/Joshua-Fields/pemba/relea
   issuer, name, CA flag and expiry are not checked (ADR-017). TLS becomes mandatory: `sslmode=prefer`
   acts as `require`, and `sslmode=disable` is an error at open. **A pinned certificate stops
   connections when the provider replaces it**, until you update the pin
-  (`docs/guides/postgres-certificates.md`). Without the option nothing changes. Not yet tested
-  against a real Railway database, only against Railway's public image run locally.
-
+  (`docs/guides/postgres-certificates.md`). Without the option nothing changes. A pinned connection is
+  not yet tested against a real Railway database, only against Railway's public image.
 - `Engine::delete_in` in Rust, and `delete_relationships(..., conn=)` and
   `delete_relationships_async` in Python: a delete by filter inside the caller's transaction, so
   an application row and its relationships go in one commit, on SQLite and Postgres. Python
@@ -349,7 +354,8 @@ First public pre-release.
 - The `pemba` CLI (`pemba-cli`): `schema validate`, `schema fmt` (experimental; keeps
   comments) and `test`, which runs YAML fixture files.
 
-[Unreleased]: https://github.com/Joshua-Fields/pemba/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/Joshua-Fields/pemba/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/Joshua-Fields/pemba/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/Joshua-Fields/pemba/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/Joshua-Fields/pemba/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/Joshua-Fields/pemba/compare/v0.1.0-alpha.4...v0.1.0
