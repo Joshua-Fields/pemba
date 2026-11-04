@@ -1863,6 +1863,8 @@ it is resolved.
 - A test showed `prefer` sending the user and database names in clear after a server answered
   `N`, which is why a pin requires TLS. Without a pin `prefer` still behaves that way, as
   documented.
-- Not verified: the error and certificate on a real Railway service. The image's scripts can change, and
-  a service can run another image. Confirm with the command in
+- Confirmed in production, 2026-11-04: Needle's Railway service logged `invalid peer certificate:
+  Other(OtherError(CaUsedAsEndEntity))` without a pin, the same error as the image run locally.
+- Not verified: a pinned connection to a real Railway service. The image's scripts can change, and
+  a service can run another image. Check the certificate with the command in
   `docs/guides/postgres-certificates.md`.
